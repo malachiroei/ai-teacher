@@ -1,5 +1,6 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { NextResponse } from "next/server";
+import { getCharacter } from "@/lib/characters";
 import { detectUserLanguage, looksLikeAwkwardEnglish, looksLikeGibberishEnglish } from "@/lib/language";
 import { buildLearnerContext } from "@/lib/learner";
 import { polishHebrewTranslation } from "@/lib/hebrew";
@@ -14,11 +15,14 @@ interface ChatRequestBody {
   userMessage?: string;
   action?: ChatAction;
   profile?: ProfileInput | null;
+  characterId?: string | null;
 }
 
-const SYSTEM_PROMPT = `You are Emma, a warm English conversation tutor for Hebrew-speaking learners.
+const BASE_TUTOR_RULES = `You are an English conversation tutor for Hebrew-speaking learners aged 11-15.
+Stay fully in the assigned CHARACTER PERSONA for tone, vocabulary, emojis, and interests.
 Keep replies short (1-3 sentences) and always continue with a follow-up question in English.
 Detect the language of the learner's LATEST message automatically.
+Content must stay kind and age-appropriate.
 
 If a LEARNER PROFILE is provided:
 - Address the learner by name naturally.
@@ -637,12 +641,13 @@ async function callGemini(
   userMessage: string,
   action: ChatAction,
   profile?: ProfileInput | null,
+  characterId?: string | null,
 ): Promise<ChatApiResponse> {
   trustSystemCertificates();
 
   const apiKey = process.env.GEMINI_API_KEY?.trim();
   if (!apiKey) {
-    console.warn("GEMINI_API_KEY is missing. Emma will use mock replies until you add it to .env.local.");
+    console.warn("GEMINI_API_KEY is missing. The tutor will use mock replies until you add it to .env.local.");
     throw new Error("Missing GEMINI_API_KEY");
   }
 
@@ -655,12 +660,15 @@ async function callGemini(
         : "DETECTED LANGUAGE: English. Follow the English-input rules (strict grammar, Hebrew explanations if error). Reply about THIS message's topic.";
 
   const learnerContext = buildLearnerContext(profile);
+  const character = getCharacter(characterId ?? profile?.selected_character);
   const system = [
-    SYSTEM_PROMPT,
+    character.systemPrompt,
+    BASE_TUTOR_RULES,
     learnerContext,
     languageHint,
     'The "translation" field must be natural spoken Hebrew, fully gendered for this learner, with topic nouns in Hebrew. No slash forms like אוהב/ת.',
     "Stay on the learner's latest topic. If they mention the beach, talk about the beach.",
+    `Never break character. You are ${character.name} (${character.title}).`,
   ]
     .filter(Boolean)
     .join("\n\n");
@@ -747,6 +755,7 @@ export async function POST(request: Request) {
     const userMessage = (body.userMessage ?? "").trim();
     const history = Array.isArray(body.messages) ? body.messages : [];
     const profile = body.profile ?? null;
+    const characterId = body.characterId ?? profile?.selected_character ?? null;
 
     if (action === "chat" && !userMessage) {
       return NextResponse.json({ error: "userMessage is required" }, { status: 400 });
@@ -757,7 +766,7 @@ export async function POST(request: Request) {
       console.warn("GEMINI_API_KEY is missing from the environment. Using mock replies.");
     } else {
       try {
-        const payload = await callGemini(history, userMessage, action, profile);
+        const payload = await callGemini(history, userMessage, action, profile, characterId);
         return NextResponse.json(payload);
       } catch (error) {
         logGeminiError("Gemini fallback", error);

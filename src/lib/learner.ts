@@ -1,6 +1,7 @@
 import type { Profile, ProfileInput } from "@/lib/supabase/types";
 import type { Message } from "@/types/chat";
-import { hebrewTranslationGuide, translateInterest } from "@/lib/hebrew";
+import { buildCharacterGreeting, getCharacter } from "@/lib/characters";
+import { hebrewTranslationGuide } from "@/lib/hebrew";
 
 export const INTEREST_OPTIONS = ["Movies", "Cars", "Travel", "Sports", "Tech", "Music", "Food", "Games"] as const;
 
@@ -27,47 +28,20 @@ export function profilePayload(profile: Profile | ProfileInput | null | undefine
     english_level: profile.english_level,
     englishLevel: profile.english_level,
     interests,
+    selected_character: "selected_character" in profile ? profile.selected_character : undefined,
   };
 }
 
 export function buildWelcomeMessage(profile?: Profile | null): Message {
-  if (!profile) {
-    return {
-      id: createId(),
-      sender: "ai",
-      text: "Hi! I'm Emma, your English conversation partner. How are you doing today? Type a reply or tap the mic and speak.",
-      timestamp: Date.now(),
-      translation:
-        "היי! אני אמה, שותפת השיחה שלך באנגלית. מה שלומך היום? אפשר להקליד תשובה או ללחוץ על המיקרופון ולדבר.",
-    };
-  }
-
-  const name = profile.nickname.trim();
-  const topic = profile.interests[0];
-  const topicEn = topic ? topic.toLowerCase() : "";
-  const topicHe = translateInterest(topic);
-
-  const englishTopicBit = topic
-    ? ` I saw that you like ${topicEn}. We can talk about that anytime.`
-    : "";
-
-  let translation: string;
-  if (!topicHe) {
-    translation = `היי ${name}! אני אמה, שותפת השיחה שלך באנגלית. מה שלומך היום?`;
-  } else if (profile.gender === "girl") {
-    translation = `היי ${name}! אני אמה, שותפת השיחה שלך באנגלית. ראיתי שאת אוהבת ${topicHe} – נוכל לדבר על זה בכל זמן. מה שלומך היום?`;
-  } else if (profile.gender === "other") {
-    translation = `היי ${name}! אני אמה, שותפת השיחה שלך באנגלית. ראיתי שיש לך עניין ב${topicHe} – נוכל לדבר על זה בכל זמן. מה שלומך היום?`;
-  } else {
-    translation = `היי ${name}! אני אמה, שותפת השיחה שלך באנגלית. ראיתי שאתה אוהב ${topicHe} – נוכל לדבר על זה בכל זמן. מה שלומך היום?`;
-  }
+  const character = getCharacter(profile?.selected_character);
+  const greeting = buildCharacterGreeting(character, profile);
 
   return {
     id: createId(),
     sender: "ai",
-    text: `Hi ${name}! I'm Emma, your English conversation partner.${englishTopicBit} How are you doing today?`,
+    text: greeting.text,
     timestamp: Date.now(),
-    translation,
+    translation: greeting.translation,
   };
 }
 

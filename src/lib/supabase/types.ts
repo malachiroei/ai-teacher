@@ -1,3 +1,4 @@
+import type { CharacterId } from "@/lib/characters";
 import type { GrammarFeedback } from "@/types/chat";
 
 export type Gender = "boy" | "girl" | "other";
@@ -11,6 +12,7 @@ export interface Profile {
   gender: Gender;
   english_level: EnglishLevel;
   interests: string[];
+  selected_character?: CharacterId | string | null;
   created_at?: string;
   updated_at?: string;
 }
@@ -23,6 +25,7 @@ export interface ProfileInput {
   english_level?: EnglishLevel | string;
   englishLevel?: EnglishLevel | string;
   interests?: string[] | string | null;
+  selected_character?: CharacterId | string | null;
 }
 
 export interface ChatMessageRow {
@@ -47,6 +50,7 @@ export interface Database {
           gender: Gender;
           english_level: EnglishLevel;
           interests?: string[];
+          selected_character?: string | null;
           created_at?: string;
           updated_at?: string;
         };

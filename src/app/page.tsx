@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { User } from "@supabase/supabase-js";
 import { AIBubble } from "@/components/AIBubble";
 import { AuthModal } from "@/components/AuthModal";
+import { CharacterSelectorModal } from "@/components/CharacterSelectorModal";
 import { ChatHeader } from "@/components/ChatHeader";
 import { InputBar } from "@/components/InputBar";
 import { LoadingScreen } from "@/components/LoadingScreen";
@@ -21,7 +22,9 @@ import {
   isProfileComplete,
   loadChatHistory,
   saveProfile,
+  saveSelectedCharacter,
 } from "@/lib/chat-history";
+import { getCharacter, type CharacterId } from "@/lib/characters";
 import { preferredSpeechLangFromText } from "@/lib/language";
 import { buildWelcomeMessage, profilePayload } from "@/lib/learner";
 import { createClient } from "@/lib/supabase/client";
@@ -57,6 +60,7 @@ export default function HomePage() {
   const [openTranslations, setOpenTranslations] = useState<Record<string, boolean>>({});
   const [suggestions, setSuggestions] = useState<string[]>(INITIAL_SUGGESTIONS);
   const [showSuggestions, setShowSuggestions] = useState(false);
+  const [characterPickerOpen, setCharacterPickerOpen] = useState(false);
   const [notice, setNotice] = useState("");
 
   const scrollerRef = useRef<HTMLDivElement>(null);
@@ -74,6 +78,12 @@ export default function HomePage() {
 
   const needsOnboarding = Boolean(user && authReady && !isProfileComplete(profile));
   const chatUnlocked = Boolean(user && isProfileComplete(profile));
+  const character = getCharacter(profile?.selected_character);
+
+  function openCharacterPicker() {
+    setMenuOpen(false);
+    setCharacterPickerOpen(true);
+  }
 
   const flash = useCallback((text: string) => {
     setNotice(text);
@@ -191,6 +201,7 @@ export default function HomePage() {
         action: payload.action ?? "chat",
         messages: payload.history.map(({ sender, text }) => ({ sender, text })),
         profile: profilePayload(profile),
+        characterId: character.id,
       }),
     });
 
@@ -253,7 +264,7 @@ export default function HomePage() {
         ]);
       if (!saved) flash("Reply sent, but saving the chat failed.");
     } catch {
-      flash("Couldn't reach Emma. Please try again.");
+      flash(`Couldn't reach ${character.name}. Please try again.`);
     } finally {
       setIsLoading(false);
     }
@@ -328,8 +339,44 @@ export default function HomePage() {
     }
   }
 
+  async function handleSelectCharacter(characterId: CharacterId) {
+    if (!user || !profile || isLoading) return;
+    setCharacterPickerOpen(false);
+    setMenuOpen(false);
+
+    const nextCharacter = getCharacter(characterId);
+    if (nextCharacter.id === character.id) return;
+
+    stopSpeaking();
+    setShowSuggestions(false);
+    setOpenTranslations({});
+    setIsLoading(true);
+
+    const nextProfile = { ...profile, selected_character: nextCharacter.id };
+    setProfile(nextProfile);
+
+    try {
+      const supabase = createClient();
+      const saved = await saveSelectedCharacter(supabase, user.id, nextCharacter.id);
+      await clearChatHistory(supabase, user.id);
+      const welcome = buildWelcomeMessage(nextProfile);
+      setMessages([welcome]);
+      setSuggestions(INITIAL_SUGGESTIONS);
+      await persistMessages(user.id, [
+        { id: welcome.id, sender: "ai", text: welcome.text, translation: welcome.translation },
+      ]);
+      if (autoSpeak) speak(welcome.text);
+      if (!saved.success) flash("Tutor switched, but saving the choice failed.");
+    } catch {
+      flash("Couldn't switch tutors right now.");
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
   async function handleSignOut() {
     setMenuOpen(false);
+    setCharacterPickerOpen(false);
     stopSpeaking();
     const supabase = createClient();
     await supabase.auth.signOut();
@@ -393,6 +440,7 @@ export default function HomePage() {
         {chatUnlocked && !historyReady ? <LoadingScreen label="Loading your chat…" /> : null}
 
         <ChatHeader
+          character={character}
           autoSpeak={autoSpeak}
           onToggleSpeak={() => {
             setAutoSpeak((value) => {
@@ -400,6 +448,7 @@ export default function HomePage() {
               return !value;
             });
           }}
+          onOpenCharacters={openCharacterPicker}
           menuOpen={menuOpen}
           onToggleMenu={() => setMenuOpen((value) => !value)}
           onClearChat={() => void handleClearChat()}
@@ -450,6 +499,14 @@ export default function HomePage() {
           onToggleMic={handleToggleMic}
           disabled={isLoading || !chatUnlocked}
         />
+
+        {characterPickerOpen ? (
+          <CharacterSelectorModal
+            selectedId={character.id}
+            onSelect={(id) => void handleSelectCharacter(id)}
+            onClose={() => setCharacterPickerOpen(false)}
+          />
+        ) : null}
       </div>
     </main>
   );

@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { getCharacter } from "@/lib/characters";
 import type { ChatMessageRow, Profile, ProfileInput } from "@/lib/supabase/types";
 import type { GrammarFeedback, Message } from "@/types/chat";
 
@@ -58,6 +59,9 @@ function normalizeProfile(row: Partial<Profile> & Record<string, unknown>, fallb
       fallback.englishLevel ||
       "beginner") as Profile["english_level"],
     interests: parseInterests(row.interests).length > 0 ? parseInterests(row.interests) : parseInterests(fallback.interests),
+    selected_character: getCharacter(
+      (row.selected_character as string | undefined) || fallback.selected_character,
+    ).id,
     created_at: row.created_at as string | undefined,
     updated_at: row.updated_at as string | undefined,
   };
@@ -104,12 +108,17 @@ export async function saveProfile(
       gender: onboardingData.gender || null,
       english_level: onboardingData.englishLevel || onboardingData.english_level || "beginner",
       interests: toInterestsText(onboardingData.interests) || (onboardingData.interests as string | null),
+      selected_character: getCharacter(onboardingData.selected_character).id,
       updated_at: new Date().toISOString(),
     };
 
-    const attempts: Array<Record<string, unknown>> = [payload];
-    const { full_name: _fullName, ...withoutFullName } = payload;
-    attempts.push(withoutFullName);
+    const { full_name: _fullName, selected_character: _selectedCharacter, ...core } = payload;
+    const attempts: Array<Record<string, unknown>> = [
+      payload,
+      { ...core, selected_character: payload.selected_character },
+      { ...core, full_name: payload.full_name },
+      core,
+    ];
 
     let lastError: unknown;
     for (const body of attempts) {
@@ -125,7 +134,12 @@ export async function saveProfile(
       console.error("Supabase Profile Save Error:", error);
       lastError = error;
       const message = `${error.message ?? ""} ${error.details ?? ""}`.toLowerCase();
-      if (!message.includes("full_name") && !message.includes("schema cache") && !message.includes("could not find")) {
+      if (
+        !message.includes("full_name") &&
+        !message.includes("selected_character") &&
+        !message.includes("schema cache") &&
+        !message.includes("could not find")
+      ) {
         break;
       }
     }
@@ -133,6 +147,36 @@ export async function saveProfile(
     return { success: false, error: describeProfileSaveError(lastError) };
   } catch (error) {
     console.error("Supabase Profile Save Error:", error);
+    return { success: false, error: describeProfileSaveError(error) };
+  }
+}
+
+export async function saveSelectedCharacter(
+  supabase: SupabaseClient,
+  userId: string,
+  characterId: string,
+): Promise<SaveProfileResult> {
+  try {
+    const selected_character = getCharacter(characterId).id;
+    const { data, error } = await supabase
+      .from("profiles")
+      .update({ selected_character, updated_at: new Date().toISOString() })
+      .eq("id", userId)
+      .select()
+      .maybeSingle();
+
+    if (error) {
+      console.error("Supabase Character Save Error:", error);
+      return { success: false, error: describeProfileSaveError(error) };
+    }
+
+    const profile = data
+      ? normalizeProfile(data as Profile & Record<string, unknown>, { selected_character }, userId)
+      : normalizeProfile({ selected_character }, { selected_character }, userId);
+
+    return { success: true, profile };
+  } catch (error) {
+    console.error("Supabase Character Save Error:", error);
     return { success: false, error: describeProfileSaveError(error) };
   }
 }

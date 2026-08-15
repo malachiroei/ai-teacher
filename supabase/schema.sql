@@ -8,6 +8,7 @@ create table if not exists public.profiles (
   gender text,
   english_level text default 'beginner',
   interests text not null default '',
+  selected_character text default 'emma',
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -54,3 +55,4 @@ create policy "chat_delete_own" on public.chat_messages
 --   alter column interests type text using array_to_string(interests, ', ');
 
 alter table public.profiles add column if not exists full_name text;
+alter table public.profiles add column if not exists selected_character text default 'emma';
