@@ -9,6 +9,12 @@ create table if not exists public.profiles (
   english_level text default 'beginner',
   interests text not null default '',
   selected_character text default 'emma',
+  daily_goal_minutes integer default 10,
+  preferred_practice_time text default '17:00',
+  notifications_enabled boolean default false,
+  parent_whatsapp text default '',
+  practice_date date,
+  practice_seconds integer default 0,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -56,3 +62,9 @@ create policy "chat_delete_own" on public.chat_messages
 
 alter table public.profiles add column if not exists full_name text;
 alter table public.profiles add column if not exists selected_character text default 'emma';
+alter table public.profiles add column if not exists daily_goal_minutes integer default 10;
+alter table public.profiles add column if not exists preferred_practice_time text default '17:00';
+alter table public.profiles add column if not exists notifications_enabled boolean default false;
+alter table public.profiles add column if not exists parent_whatsapp text default '';
+alter table public.profiles add column if not exists practice_date date;
+alter table public.profiles add column if not exists practice_seconds integer default 0;

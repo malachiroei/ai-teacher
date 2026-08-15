@@ -1,6 +1,7 @@
 "use client";
 
 import { ChevronDown, ChevronLeft, MoreVertical, Volume2, VolumeX } from "lucide-react";
+import { CharacterAvatar } from "@/components/CharacterAvatar";
 import type { Character } from "@/lib/characters";
 import { cn } from "@/lib/utils";
 
@@ -12,7 +13,10 @@ interface ChatHeaderProps {
   menuOpen: boolean;
   onToggleMenu: () => void;
   onClearChat: () => void;
+  onOpenSettings: () => void;
   onSignOut?: () => void;
+  practicedMinutes: number;
+  dailyGoalMinutes: number;
 }
 
 export function ChatHeader({
@@ -23,10 +27,19 @@ export function ChatHeader({
   menuOpen,
   onToggleMenu,
   onClearChat,
+  onOpenSettings,
   onSignOut,
+  practicedMinutes,
+  dailyGoalMinutes,
 }: ChatHeaderProps) {
+  const goal = Math.max(1, dailyGoalMinutes);
+  const done = Math.min(practicedMinutes, goal);
+  const percent = Math.min(100, Math.round((practicedMinutes / goal) * 100));
+  const reached = practicedMinutes >= goal;
+
   return (
-    <header className="relative z-20 flex items-center gap-2 border-b border-slate-100 bg-white/95 px-2 py-2.5 backdrop-blur">
+    <header className="relative z-20 border-b border-slate-100 bg-white/95 backdrop-blur">
+      <div className="flex items-center gap-2 px-2 py-2.5">
       <button
         type="button"
         aria-label="Back"
@@ -43,15 +56,7 @@ export function ChatHeader({
           aria-label={`Change tutor. Current: ${character.name}`}
           className="flex min-w-0 flex-1 items-center gap-2.5 rounded-xl py-0.5 pr-1 text-left transition hover:bg-slate-50"
         >
-          <div className="relative shrink-0">
-            <img
-              src={character.avatarUrl}
-              alt={character.name}
-              className="h-10 w-10 rounded-full object-cover ring-2 ring-white"
-              style={{ backgroundColor: `${character.accentColor}33` }}
-            />
-            <span className="absolute bottom-0 right-0 h-3 w-3 rounded-full border-2 border-white bg-emerald-500" />
-          </div>
+          <CharacterAvatar character={character} className="h-10 w-10" online eager />
           <div className="min-w-0 flex-1">
             <p className="flex items-center gap-1 truncate text-[15px] font-semibold leading-tight text-slate-900">
               <span className="truncate">{character.name}</span>
@@ -99,6 +104,14 @@ export function ChatHeader({
             <button
               type="button"
               suppressHydrationWarning
+              onClick={onOpenSettings}
+              className="block w-full px-3 py-2.5 text-left text-sm text-slate-700 hover:bg-slate-50"
+            >
+              Practice settings
+            </button>
+            <button
+              type="button"
+              suppressHydrationWarning
               onClick={onClearChat}
               className="block w-full px-3 py-2.5 text-left text-sm text-slate-700 hover:bg-slate-50"
             >
@@ -117,6 +130,24 @@ export function ChatHeader({
           </div>
         ) : null}
       </div>
+      </div>
+
+      <button
+        type="button"
+        onClick={onOpenSettings}
+        aria-label={`Daily goal ${done} of ${goal} minutes`}
+        className="flex w-full items-center gap-2 px-3 pb-2"
+      >
+        <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-slate-100">
+          <div
+            className="h-full rounded-full transition-all duration-500"
+            style={{ width: `${percent}%`, backgroundColor: reached ? "#22c55e" : character.accentColor }}
+          />
+        </div>
+        <span className="shrink-0 text-[11px] font-semibold text-slate-600">
+          {done}/{goal} min {reached ? "🎉" : "🔥"}
+        </span>
+      </button>
     </header>
   );
 }

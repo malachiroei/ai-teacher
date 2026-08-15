@@ -6,10 +6,12 @@ import { AIBubble } from "@/components/AIBubble";
 import { AuthModal } from "@/components/AuthModal";
 import { CharacterSelectorModal } from "@/components/CharacterSelectorModal";
 import { ChatHeader } from "@/components/ChatHeader";
+import { GoalCelebrationModal } from "@/components/GoalCelebrationModal";
 import { InputBar } from "@/components/InputBar";
 import { LoadingScreen } from "@/components/LoadingScreen";
 import { OnboardingModal } from "@/components/OnboardingModal";
 import { QuickActions } from "@/components/QuickActions";
+import { SettingsModal } from "@/components/SettingsModal";
 import { SuggestedAnswers } from "@/components/SuggestedAnswers";
 import { TypingIndicator } from "@/components/TypingIndicator";
 import { UserBubble } from "@/components/UserBubble";
@@ -22,11 +24,22 @@ import {
   isProfileComplete,
   loadChatHistory,
   saveProfile,
+  savePracticeSettings,
   saveSelectedCharacter,
 } from "@/lib/chat-history";
 import { getCharacter, type CharacterId } from "@/lib/characters";
+import { useDailyPractice } from "@/hooks/useDailyPractice";
 import { preferredSpeechLangFromText } from "@/lib/language";
 import { buildWelcomeMessage, profilePayload } from "@/lib/learner";
+import {
+  buildParentWhatsAppMessage,
+  countUserMessagesToday,
+  extractPracticeTopics,
+  normalizeWhatsAppPhone,
+  practiceSettingsFromProfile,
+  whatsappShareUrl,
+  type PracticeSettings,
+} from "@/lib/practice";
 import { createClient } from "@/lib/supabase/client";
 import type { Profile, ProfileInput } from "@/lib/supabase/types";
 import type { ChatApiResponse, GrammarFeedback, Message } from "@/types/chat";
@@ -61,6 +74,9 @@ export default function HomePage() {
   const [suggestions, setSuggestions] = useState<string[]>(INITIAL_SUGGESTIONS);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [characterPickerOpen, setCharacterPickerOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [savingSettings, setSavingSettings] = useState(false);
+  const [settingsError, setSettingsError] = useState("");
   const [notice, setNotice] = useState("");
 
   const scrollerRef = useRef<HTMLDivElement>(null);
@@ -79,10 +95,31 @@ export default function HomePage() {
   const needsOnboarding = Boolean(user && authReady && !isProfileComplete(profile));
   const chatUnlocked = Boolean(user && isProfileComplete(profile));
   const character = getCharacter(profile?.selected_character);
+  const practiceSettings = practiceSettingsFromProfile(profile);
+  const {
+    minutes: practicedMinutes,
+    celebrationOpen,
+    dismissCelebration,
+  } = useDailyPractice({
+    userId: user?.id ?? null,
+    enabled: chatUnlocked,
+    profile,
+    goalMinutes: practiceSettings.daily_goal_minutes,
+    reminderTime: practiceSettings.preferred_practice_time,
+    remindersEnabled: practiceSettings.notifications_enabled,
+    characterName: character.name,
+  });
 
   function openCharacterPicker() {
     setMenuOpen(false);
     setCharacterPickerOpen(true);
+  }
+
+  function openSettings() {
+    setMenuOpen(false);
+    setCharacterPickerOpen(false);
+    setSettingsError("");
+    setSettingsOpen(true);
   }
 
   const flash = useCallback((text: string) => {
@@ -377,6 +414,7 @@ export default function HomePage() {
   async function handleSignOut() {
     setMenuOpen(false);
     setCharacterPickerOpen(false);
+    setSettingsOpen(false);
     stopSpeaking();
     const supabase = createClient();
     await supabase.auth.signOut();
@@ -416,6 +454,61 @@ export default function HomePage() {
     }
   }
 
+  async function handleSaveSettings(next: PracticeSettings) {
+    if (!user || !profile) return;
+    setSavingSettings(true);
+    setSettingsError("");
+    setProfile((current) =>
+      current
+        ? {
+            ...current,
+            daily_goal_minutes: next.daily_goal_minutes,
+            preferred_practice_time: next.preferred_practice_time,
+            notifications_enabled: next.notifications_enabled,
+            parent_whatsapp: next.parent_whatsapp,
+          }
+        : current,
+    );
+
+    try {
+      const result = await savePracticeSettings(createClient(), user.id, next);
+      if (!result.success) {
+        setSettingsError(result.error);
+        return;
+      }
+      setSettingsOpen(false);
+      flash("Practice settings saved.");
+    } catch (error) {
+      setSettingsError(describeProfileSaveError(error));
+    } finally {
+      setSavingSettings(false);
+    }
+  }
+
+  function handleShareWhatsApp() {
+    const phone = practiceSettings.parent_whatsapp;
+    if (!normalizeWhatsAppPhone(phone)) {
+      dismissCelebration();
+      openSettings();
+      flash("Add a parent WhatsApp number first.");
+      return;
+    }
+
+    const text = buildParentWhatsAppMessage({
+      childName: profile?.nickname ?? "",
+      gender: profile?.gender,
+      minutes: Math.max(practicedMinutes, practiceSettings.daily_goal_minutes),
+      characterName: character.name,
+      topics: extractPracticeTopics(messages, profile?.interests ?? []),
+    });
+    const url = whatsappShareUrl(phone, text);
+    if (!url) {
+      flash("Couldn't open WhatsApp. Check the phone number.");
+      return;
+    }
+    window.open(url, "_blank", "noopener,noreferrer");
+  }
+
   return (
     <main className="min-h-screen bg-[radial-gradient(circle_at_top,_#dbe7ff,_#e8edf5_42%)]">
       <div className="relative mx-auto flex min-h-screen max-w-md flex-col overflow-hidden bg-white shadow-xl">
@@ -452,7 +545,10 @@ export default function HomePage() {
           menuOpen={menuOpen}
           onToggleMenu={() => setMenuOpen((value) => !value)}
           onClearChat={() => void handleClearChat()}
+          onOpenSettings={openSettings}
           onSignOut={() => void handleSignOut()}
+          practicedMinutes={practicedMinutes}
+          dailyGoalMinutes={practiceSettings.daily_goal_minutes}
         />
 
         <div ref={scrollerRef} className="flex flex-1 flex-col gap-4 overflow-y-auto px-4 py-4">
@@ -461,6 +557,7 @@ export default function HomePage() {
               <AIBubble
                 key={message.id}
                 message={message}
+                character={character}
                 showTranslation={Boolean(openTranslations[message.id])}
                 onReplay={() => speak(message.text)}
                 onToggleTranslation={() =>
@@ -474,7 +571,7 @@ export default function HomePage() {
               <UserBubble key={message.id} message={message} />
             ),
           )}
-          {isLoading ? <TypingIndicator /> : null}
+          {isLoading ? <TypingIndicator character={character} /> : null}
         </div>
 
         {notice ? (
@@ -505,6 +602,30 @@ export default function HomePage() {
             selectedId={character.id}
             onSelect={(id) => void handleSelectCharacter(id)}
             onClose={() => setCharacterPickerOpen(false)}
+          />
+        ) : null}
+
+        {settingsOpen ? (
+          <SettingsModal
+            key={`${practiceSettings.daily_goal_minutes}-${practiceSettings.preferred_practice_time}-${practiceSettings.parent_whatsapp}-${practiceSettings.notifications_enabled}`}
+            settings={practiceSettings}
+            saving={savingSettings}
+            error={settingsError}
+            onSave={(next) => void handleSaveSettings(next)}
+            onClose={() => setSettingsOpen(false)}
+          />
+        ) : null}
+
+        {celebrationOpen ? (
+          <GoalCelebrationModal
+            character={character}
+            minutes={practicedMinutes}
+            goalMinutes={practiceSettings.daily_goal_minutes}
+            messageCount={countUserMessagesToday(messages)}
+            topics={extractPracticeTopics(messages, profile?.interests ?? [])}
+            canShareWhatsApp={Boolean(normalizeWhatsAppPhone(practiceSettings.parent_whatsapp))}
+            onShareWhatsApp={handleShareWhatsApp}
+            onClose={dismissCelebration}
           />
         ) : null}
       </div>

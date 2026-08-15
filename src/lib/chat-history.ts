@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { getCharacter } from "@/lib/characters";
+import { normalizeDailyGoal, normalizePracticeTime } from "@/lib/practice";
 import type { ChatMessageRow, Profile, ProfileInput } from "@/lib/supabase/types";
 import type { GrammarFeedback, Message } from "@/types/chat";
 
@@ -62,6 +63,14 @@ function normalizeProfile(row: Partial<Profile> & Record<string, unknown>, fallb
     selected_character: getCharacter(
       (row.selected_character as string | undefined) || fallback.selected_character,
     ).id,
+    daily_goal_minutes: normalizeDailyGoal(row.daily_goal_minutes ?? fallback.daily_goal_minutes),
+    preferred_practice_time: normalizePracticeTime(
+      row.preferred_practice_time ?? fallback.preferred_practice_time,
+    ),
+    notifications_enabled: Boolean(row.notifications_enabled ?? fallback.notifications_enabled),
+    parent_whatsapp: String(row.parent_whatsapp ?? fallback.parent_whatsapp ?? "").trim(),
+    practice_date: (row.practice_date as string | null | undefined) ?? null,
+    practice_seconds: Number(row.practice_seconds) || 0,
     created_at: row.created_at as string | undefined,
     updated_at: row.updated_at as string | undefined,
   };
@@ -179,6 +188,62 @@ export async function saveSelectedCharacter(
     console.error("Supabase Character Save Error:", error);
     return { success: false, error: describeProfileSaveError(error) };
   }
+}
+
+export async function savePracticeSettings(
+  supabase: SupabaseClient,
+  userId: string,
+  settings: {
+    daily_goal_minutes: number;
+    preferred_practice_time: string;
+    notifications_enabled: boolean;
+    parent_whatsapp: string;
+  },
+): Promise<SaveProfileResult> {
+  try {
+    const payload = {
+      daily_goal_minutes: normalizeDailyGoal(settings.daily_goal_minutes),
+      preferred_practice_time: normalizePracticeTime(settings.preferred_practice_time),
+      notifications_enabled: Boolean(settings.notifications_enabled),
+      parent_whatsapp: settings.parent_whatsapp.trim(),
+      updated_at: new Date().toISOString(),
+    };
+
+    const { data, error } = await supabase.from("profiles").update(payload).eq("id", userId).select().maybeSingle();
+    if (error) {
+      console.error("Supabase Practice Settings Error:", error);
+      return { success: false, error: describeProfileSaveError(error) };
+    }
+
+    return {
+      success: true,
+      profile: normalizeProfile((data ?? payload) as Profile & Record<string, unknown>, payload, userId),
+    };
+  } catch (error) {
+    console.error("Supabase Practice Settings Error:", error);
+    return { success: false, error: describeProfileSaveError(error) };
+  }
+}
+
+export async function savePracticeProgress(
+  supabase: SupabaseClient,
+  userId: string,
+  progress: { practice_date: string; practice_seconds: number },
+) {
+  const { error } = await supabase
+    .from("profiles")
+    .update({
+      practice_date: progress.practice_date,
+      practice_seconds: progress.practice_seconds,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", userId);
+
+  if (error) {
+    console.error("Supabase Practice Progress Error:", error);
+    return { success: false as const, error };
+  }
+  return { success: true as const };
 }
 
 export function rowToMessage(row: ChatMessageRow): Message {

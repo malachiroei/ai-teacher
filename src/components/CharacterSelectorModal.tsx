@@ -1,6 +1,7 @@
 "use client";
 
 import { Check, X } from "lucide-react";
+import { CharacterAvatar } from "@/components/CharacterAvatar";
 import { CHARACTERS, type Character, type CharacterId } from "@/lib/characters";
 import { cn } from "@/lib/utils";
 
@@ -14,7 +15,7 @@ export function CharacterSelectorModal({ selectedId, onSelect, onClose }: Charac
   return (
     <div className="absolute inset-0 z-40 flex items-end justify-center bg-slate-900/40 p-3 sm:items-center">
       <button type="button" className="absolute inset-0" aria-label="Close character picker" onClick={onClose} />
-      <div className="relative flex max-h-[85%] w-full max-w-sm flex-col overflow-hidden rounded-3xl bg-white shadow-2xl">
+      <div className="relative flex max-h-[90%] w-full max-w-md flex-col overflow-hidden rounded-3xl bg-white shadow-2xl">
         <div className="flex items-center justify-between px-4 py-3">
           <div>
             <h2 className="text-base font-semibold text-slate-900">Choose your tutor</h2>
@@ -30,7 +31,7 @@ export function CharacterSelectorModal({ selectedId, onSelect, onClose }: Charac
           </button>
         </div>
 
-        <div className="grid gap-2.5 overflow-y-auto px-4 pb-5">
+        <div className="grid grid-cols-2 gap-2 overflow-y-auto px-3 pb-4 sm:gap-2.5 sm:px-4 sm:pb-5">
           {CHARACTERS.map((character) => (
             <CharacterCard
               key={character.id}
@@ -59,37 +60,32 @@ function CharacterCard({
       type="button"
       onClick={onSelect}
       className={cn(
-        "flex w-full items-start gap-3 rounded-2xl border px-3 py-3 text-left transition",
+        "relative flex min-h-[148px] flex-col items-center rounded-2xl border px-2.5 py-3 text-center transition sm:min-h-[160px] sm:px-3",
         selected ? "border-transparent bg-slate-50 shadow-sm" : "border-slate-200 bg-white hover:bg-slate-50",
       )}
       style={selected ? { boxShadow: `inset 0 0 0 2px ${character.accentColor}` } : undefined}
     >
-      <img
-        src={character.avatarUrl}
-        alt={character.name}
-        className="h-12 w-12 shrink-0 rounded-full object-cover"
-        style={{ backgroundColor: `${character.accentColor}22` }}
-      />
-      <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-2">
-          <p className="truncate text-[15px] font-semibold text-slate-900">{character.name}</p>
-          <span
-            className="rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide"
-            style={{ backgroundColor: `${character.accentColor}18`, color: character.accentColor }}
-          >
-            {character.title}
-          </span>
-        </div>
-        <p className="mt-0.5 text-[13px] leading-snug text-slate-500">{character.shortDescription}</p>
-      </div>
       {selected ? (
         <span
-          className="mt-1 flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-white"
+          className="absolute top-2 right-2 flex h-5 w-5 items-center justify-center rounded-full text-white"
           style={{ backgroundColor: character.accentColor }}
         >
           <Check className="h-3 w-3" strokeWidth={3} />
         </span>
       ) : null}
+      <CharacterAvatar character={character} className="h-14 w-14 sm:h-16 sm:w-16" />
+      <p className="mt-2 w-full truncate text-[13px] font-semibold leading-tight text-slate-900 sm:text-[14px]">
+        {character.name}
+      </p>
+      <span
+        className="mt-1 max-w-full truncate rounded-full px-1.5 py-0.5 text-[9px] font-semibold tracking-wide sm:text-[10px]"
+        style={{ backgroundColor: `${character.accentColor}18`, color: character.accentColor }}
+      >
+        {character.tag}
+      </span>
+      <p className="mt-1.5 line-clamp-2 text-[11px] leading-snug text-slate-500 sm:text-[12px]">
+        {character.shortDescription}
+      </p>
     </button>
   );
 }

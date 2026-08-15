@@ -3,6 +3,7 @@ import type { GrammarFeedback } from "@/types/chat";
 
 export type Gender = "boy" | "girl" | "other";
 export type EnglishLevel = "beginner" | "intermediate" | "advanced";
+export type DailyGoalMinutes = 5 | 10 | 15 | 20;
 
 export interface Profile {
   id: string;
@@ -13,6 +14,12 @@ export interface Profile {
   english_level: EnglishLevel;
   interests: string[];
   selected_character?: CharacterId | string | null;
+  daily_goal_minutes?: DailyGoalMinutes | number | null;
+  preferred_practice_time?: string | null;
+  notifications_enabled?: boolean | null;
+  parent_whatsapp?: string | null;
+  practice_date?: string | null;
+  practice_seconds?: number | null;
   created_at?: string;
   updated_at?: string;
 }
@@ -26,6 +33,10 @@ export interface ProfileInput {
   englishLevel?: EnglishLevel | string;
   interests?: string[] | string | null;
   selected_character?: CharacterId | string | null;
+  daily_goal_minutes?: DailyGoalMinutes | number | null;
+  preferred_practice_time?: string | null;
+  notifications_enabled?: boolean | null;
+  parent_whatsapp?: string | null;
 }
 
 export interface ChatMessageRow {
@@ -51,6 +62,12 @@ export interface Database {
           english_level: EnglishLevel;
           interests?: string[];
           selected_character?: string | null;
+          daily_goal_minutes?: number | null;
+          preferred_practice_time?: string | null;
+          notifications_enabled?: boolean | null;
+          parent_whatsapp?: string | null;
+          practice_date?: string | null;
+          practice_seconds?: number | null;
           created_at?: string;
           updated_at?: string;
         };
