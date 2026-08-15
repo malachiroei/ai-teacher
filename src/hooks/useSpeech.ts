@@ -129,7 +129,7 @@ export function useSpeech(options?: { character?: Character | null; rateMultipli
   const rateMultiplierRef = useRef(options?.rateMultiplier ?? 1);
   const shouldListenRef = useRef(false);
   const startingRef = useRef(false);
-  const startWatchdogRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const startWatchdogRef = useRef<number | null>(null);
 
   characterRef.current = options?.character ?? null;
   rateMultiplierRef.current = options?.rateMultiplier ?? 1;
