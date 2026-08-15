@@ -8,7 +8,7 @@ import {
   looksLikeGibberishEnglish,
   type SpeechLang,
 } from "@/lib/language";
-import { pickCharacterVoice, type Character } from "@/lib/characters";
+import { findVoiceByUri, listEnglishVoices, pickCharacterVoice, type Character } from "@/lib/characters";
 
 export const SPEECH_UNAVAILABLE_MESSAGE =
   "Speech recognition is not fully supported or microphone access was denied";
@@ -114,12 +114,17 @@ async function ensureMicrophoneAccess() {
   }
 }
 
-export function useSpeech(options?: { character?: Character | null; rateMultiplier?: number }) {
+export function useSpeech(options?: {
+  character?: Character | null;
+  rateMultiplier?: number;
+  preferredVoiceUri?: string | null;
+}) {
   const [isListening, setIsListening] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [transcript, setTranscript] = useState("");
   const [speechLang, setSpeechLang] = useState<SpeechLang>("en-US");
   const [speechSupported, setSpeechSupported] = useState({ tts: false, stt: false });
+  const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
 
   const recognizerRef = useRef<RecognitionInstance | null>(null);
   const activeLangRef = useRef<SpeechLang>("en-US");
@@ -127,12 +132,14 @@ export function useSpeech(options?: { character?: Character | null; rateMultipli
   const voicesRef = useRef<SpeechSynthesisVoice[]>([]);
   const characterRef = useRef<Character | null>(options?.character ?? null);
   const rateMultiplierRef = useRef(options?.rateMultiplier ?? 1);
+  const preferredVoiceUriRef = useRef(options?.preferredVoiceUri ?? "");
   const shouldListenRef = useRef(false);
   const startingRef = useRef(false);
   const startWatchdogRef = useRef<number | null>(null);
 
   characterRef.current = options?.character ?? null;
   rateMultiplierRef.current = options?.rateMultiplier ?? 1;
+  preferredVoiceUriRef.current = options?.preferredVoiceUri ?? "";
 
   const clearStartWatchdog = useCallback(() => {
     if (startWatchdogRef.current != null) {
@@ -304,9 +311,12 @@ export function useSpeech(options?: { character?: Character | null; rateMultipli
 
     const loadVoices = () => {
       try {
-        voicesRef.current = window.speechSynthesis.getVoices();
+        const next = window.speechSynthesis.getVoices();
+        voicesRef.current = next;
+        setVoices(next);
       } catch {
         voicesRef.current = [];
+        setVoices([]);
       }
     };
 
@@ -322,14 +332,15 @@ export function useSpeech(options?: { character?: Character | null; rateMultipli
     };
   }, [resetListeningState, stopRecognizer]);
 
-  const speak = useCallback((text: string, preview?: { rateMultiplier?: number }) => {
+  const speak = useCallback((text: string, preview?: { rateMultiplier?: number; voiceUri?: string | null }) => {
     if (!text.trim() || typeof window === "undefined" || !("speechSynthesis" in window)) return;
 
     try {
       window.speechSynthesis.cancel();
       const character = characterRef.current;
       const voices = voicesRef.current.length > 0 ? voicesRef.current : window.speechSynthesis.getVoices();
-      const voice = pickCharacterVoice(voices, character);
+      const preferred = findVoiceByUri(voices, preview?.voiceUri ?? preferredVoiceUriRef.current);
+      const voice = preferred ?? pickCharacterVoice(voices, character);
       const speed = preview?.rateMultiplier ?? rateMultiplierRef.current ?? 1;
       const baseRate = character?.voice.rate ?? 0.95;
       const utterance = new SpeechSynthesisUtterance(text);
@@ -439,5 +450,6 @@ export function useSpeech(options?: { character?: Character | null; rateMultipli
     transcript,
     speechLang,
     speechSupported,
+    voices: listEnglishVoices(voices),
   };
 }

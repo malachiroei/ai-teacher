@@ -22,6 +22,7 @@ export interface PracticeSettings {
   notifications_enabled: boolean;
   parent_whatsapp: string;
   voice_speed: VoiceSpeed;
+  preferred_voice: string;
 }
 
 const STOP_WORDS = new Set([
@@ -127,6 +128,7 @@ export function practiceSettingsFromProfile(profile?: Profile | null): PracticeS
     notifications_enabled: Boolean(profile?.notifications_enabled),
     parent_whatsapp: String(profile?.parent_whatsapp ?? "").trim(),
     voice_speed: normalizeVoiceSpeed(profile?.voice_speed),
+    preferred_voice: String(profile?.preferred_voice ?? "").trim(),
   };
 }
 

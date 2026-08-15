@@ -54,9 +54,9 @@ export const CHARACTERS: Character[] = [
       preferredNames: ["Samantha", "Victoria", "Google US English", "Karen"],
     },
     greetingTemplate:
-      "Hi{{nameBit}}! I'm Emma, your friendly English tutor.{{topic}} How are you doing today?",
+      "Hi{{nameBit}}! I'm {{tutorName}}, your friendly English tutor.{{topic}} How are you doing today?",
     greetingTranslationTemplate:
-      "היי{{nameBit}}! אני אמה, המורה החברה שלך לאנגלית.{{topicHe}} מה שלומך היום?",
+      "היי{{nameBit}}! אני {{tutorName}}, המורה החברה שלך לאנגלית.{{topicHe}} מה שלומך היום?",
     topicSentence: " I saw that you like {{topicEn}}. We can talk about that anytime.",
     systemPrompt: `CHARACTER PERSONA — you ARE Emma, "Friendly Tutor", for Hebrew-speaking learners aged 11–15.
 Be warm, patient, and encouraging — like a kind older-sister tutor.
@@ -79,9 +79,9 @@ Stay age-appropriate. Keep helping with grammar and Hebrew translations as requi
       preferredNames: ["Daniel", "Fred", "Google UK English Male", "Alex"],
     },
     greetingTemplate:
-      "Yo{{nameBit}}! I'm Leo — let's level up your English.{{topic}} Ready to jump in?",
+      "Yo{{nameBit}}! I'm {{tutorName}} — let's level up your English.{{topic}} Ready to jump in?",
     greetingTranslationTemplate:
-      "יו{{nameBit}}! אני ליאו — בואו נשדרג לך את האנגלית.{{topicHe}} {{ready}} להתחיל?",
+      "יו{{nameBit}}! אני {{tutorName}} — בואו נשדרג לך את האנגלית.{{topicHe}} {{ready}} להתחיל?",
     topicSentence: " I saw you like {{topicEn}} — that's a W in my book.",
     systemPrompt: `CHARACTER PERSONA — you ARE Leo, "The Gamer", for Hebrew-speaking learners aged 11–15.
 Talk like a friendly gamer buddy: energetic, playful, short sentences.
@@ -106,9 +106,9 @@ Stay age-appropriate. No violence details, no toxic "git gud" roasting.`,
       preferredNames: ["Samantha", "Tessa", "Karen", "Google US English"],
     },
     greetingTemplate:
-      "Hey{{nameBit}}! I'm Mia. Let's chat in English about the stuff you actually care about.{{topic}} What's your vibe today?",
+      "Hey{{nameBit}}! I'm {{tutorName}}. Let's chat in English about the stuff you actually care about.{{topic}} What's your vibe today?",
     greetingTranslationTemplate:
-      "היי{{nameBit}}! אני מיה. {{comeTalk}} נדבר באנגלית על דברים שבאמת מעניינים אותך.{{topicHe}} מה הווייב שלך היום?",
+      "היי{{nameBit}}! אני {{tutorName}}. {{comeTalk}} נדבר באנגלית על דברים שבאמת מעניינים אותך.{{topicHe}} מה הווייב שלך היום?",
     topicSentence: " Love that you're into {{topicEn}} — so on-brand.",
     systemPrompt: `CHARACTER PERSONA — you ARE Mia, "Pop & Trends", for Hebrew-speaking learners aged 11–15.
 Talk like a stylish, upbeat friend who loves music, dance, fashion, and social media trends.
@@ -133,9 +133,9 @@ Stay age-appropriate. No dating advice, no adult social-media drama.`,
       preferredNames: ["Daniel", "Alex", "Aaron", "Google UK English Male"],
     },
     greetingTemplate:
-      "Greetings{{nameBit}}! Captain Max here.{{topic}} Ready for a new adventure in English?",
+      "Greetings{{nameBit}}! {{tutorName}} here.{{topic}} Ready for a new adventure in English?",
     greetingTranslationTemplate:
-      "שלום{{nameBit}}! קפטן מקס כאן.{{topicHe}} {{ready}} להרפתקה חדשה באנגלית?",
+      "שלום{{nameBit}}! {{tutorName}} כאן.{{topicHe}} {{ready}} להרפתקה חדשה באנגלית?",
     topicSentence: " Your interest in {{topicEn}} could be our first mission.",
     systemPrompt: `CHARACTER PERSONA — you ARE Captain Max, "The Explorer", for Hebrew-speaking learners aged 11–15.
 Talk like a brave, curious expedition leader who loves space, sci-fi, mysteries, and discovery.
@@ -160,9 +160,9 @@ Stay age-appropriate. Wonder and excitement, not fear or grim sci-fi horror.`,
       preferredNames: ["Alex", "Daniel", "Fred", "Tom"],
     },
     greetingTemplate:
-      "Hey{{nameBit}}! I'm Alex — let's get your English in game shape.{{topic}} What's your favorite sport right now?",
+      "Hey{{nameBit}}! I'm {{tutorName}} — let's get your English in game shape.{{topic}} What's your favorite sport right now?",
     greetingTranslationTemplate:
-      "היי{{nameBit}}! אני אלכס — {{comeTalk}} נשפר לך את האנגלית כמו אימון אמיתי.{{topicHe}} מה הענף האהוב עליך עכשיו?",
+      "היי{{nameBit}}! אני {{tutorName}} — {{comeTalk}} נשפר לך את האנגלית כמו אימון אמיתי.{{topicHe}} מה הענף האהוב עליך עכשיו?",
     topicSentence: " I saw you like {{topicEn}} — that's champion energy.",
     systemPrompt: `CHARACTER PERSONA — you ARE Alex, "The Athlete", for Hebrew-speaking learners aged 11–15.
 Talk like a pumped, encouraging teammate-coach: energetic, positive, short sentences.
@@ -187,9 +187,9 @@ Stay age-appropriate. No body-shaming, no extreme training pressure.`,
       preferredNames: ["Moira", "Fiona", "Samantha", "Victoria"],
     },
     greetingTemplate:
-      "Hey{{nameBit}}! I'm Luna. Anime, manga, and drawing are my world.{{topic}} What are you watching or drawing lately?",
+      "Hey{{nameBit}}! I'm {{tutorName}}. Anime, manga, and drawing are my world.{{topic}} What are you watching or drawing lately?",
     greetingTranslationTemplate:
-      "היי{{nameBit}}! אני לונה. אנימה, מנגה וציור זה העולם שלי.{{topicHe}} מה {{watchOrDraw}} לאחרונה?",
+      "היי{{nameBit}}! אני {{tutorName}}. אנימה, מנגה וציור זה העולם שלי.{{topicHe}} מה {{watchOrDraw}} לאחרונה?",
     topicSentence: " {{topicEn}}? That could be a whole anime arc.",
     systemPrompt: `CHARACTER PERSONA — you ARE Luna, "Anime & Manga Fan", for Hebrew-speaking learners aged 11–15.
 Talk like an enthusiastic friend who loves anime, manga, drawing, cosplay, and Japanese culture.
@@ -214,9 +214,9 @@ Stay age-appropriate. No adult anime, no violent gore, no dating/romance advice.
       preferredNames: ["Fred", "Daniel", "Rishi", "Google UK English Male"],
     },
     greetingTemplate:
-      "Hello{{nameBit}}! I'm Dr. Nova. Let's explore tech, science, and wild ideas in English.{{topic}} What are you curious about today?",
+      "Hello{{nameBit}}! I'm {{tutorName}}. Let's explore tech, science, and wild ideas in English.{{topic}} What are you curious about today?",
     greetingTranslationTemplate:
-      "שלום{{nameBit}}! אני דוקטור נובה. {{comeTalk}} נחקור טכנולוגיה, מדע ורעיונות מגניבים באנגלית.{{topicHe}} מה מסקרן אותך היום?",
+      "שלום{{nameBit}}! אני {{tutorName}}. {{comeTalk}} נחקור טכנולוגיה, מדע ורעיונות מגניבים באנגלית.{{topicHe}} מה מסקרן אותך היום?",
     topicSentence: " {{topicEn}} is a great experiment to talk about.",
     systemPrompt: `CHARACTER PERSONA — you ARE Dr. Nova, "Tech & Science Guru", for Hebrew-speaking learners aged 11–15.
 Talk like a curious, upbeat lab mentor: smart but never stuffy. Short, clear sentences.
@@ -241,9 +241,9 @@ Stay age-appropriate. Wonder and discovery, not scary experiments or unsafe DIY.
       preferredNames: ["Victoria", "Kathy", "Samantha", "Karen"],
     },
     greetingTemplate:
-      "Hi{{nameBit}}! I'm Zoey. I love animals, pets, and the wild outdoors.{{topic}} Do you have a pet, or a favorite animal?",
+      "Hi{{nameBit}}! I'm {{tutorName}}. I love animals, pets, and the wild outdoors.{{topic}} Do you have a pet, or a favorite animal?",
     greetingTranslationTemplate:
-      "היי{{nameBit}}! אני זואי. אני אוהבת חיות, חיות מחמד וטבע.{{topicHe}} יש לך חיית מחמד, או חיה אהובה?",
+      "היי{{nameBit}}! אני {{tutorName}}. אני אוהבת חיות, חיות מחמד וטבע.{{topicHe}} יש לך חיית מחמד, או חיה אהובה?",
     topicSentence: " {{topicEn}} sounds like something we'd see on a nature walk.",
     systemPrompt: `CHARACTER PERSONA — you ARE Zoey, "Animal Lover", for Hebrew-speaking learners aged 11–15.
 Talk like a gentle, cheerful nature friend who loves pets, dogs, wildlife, rescue stories, and the outdoors.
@@ -274,9 +274,21 @@ const MALE_VOICE_HINT = /daniel|alex|fred|david|mark|tom|oliver|aaron|rishi|ravi
 const NOVELTY_VOICE_HINT =
   /compact|novelty|whisper|bad news|good news|bells|boing|bubbles|cellos|trinoids|zarvox|deranged|hysterical|superstar|wobble/i;
 
-function isEnglishVoice(voice: SpeechSynthesisVoice) {
+export function isEnglishVoice(voice: SpeechSynthesisVoice) {
   const lang = voice.lang.toLowerCase();
-  return lang.startsWith("en-us") || lang.startsWith("en-gb") || lang === "en";
+  return lang.startsWith("en-us") || lang.startsWith("en-gb") || lang.startsWith("en-au") || lang === "en";
+}
+
+export function listEnglishVoices(voices: SpeechSynthesisVoice[]) {
+  const english = voices.filter(isEnglishVoice);
+  const pool = english.length > 0 ? english : voices;
+  return [...pool].sort((a, b) => a.name.localeCompare(b.name) || a.lang.localeCompare(b.lang));
+}
+
+export function findVoiceByUri(voices: SpeechSynthesisVoice[], uri?: string | null) {
+  const needle = String(uri ?? "").trim();
+  if (!needle) return null;
+  return voices.find((voice) => voice.voiceURI === needle || voice.name === needle) ?? null;
 }
 
 function scoreVoice(voice: SpeechSynthesisVoice, character: Character) {
@@ -326,6 +338,32 @@ function likeBit(gender: Profile["gender"] | undefined, topicHe: string) {
   return ` ראיתי שאתה אוהב ${topicHe}.`;
 }
 
+function tutorNameFromProfile(character: Character, profile?: Profile | null) {
+  const raw = profile?.tutor_nicknames;
+  let map: Record<string, string> = {};
+  if (raw && typeof raw === "object" && !Array.isArray(raw)) {
+    map = Object.fromEntries(
+      Object.entries(raw).map(([id, name]) => [id, String(name ?? "").trim()]),
+    );
+  } else if (typeof raw === "string" && raw.trim()) {
+    try {
+      const parsed = JSON.parse(raw) as Record<string, unknown>;
+      map = Object.fromEntries(
+        Object.entries(parsed).map(([id, name]) => [id, String(name ?? "").trim()]),
+      );
+    } catch {
+      map = {};
+    }
+  }
+  return (
+    map[character.id] ||
+    (getCharacter(profile?.selected_character).id === character.id
+      ? String(profile?.custom_tutor_name ?? "").trim()
+      : "") ||
+    character.name
+  );
+}
+
 export function buildCharacterGreeting(
   character: Character,
   profile?: Profile | null,
@@ -341,15 +379,17 @@ export function buildCharacterGreeting(
   const comeTalk = gender === "girl" ? "בואי" : gender === "other" ? "בואו" : "בוא";
   const watchOrDraw =
     gender === "girl" ? "את צופה או מציירת" : gender === "other" ? "אתם צופים או מציירים" : "אתה צופה או מצייר";
+  const tutorName = tutorNameFromProfile(character, profile);
 
   return {
-    text: fill(character.greetingTemplate, { nameBit, topic: topicBit }),
+    text: fill(character.greetingTemplate, { nameBit, topic: topicBit, tutorName }),
     translation: fill(character.greetingTranslationTemplate, {
       nameBit,
       topicHe: likeBit(gender, topicHe),
       ready,
       comeTalk,
       watchOrDraw,
+      tutorName,
     }),
   };
 }

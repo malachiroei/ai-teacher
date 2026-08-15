@@ -7,13 +7,22 @@ import { cn } from "@/lib/utils";
 
 interface CharacterSelectorModalProps {
   selectedId: CharacterId | string;
+  nicknames?: Record<string, string>;
   onSelect: (characterId: CharacterId) => void;
   onClose: () => void;
 }
 
-export function CharacterSelectorModal({ selectedId, onSelect, onClose }: CharacterSelectorModalProps) {
+export function CharacterSelectorModal({ selectedId, nicknames, onSelect, onClose }: CharacterSelectorModalProps) {
+  function handleSelect(characterId: CharacterId) {
+    try {
+      onSelect(characterId);
+    } catch (error) {
+      console.error("Character select error:", error);
+    }
+  }
+
   return (
-    <div className="absolute inset-0 z-40 flex items-end justify-center bg-slate-900/40 p-3 sm:items-center">
+    <div className="absolute inset-0 z-[60] flex items-end justify-center bg-slate-900/40 p-3 sm:items-center">
       <button type="button" className="absolute inset-0" aria-label="Close character picker" onClick={onClose} />
       <div className="relative flex max-h-[90%] w-full max-w-md flex-col overflow-hidden rounded-3xl bg-white shadow-2xl">
         <div className="flex items-center justify-between px-4 py-3">
@@ -36,8 +45,9 @@ export function CharacterSelectorModal({ selectedId, onSelect, onClose }: Charac
             <CharacterCard
               key={character.id}
               character={character}
+              displayName={nicknames?.[character.id]?.trim() || character.name}
               selected={character.id === selectedId}
-              onSelect={() => onSelect(character.id)}
+              onSelect={() => handleSelect(character.id)}
             />
           ))}
         </div>
@@ -48,10 +58,12 @@ export function CharacterSelectorModal({ selectedId, onSelect, onClose }: Charac
 
 function CharacterCard({
   character,
+  displayName,
   selected,
   onSelect,
 }: {
   character: Character;
+  displayName: string;
   selected: boolean;
   onSelect: () => void;
 }) {
@@ -75,7 +87,7 @@ function CharacterCard({
       ) : null}
       <CharacterAvatar character={character} className="h-14 w-14 sm:h-16 sm:w-16" />
       <p className="mt-2 w-full truncate text-[13px] font-semibold leading-tight text-slate-900 sm:text-[14px]">
-        {character.name}
+        {displayName}
       </p>
       <span
         className="mt-1 max-w-full truncate rounded-full px-1.5 py-0.5 text-[9px] font-semibold tracking-wide sm:text-[10px]"

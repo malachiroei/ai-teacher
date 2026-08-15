@@ -30,7 +30,7 @@ export function GoalCelebrationModal({
   const displayMinutes = Math.max(minutes, goalMinutes);
 
   return (
-    <div className="absolute inset-0 z-50 flex items-end justify-center bg-slate-900/45 p-3 sm:items-center">
+    <div className="absolute inset-0 z-[60] flex items-end justify-center bg-slate-900/45 p-3 sm:items-center">
       <button type="button" className="absolute inset-0" aria-label="Close celebration" onClick={onClose} />
       <ConfettiBurst color={character.accentColor} />
       <div className="relative w-full max-w-sm overflow-hidden rounded-3xl bg-white shadow-2xl">

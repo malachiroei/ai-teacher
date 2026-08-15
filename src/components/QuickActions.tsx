@@ -10,7 +10,7 @@ interface QuickActionsProps {
 
 export function QuickActions({ onAnotherQuestion, onSuggestAnswer, disabled }: QuickActionsProps) {
   return (
-    <div className="flex gap-2 overflow-x-auto px-3 pb-2 pt-1">
+    <div className="flex shrink-0 gap-2 overflow-x-auto px-3 pb-2 pt-1">
       <button
         type="button"
         disabled={disabled}

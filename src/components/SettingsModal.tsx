@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Bell, BellOff, Loader2, Volume2, X } from "lucide-react";
 import {
   DAILY_GOAL_OPTIONS,
@@ -12,21 +12,34 @@ import {
 } from "@/lib/practice";
 import { cn } from "@/lib/utils";
 
+export interface SettingsSavePayload extends PracticeSettings {
+  nickname: string;
+  name_pronunciation: string;
+}
+
 interface SettingsModalProps {
   settings: PracticeSettings;
+  nickname: string;
+  namePronunciation: string;
   characterName: string;
+  voices: SpeechSynthesisVoice[];
   saving?: boolean;
   error?: string;
-  onSave: (settings: PracticeSettings) => void;
-  onPreviewVoice: (speed: VoiceSpeed) => void;
+  focusVoice?: boolean;
+  onSave: (settings: SettingsSavePayload) => void;
+  onPreviewVoice: (speed: VoiceSpeed, voiceUri: string) => void;
   onClose: () => void;
 }
 
 export function SettingsModal({
   settings,
+  nickname,
+  namePronunciation,
   characterName,
+  voices,
   saving,
   error,
+  focusVoice,
   onSave,
   onPreviewVoice,
   onClose,
@@ -36,7 +49,15 @@ export function SettingsModal({
   const [notify, setNotify] = useState(settings.notifications_enabled);
   const [phone, setPhone] = useState(settings.parent_whatsapp);
   const [speed, setSpeed] = useState<VoiceSpeed>(settings.voice_speed);
+  const [voiceUri, setVoiceUri] = useState(settings.preferred_voice);
+  const [englishName, setEnglishName] = useState(nickname);
+  const [pronunciation, setPronunciation] = useState(namePronunciation);
   const [localError, setLocalError] = useState("");
+
+  const selectedVoice = useMemo(
+    () => voices.find((voice) => voice.voiceURI === voiceUri || voice.name === voiceUri),
+    [voiceUri, voices],
+  );
 
   async function handleToggleNotify() {
     setLocalError("");
@@ -64,23 +85,30 @@ export function SettingsModal({
       setLocalError("Enter a parent phone number with country code, like +972501234567.");
       return;
     }
+    if (englishName.trim().length < 2) {
+      setLocalError("Enter the English name the tutor should use.");
+      return;
+    }
     onSave({
       daily_goal_minutes: goal,
       preferred_practice_time: time,
       notifications_enabled: notify,
       parent_whatsapp: trimmed,
       voice_speed: speed,
+      preferred_voice: voiceUri,
+      nickname: englishName.trim(),
+      name_pronunciation: pronunciation.trim(),
     });
   }
 
   return (
-    <div className="absolute inset-0 z-40 flex items-end justify-center bg-slate-900/40 p-3 sm:items-center">
+    <div className="absolute inset-0 z-[60] flex items-end justify-center bg-slate-900/40 p-3 sm:items-center">
       <button type="button" className="absolute inset-0" aria-label="Close settings" onClick={onClose} />
       <div className="relative flex max-h-[90%] w-full max-w-md flex-col overflow-hidden rounded-3xl bg-white shadow-2xl">
         <div className="flex items-center justify-between px-4 py-3">
           <div>
             <h2 className="text-base font-semibold text-slate-900">Practice settings</h2>
-            <p className="text-xs text-slate-500">Daily goal, reminders, and parent updates</p>
+            <p className="text-xs text-slate-500">Name, voice, daily goal, and parent updates</p>
           </div>
           <button
             type="button"
@@ -93,6 +121,78 @@ export function SettingsModal({
         </div>
 
         <div className="space-y-5 overflow-y-auto px-4 pb-5">
+          <section>
+            <p className="mb-2 text-[13px] font-semibold text-slate-800">English name</p>
+            <input
+              value={englishName}
+              onChange={(event) => setEnglishName(event.target.value)}
+              placeholder="Alin"
+              className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-[15px] outline-none focus:border-[#2f6bff] focus:bg-white"
+            />
+            <label htmlFor="name-pronunciation" className="mb-1.5 mt-3 block text-[13px] font-semibold text-slate-800">
+              How it sounds
+            </label>
+            <input
+              id="name-pronunciation"
+              value={pronunciation}
+              onChange={(event) => setPronunciation(event.target.value)}
+              placeholder="Aleen / אלין"
+              className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-[15px] outline-none focus:border-[#2f6bff] focus:bg-white"
+            />
+            <p className="mt-1.5 text-[12px] text-slate-500">
+              The tutor will always say {englishName.trim() || "this name"}
+              {pronunciation.trim() ? ` (pronounced ${pronunciation.trim()})` : ""}.
+            </p>
+          </section>
+
+          <section className={cn(focusVoice && "rounded-2xl ring-2 ring-[#2f6bff]/30 ring-offset-2")}>
+            <p className="mb-2 text-[13px] font-semibold text-slate-800">Speaker / Voice settings</p>
+            <p className="mb-2 text-[12px] text-slate-500">
+              Pick an English voice for {characterName}, then preview it before you save.
+            </p>
+            <label htmlFor="voice-select" className="sr-only">
+              English voice
+            </label>
+            <select
+              id="voice-select"
+              value={selectedVoice?.voiceURI ?? voiceUri}
+              onChange={(event) => setVoiceUri(event.target.value)}
+              className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-[14px] outline-none focus:border-[#2f6bff] focus:bg-white"
+            >
+              <option value="">Auto ({characterName})</option>
+              {voices.map((voice) => (
+                <option key={voice.voiceURI} value={voice.voiceURI}>
+                  {voice.name} ({voice.lang})
+                </option>
+              ))}
+            </select>
+            <div className="mt-3 grid grid-cols-3 gap-2">
+              {VOICE_SPEED_OPTIONS.map((option) => (
+                <button
+                  key={option}
+                  type="button"
+                  onClick={() => setSpeed(option)}
+                  className={cn(
+                    "rounded-2xl border py-2.5 text-sm font-semibold transition",
+                    speed === option
+                      ? "border-[#2f6bff] bg-blue-50 text-[#2f6bff]"
+                      : "border-slate-200 bg-slate-50 text-slate-700 hover:bg-white",
+                  )}
+                >
+                  {option === 0.8 ? "Slow 0.8x" : option === 1.2 ? "Fast 1.2x" : "Normal 1.0x"}
+                </button>
+              ))}
+            </div>
+            <button
+              type="button"
+              onClick={() => onPreviewVoice(speed, voiceUri)}
+              className="mt-3 flex h-11 w-full items-center justify-center gap-2 rounded-full border border-slate-200 bg-white text-[14px] font-semibold text-slate-700 hover:bg-slate-50"
+            >
+              <Volume2 className="h-4 w-4" />
+              שמע דוגמה
+            </button>
+          </section>
+
           <section>
             <p className="mb-2 text-[13px] font-semibold text-slate-800">Daily goal</p>
             <div className="grid grid-cols-4 gap-2">
@@ -161,38 +261,6 @@ export function SettingsModal({
               className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-[15px] outline-none focus:border-[#2f6bff] focus:bg-white"
             />
             <p className="mt-1.5 text-[12px] text-slate-500">Include the country code so WhatsApp can open the chat.</p>
-          </section>
-
-          <section>
-            <p className="mb-2 text-[13px] font-semibold text-slate-800">Voice accent & speed</p>
-            <p className="mb-2 text-[12px] text-slate-500">
-              {characterName} will speak with a matching English voice. Choose a speed that feels comfortable.
-            </p>
-            <div className="grid grid-cols-3 gap-2">
-              {VOICE_SPEED_OPTIONS.map((option) => (
-                <button
-                  key={option}
-                  type="button"
-                  onClick={() => setSpeed(option)}
-                  className={cn(
-                    "rounded-2xl border py-2.5 text-sm font-semibold transition",
-                    speed === option
-                      ? "border-[#2f6bff] bg-blue-50 text-[#2f6bff]"
-                      : "border-slate-200 bg-slate-50 text-slate-700 hover:bg-white",
-                  )}
-                >
-                  {option === 0.8 ? "Slow 0.8x" : option === 1.2 ? "Fast 1.2x" : "Normal 1.0x"}
-                </button>
-              ))}
-            </div>
-            <button
-              type="button"
-              onClick={() => onPreviewVoice(speed)}
-              className="mt-3 flex h-11 w-full items-center justify-center gap-2 rounded-full border border-slate-200 bg-white text-[14px] font-semibold text-slate-700 hover:bg-slate-50"
-            >
-              <Volume2 className="h-4 w-4" />
-              Preview voice
-            </button>
           </section>
 
           {localError || error ? (

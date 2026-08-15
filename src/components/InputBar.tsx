@@ -22,7 +22,7 @@ export function InputBar({
 }: InputBarProps) {
   return (
     <form
-      className="flex items-center gap-2 border-t border-slate-100 bg-white px-3 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]"
+    className="flex shrink-0 items-center gap-2 border-t border-slate-100 bg-white px-3 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]"
       onSubmit={(event) => {
         event.preventDefault();
         onSubmit();

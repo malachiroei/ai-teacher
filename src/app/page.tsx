@@ -6,6 +6,7 @@ import { AIBubble } from "@/components/AIBubble";
 import { AuthModal } from "@/components/AuthModal";
 import { CharacterSelectorModal } from "@/components/CharacterSelectorModal";
 import { ChatHeader } from "@/components/ChatHeader";
+import { ChatHistoryDrawer } from "@/components/ChatHistoryDrawer";
 import { GoalCelebrationModal } from "@/components/GoalCelebrationModal";
 import { InputBar } from "@/components/InputBar";
 import { LoadingScreen } from "@/components/LoadingScreen";
@@ -17,20 +18,24 @@ import { TypingIndicator } from "@/components/TypingIndicator";
 import { UserBubble } from "@/components/UserBubble";
 import { useSpeech, SPEECH_UNAVAILABLE_MESSAGE } from "@/hooks/useSpeech";
 import {
-  clearChatHistory,
+  archiveCurrentChat,
   describeProfileSaveError,
   fetchProfile,
+  listChatSessions,
   saveMessage,
   isProfileComplete,
   loadChatHistory,
   saveProfile,
   savePracticeSettings,
   saveSelectedCharacter,
+  saveTutorNickname,
+  startFreshChat,
+  type ArchivedChatSession,
 } from "@/lib/chat-history";
 import { getCharacter, type CharacterId } from "@/lib/characters";
 import { useDailyPractice } from "@/hooks/useDailyPractice";
 import { preferredSpeechLangFromText } from "@/lib/language";
-import { buildWelcomeMessage, profilePayload } from "@/lib/learner";
+import { buildWelcomeMessage, parseTutorNicknames, profilePayload, withTutorDisplayName } from "@/lib/learner";
 import {
   buildParentWhatsAppMessage,
   countUserMessagesToday,
@@ -38,11 +43,11 @@ import {
   normalizeWhatsAppPhone,
   practiceSettingsFromProfile,
   whatsappShareUrl,
-  type PracticeSettings,
 } from "@/lib/practice";
 import { createClient } from "@/lib/supabase/client";
 import type { Profile, ProfileInput } from "@/lib/supabase/types";
 import type { ChatApiResponse, GrammarFeedback, Message } from "@/types/chat";
+import type { SettingsSavePayload } from "@/components/SettingsModal";
 
 const INITIAL_SUGGESTIONS = [
   "I'm doing great, thanks!",
@@ -75,6 +80,11 @@ export default function HomePage() {
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [characterPickerOpen, setCharacterPickerOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsFocusVoice, setSettingsFocusVoice] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [sessions, setSessions] = useState<ArchivedChatSession[]>([]);
+  const [sessionsLoading, setSessionsLoading] = useState(false);
+  const [sessionsError, setSessionsError] = useState("");
   const [savingSettings, setSavingSettings] = useState(false);
   const [settingsError, setSettingsError] = useState("");
   const [notice, setNotice] = useState("");
@@ -84,7 +94,7 @@ export default function HomePage() {
   const wasListening = useRef(false);
   const needsOnboarding = Boolean(user && authReady && !isProfileComplete(profile));
   const chatUnlocked = Boolean(user && isProfileComplete(profile));
-  const character = getCharacter(profile?.selected_character);
+  const character = withTutorDisplayName(getCharacter(profile?.selected_character), profile);
   const practiceSettings = practiceSettingsFromProfile(profile);
   const {
     speak,
@@ -94,9 +104,11 @@ export default function HomePage() {
     isListening,
     transcript,
     speechSupported,
+    voices,
   } = useSpeech({
     character,
     rateMultiplier: practiceSettings.voice_speed,
+    preferredVoiceUri: practiceSettings.preferred_voice,
   });
   const {
     minutes: practicedMinutes,
@@ -117,11 +129,27 @@ export default function HomePage() {
     setCharacterPickerOpen(true);
   }
 
-  function openSettings() {
+  function openSettings(focusVoice = false) {
     setMenuOpen(false);
     setCharacterPickerOpen(false);
+    setHistoryOpen(false);
     setSettingsError("");
+    setSettingsFocusVoice(focusVoice);
     setSettingsOpen(true);
+  }
+
+  function openHistory() {
+    setMenuOpen(false);
+    setCharacterPickerOpen(false);
+    setSettingsOpen(false);
+    setHistoryOpen(true);
+    if (!user) return;
+    setSessionsLoading(true);
+    setSessionsError("");
+    void listChatSessions(createClient(), user.id)
+      .then((next) => setSessions(next))
+      .catch(() => setSessionsError("Couldn't load previous chats."))
+      .finally(() => setSessionsLoading(false));
   }
 
   const flash = useCallback((text: string) => {
@@ -359,62 +387,94 @@ export default function HomePage() {
     }
   }
 
-  async function handleClearChat() {
+  async function beginNewChat(nextProfile = profile) {
     if (!user) return;
     stopSpeaking();
     setMenuOpen(false);
     setShowSuggestions(false);
     setOpenTranslations({});
-    setIsLoading(true);
+    const snapshot = messages;
+    const welcome = buildWelcomeMessage(nextProfile);
+    setMessages([welcome]);
+    setSuggestions(INITIAL_SUGGESTIONS);
+
+    const supabase = createClient();
     try {
-      const supabase = createClient();
-      await clearChatHistory(supabase, user.id);
-      const welcome = buildWelcomeMessage(profile);
-      setMessages([welcome]);
-      setSuggestions(INITIAL_SUGGESTIONS);
+      const archived = await archiveCurrentChat(supabase, user.id, {
+        messages: snapshot,
+        characterId: character.id,
+        tutorName: character.name,
+      });
+      if (!archived.success) flash("Started a new chat, but the previous one couldn't be archived.");
+      await startFreshChat(supabase, user.id);
       await persistMessages(user.id, [
         { id: welcome.id, sender: "ai", text: welcome.text, translation: welcome.translation },
       ]);
     } catch {
-      flash("Couldn't clear the chat.");
-    } finally {
-      setIsLoading(false);
+      flash("Started a new chat, but saving it failed.");
     }
   }
 
-  async function handleSelectCharacter(characterId: CharacterId) {
-    if (!user || !profile || isLoading) return;
+  function handleClearChat() {
+    void beginNewChat();
+  }
+
+  function handleSelectCharacter(characterId: CharacterId) {
+    if (!user || !profile) return;
     setCharacterPickerOpen(false);
     setMenuOpen(false);
 
     const nextCharacter = getCharacter(characterId);
-    if (nextCharacter.id === character.id) return;
+    if (nextCharacter.id === getCharacter(profile.selected_character).id) return;
 
     stopSpeaking();
     setShowSuggestions(false);
     setOpenTranslations({});
-    setIsLoading(true);
 
+    const snapshot = messages;
     const nextProfile = { ...profile, selected_character: nextCharacter.id };
     setProfile(nextProfile);
-
-    try {
-      const supabase = createClient();
-      const saved = await saveSelectedCharacter(supabase, user.id, nextCharacter.id);
-      await clearChatHistory(supabase, user.id);
-      const welcome = buildWelcomeMessage(nextProfile);
-      setMessages([welcome]);
-      setSuggestions(INITIAL_SUGGESTIONS);
-      await persistMessages(user.id, [
-        { id: welcome.id, sender: "ai", text: welcome.text, translation: welcome.translation },
-      ]);
-      if (autoSpeak) speak(welcome.text);
-      if (!saved.success) flash("Tutor switched, but saving the choice failed.");
-    } catch {
-      flash("Couldn't switch tutors right now.");
-    } finally {
-      setIsLoading(false);
+    const welcome = buildWelcomeMessage(nextProfile);
+    setMessages([welcome]);
+    setSuggestions(INITIAL_SUGGESTIONS);
+    if (autoSpeak) {
+      try {
+        speak(welcome.text);
+      } catch {
+        /* speech preview should never block the switch */
+      }
     }
+
+    void (async () => {
+      try {
+        const supabase = createClient();
+        const saved = saveSelectedCharacter(supabase, user.id, nextCharacter.id);
+        const archived = archiveCurrentChat(supabase, user.id, {
+          messages: snapshot,
+          characterId: character.id,
+          tutorName: character.name,
+        });
+        const [savedResult, archivedResult] = await Promise.all([saved, archived]);
+        if (!archivedResult.success) flash("Tutor switched, but the previous chat couldn't be archived.");
+        await startFreshChat(supabase, user.id);
+        await persistMessages(user.id, [
+          { id: welcome.id, sender: "ai", text: welcome.text, translation: welcome.translation },
+        ]);
+        if (!savedResult.success) flash("Tutor switched, but saving the choice failed.");
+      } catch {
+        flash("Tutor switched. Saving in the background failed.");
+      }
+    })();
+  }
+
+  function handleSaveTutorName(name: string) {
+    if (!user || !profile) return;
+    const trimmed = name.trim() || getCharacter(profile.selected_character).name;
+    const map = { ...parseTutorNicknames(profile.tutor_nicknames), [character.id]: trimmed };
+    setProfile({ ...profile, tutor_nicknames: map, custom_tutor_name: trimmed });
+    void saveTutorNickname(createClient(), user.id, character.id, trimmed, profile.tutor_nicknames).then((result) => {
+      if (!result.success) flash("Couldn't save the tutor nickname.");
+    });
   }
 
   async function handleSignOut() {
@@ -460,7 +520,7 @@ export default function HomePage() {
     }
   }
 
-  async function handleSaveSettings(next: PracticeSettings) {
+  async function handleSaveSettings(next: SettingsSavePayload) {
     if (!user || !profile) return;
     setSavingSettings(true);
     setSettingsError("");
@@ -468,11 +528,14 @@ export default function HomePage() {
       current
         ? {
             ...current,
+            nickname: next.nickname,
+            name_pronunciation: next.name_pronunciation,
             daily_goal_minutes: next.daily_goal_minutes,
             preferred_practice_time: next.preferred_practice_time,
             notifications_enabled: next.notifications_enabled,
             parent_whatsapp: next.parent_whatsapp,
             voice_speed: next.voice_speed,
+            preferred_voice: next.preferred_voice,
           }
         : current,
     );
@@ -517,8 +580,8 @@ export default function HomePage() {
   }
 
   return (
-    <main className="min-h-screen bg-[radial-gradient(circle_at_top,_#dbe7ff,_#e8edf5_42%)]">
-      <div className="relative mx-auto flex min-h-screen max-w-md flex-col overflow-hidden bg-white shadow-xl">
+    <main className="h-dvh bg-[radial-gradient(circle_at_top,_#dbe7ff,_#e8edf5_42%)]">
+      <div className="relative mx-auto flex h-dvh max-h-dvh max-w-md flex-col overflow-hidden bg-white shadow-xl">
         {!authReady ? <LoadingScreen label="Getting things ready…" /> : null}
         {authReady && !user ? (
           <AuthModal
@@ -541,6 +604,7 @@ export default function HomePage() {
 
         <ChatHeader
           character={character}
+          tutorName={character.name}
           autoSpeak={autoSpeak}
           onToggleSpeak={() => {
             setAutoSpeak((value) => {
@@ -549,16 +613,19 @@ export default function HomePage() {
             });
           }}
           onOpenCharacters={openCharacterPicker}
+          onOpenVoiceSettings={() => openSettings(true)}
+          onOpenHistory={openHistory}
+          onSaveTutorName={handleSaveTutorName}
           menuOpen={menuOpen}
           onToggleMenu={() => setMenuOpen((value) => !value)}
-          onClearChat={() => void handleClearChat()}
-          onOpenSettings={openSettings}
+          onClearChat={handleClearChat}
+          onOpenSettings={() => openSettings(false)}
           onSignOut={() => void handleSignOut()}
           practicedMinutes={practicedMinutes}
           dailyGoalMinutes={practiceSettings.daily_goal_minutes}
         />
 
-        <div ref={scrollerRef} className="flex flex-1 flex-col gap-4 overflow-y-auto px-4 py-4">
+        <div ref={scrollerRef} className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-4 py-4">
           {messages.map((message) =>
             message.sender === "ai" ? (
               <AIBubble
@@ -582,7 +649,7 @@ export default function HomePage() {
         </div>
 
         {notice ? (
-          <p className="px-4 pb-1 text-center text-xs text-amber-700">{notice}</p>
+          <p className="shrink-0 px-4 pb-1 text-center text-xs text-amber-700">{notice}</p>
         ) : null}
 
         {showSuggestions ? (
@@ -607,23 +674,40 @@ export default function HomePage() {
         {characterPickerOpen ? (
           <CharacterSelectorModal
             selectedId={character.id}
-            onSelect={(id) => void handleSelectCharacter(id)}
+            nicknames={parseTutorNicknames(profile?.tutor_nicknames)}
+            onSelect={handleSelectCharacter}
             onClose={() => setCharacterPickerOpen(false)}
           />
         ) : null}
 
         {settingsOpen ? (
           <SettingsModal
-            key={`${practiceSettings.daily_goal_minutes}-${practiceSettings.preferred_practice_time}-${practiceSettings.parent_whatsapp}-${practiceSettings.notifications_enabled}-${practiceSettings.voice_speed}`}
+            key={`${practiceSettings.daily_goal_minutes}-${practiceSettings.preferred_practice_time}-${practiceSettings.parent_whatsapp}-${practiceSettings.notifications_enabled}-${practiceSettings.voice_speed}-${practiceSettings.preferred_voice}-${profile?.nickname ?? ""}-${profile?.name_pronunciation ?? ""}`}
             settings={practiceSettings}
+            nickname={profile?.nickname ?? ""}
+            namePronunciation={profile?.name_pronunciation ?? ""}
             characterName={character.name}
+            voices={voices}
             saving={savingSettings}
             error={settingsError}
+            focusVoice={settingsFocusVoice}
             onSave={(next) => void handleSaveSettings(next)}
-            onPreviewVoice={(speed) =>
-              speak(`Hi! I'm ${character.name}. Let's practice English together.`, { rateMultiplier: speed })
+            onPreviewVoice={(speed, voiceUri) =>
+              speak(`Hi! I'm ${character.name}. Let's practice English together.`, {
+                rateMultiplier: speed,
+                voiceUri,
+              })
             }
             onClose={() => setSettingsOpen(false)}
+          />
+        ) : null}
+
+        {historyOpen ? (
+          <ChatHistoryDrawer
+            sessions={sessions}
+            loading={sessionsLoading}
+            error={sessionsError}
+            onClose={() => setHistoryOpen(false)}
           />
         ) : null}
 

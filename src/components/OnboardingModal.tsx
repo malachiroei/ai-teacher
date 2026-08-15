@@ -17,6 +17,7 @@ const STEPS = ["Name", "Age", "Gender", "Level", "Interests"] as const;
 export function OnboardingModal({ saving, error, onComplete }: OnboardingModalProps) {
   const [step, setStep] = useState(0);
   const [nickname, setNickname] = useState("");
+  const [pronunciation, setPronunciation] = useState("");
   const [age, setAge] = useState("");
   const [gender, setGender] = useState<Gender | "">("");
   const [level, setLevel] = useState<EnglishLevel | "">("");
@@ -51,6 +52,7 @@ export function OnboardingModal({ saving, error, onComplete }: OnboardingModalPr
       }
       onComplete({
         nickname: nickname.trim(),
+        name_pronunciation: pronunciation.trim(),
         age: Number(age),
         gender: gender as Gender,
         english_level: level as EnglishLevel,
@@ -62,7 +64,7 @@ export function OnboardingModal({ saving, error, onComplete }: OnboardingModalPr
   }
 
   return (
-    <div className="absolute inset-0 z-40 flex flex-col bg-white px-5 pt-10 pb-6">
+    <div className="absolute inset-0 z-[60] flex flex-col bg-white px-5 pt-10 pb-6">
       <div className="mb-6 flex items-center gap-2">
         {step > 0 ? (
           <button
@@ -93,15 +95,23 @@ export function OnboardingModal({ saving, error, onComplete }: OnboardingModalPr
 
       <div className="flex-1">
         {step === 0 ? (
-          <Step title="What should Emma call you?" hint="Name or nickname">
+          <Step title="What should we call you in English?" hint="This is the name your tutor will always use">
             <input
               value={nickname}
               onChange={(event) => setNickname(event.target.value)}
               suppressHydrationWarning
               autoFocus
-              placeholder="Alex"
+              placeholder="Alin"
               className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3.5 text-lg outline-none focus:border-[#2f6bff] focus:bg-white"
             />
+            <input
+              value={pronunciation}
+              onChange={(event) => setPronunciation(event.target.value)}
+              suppressHydrationWarning
+              placeholder="Aleen / אלין"
+              className="mt-2 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-[15px] outline-none focus:border-[#2f6bff] focus:bg-white"
+            />
+            <p className="mt-2 text-[12px] text-slate-500">Optional: how it sounds, so the tutor never mispronounces it.</p>
           </Step>
         ) : null}
 

@@ -9,16 +9,20 @@ export interface Profile {
   id: string;
   nickname: string;
   full_name?: string | null;
+  name_pronunciation?: string | null;
   age: number;
   gender: Gender;
   english_level: EnglishLevel;
   interests: string[];
   selected_character?: CharacterId | string | null;
+  custom_tutor_name?: string | null;
+  tutor_nicknames?: Record<string, string> | string | null;
   daily_goal_minutes?: DailyGoalMinutes | number | null;
   preferred_practice_time?: string | null;
   notifications_enabled?: boolean | null;
   parent_whatsapp?: string | null;
   voice_speed?: number | null;
+  preferred_voice?: string | null;
   practice_date?: string | null;
   practice_seconds?: number | null;
   created_at?: string;
@@ -28,17 +32,21 @@ export interface Profile {
 export interface ProfileInput {
   nickname?: string;
   name?: string;
+  name_pronunciation?: string | null;
   age?: number | string | null;
   gender?: Gender | string | null;
   english_level?: EnglishLevel | string;
   englishLevel?: EnglishLevel | string;
   interests?: string[] | string | null;
   selected_character?: CharacterId | string | null;
+  custom_tutor_name?: string | null;
+  tutor_nicknames?: Record<string, string> | string | null;
   daily_goal_minutes?: DailyGoalMinutes | number | null;
   preferred_practice_time?: string | null;
   notifications_enabled?: boolean | null;
   parent_whatsapp?: string | null;
   voice_speed?: number | null;
+  preferred_voice?: string | null;
 }
 
 export interface ChatMessageRow {
@@ -49,6 +57,17 @@ export interface ChatMessageRow {
   translation: string | null;
   grammar_feedback: GrammarFeedback | null;
   created_at: string;
+}
+
+export interface ChatSessionRow {
+  id: string;
+  user_id: string;
+  character_id: string;
+  title: string;
+  preview: string;
+  messages: unknown;
+  created_at: string;
+  archived_at: string;
 }
 
 export interface Database {
@@ -64,6 +83,10 @@ export interface Database {
           english_level: EnglishLevel;
           interests?: string[];
           selected_character?: string | null;
+          name_pronunciation?: string | null;
+          custom_tutor_name?: string | null;
+          tutor_nicknames?: string | null;
+          preferred_voice?: string | null;
           daily_goal_minutes?: number | null;
           preferred_practice_time?: string | null;
           notifications_enabled?: boolean | null;
@@ -89,6 +112,21 @@ export interface Database {
           created_at?: string;
         };
         Update: Partial<Omit<ChatMessageRow, "id" | "user_id">>;
+        Relationships: [];
+      };
+      chat_sessions: {
+        Row: ChatSessionRow;
+        Insert: {
+          id?: string;
+          user_id: string;
+          character_id?: string | null;
+          title?: string | null;
+          preview?: string | null;
+          messages?: unknown;
+          created_at?: string;
+          archived_at?: string;
+        };
+        Update: Partial<Omit<ChatSessionRow, "id" | "user_id">>;
         Relationships: [];
       };
     };

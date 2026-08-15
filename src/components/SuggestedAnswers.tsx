@@ -9,7 +9,7 @@ export function SuggestedAnswers({ suggestions, onSelect }: SuggestedAnswersProp
   if (suggestions.length === 0) return null;
 
   return (
-    <div className="flex flex-wrap gap-2 px-3 pb-2">
+    <div className="flex shrink-0 flex-wrap gap-2 px-3 pb-2">
       {suggestions.map((suggestion) => (
         <button
           key={suggestion}
