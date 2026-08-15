@@ -18,6 +18,7 @@ export interface Profile {
   preferred_practice_time?: string | null;
   notifications_enabled?: boolean | null;
   parent_whatsapp?: string | null;
+  voice_speed?: number | null;
   practice_date?: string | null;
   practice_seconds?: number | null;
   created_at?: string;
@@ -37,6 +38,7 @@ export interface ProfileInput {
   preferred_practice_time?: string | null;
   notifications_enabled?: boolean | null;
   parent_whatsapp?: string | null;
+  voice_speed?: number | null;
 }
 
 export interface ChatMessageRow {
@@ -66,6 +68,7 @@ export interface Database {
           preferred_practice_time?: string | null;
           notifications_enabled?: boolean | null;
           parent_whatsapp?: string | null;
+          voice_speed?: number | null;
           practice_date?: string | null;
           practice_seconds?: number | null;
           created_at?: string;

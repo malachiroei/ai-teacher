@@ -15,6 +15,7 @@ create table if not exists public.profiles (
   parent_whatsapp text default '',
   practice_date date,
   practice_seconds integer default 0,
+  voice_speed real default 1,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -68,3 +69,4 @@ alter table public.profiles add column if not exists notifications_enabled boole
 alter table public.profiles add column if not exists parent_whatsapp text default '';
 alter table public.profiles add column if not exists practice_date date;
 alter table public.profiles add column if not exists practice_seconds integer default 0;
+alter table public.profiles add column if not exists voice_speed real default 1;

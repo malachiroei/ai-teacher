@@ -8,6 +8,10 @@ import {
   looksLikeGibberishEnglish,
   type SpeechLang,
 } from "@/lib/language";
+import { pickCharacterVoice, type Character } from "@/lib/characters";
+
+export const SPEECH_UNAVAILABLE_MESSAGE =
+  "Speech recognition is not fully supported or microphone access was denied";
 
 type RecognitionInstance = InstanceType<NonNullable<ReturnType<typeof getRecognitionConstructor>>>;
 
@@ -22,12 +26,11 @@ function getRecognitionConstructor() {
   return window.SpeechRecognition ?? window.webkitSpeechRecognition;
 }
 
-function pickEnglishVoice(voices: SpeechSynthesisVoice[]) {
+function isAppleTouchDevice() {
+  if (typeof navigator === "undefined") return false;
   return (
-    voices.find((voice) => voice.lang.toLowerCase().startsWith("en-us") && voice.name.includes("Google")) ||
-    voices.find((voice) => voice.lang.toLowerCase().startsWith("en-us")) ||
-    voices.find((voice) => voice.lang.toLowerCase().startsWith("en")) ||
-    null
+    /iPad|iPhone|iPod/i.test(navigator.userAgent) ||
+    (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1)
   );
 }
 
@@ -63,7 +66,10 @@ function pickBestTranscript(streams: Record<SpeechLang, LangStream>) {
   return hebrewScore > englishScore ? streams["he-IL"].text.trim() : streams["en-US"].text.trim();
 }
 
-function readResult(event: { resultIndex: number; results: { length: number; [index: number]: { isFinal: boolean; [index: number]: { transcript: string; confidence: number } } } }) {
+function readResult(event: {
+  resultIndex: number;
+  results: { length: number; [index: number]: { isFinal: boolean; [index: number]: { transcript: string; confidence: number } } };
+}) {
   let text = "";
   let confidence = 0;
   let isFinal = false;
@@ -78,20 +84,62 @@ function readResult(event: { resultIndex: number; results: { length: number; [in
   return { text: text.trim(), confidence, isFinal };
 }
 
-export function useSpeech() {
+async function ensureMicrophoneAccess() {
+  if (typeof navigator === "undefined") return false;
+  try {
+    if (!navigator.mediaDevices?.getUserMedia) return true;
+    const stream = await new Promise<MediaStream>((resolve, reject) => {
+      const timer = window.setTimeout(() => reject(new Error("microphone-timeout")), 8000);
+      navigator.mediaDevices
+        .getUserMedia({ audio: true })
+        .then((next) => {
+          window.clearTimeout(timer);
+          resolve(next);
+        })
+        .catch((error) => {
+          window.clearTimeout(timer);
+          reject(error);
+        });
+    });
+    for (const track of stream.getTracks()) {
+      try {
+        track.stop();
+      } catch {
+        /* already ended */
+      }
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function useSpeech(options?: { character?: Character | null; rateMultiplier?: number }) {
   const [isListening, setIsListening] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [transcript, setTranscript] = useState("");
   const [speechLang, setSpeechLang] = useState<SpeechLang>("en-US");
   const [speechSupported, setSpeechSupported] = useState({ tts: false, stt: false });
 
-  const recognizersRef = useRef<Partial<Record<SpeechLang, RecognitionInstance>>>({});
+  const recognizerRef = useRef<RecognitionInstance | null>(null);
+  const activeLangRef = useRef<SpeechLang>("en-US");
   const streamsRef = useRef(emptyStreams());
-  const voiceRef = useRef<SpeechSynthesisVoice | null>(null);
+  const voicesRef = useRef<SpeechSynthesisVoice[]>([]);
+  const characterRef = useRef<Character | null>(options?.character ?? null);
+  const rateMultiplierRef = useRef(options?.rateMultiplier ?? 1);
   const shouldListenRef = useRef(false);
-  const preferredLangRef = useRef<SpeechLang>("en-US");
-  const switchedForGibberishRef = useRef(false);
-  const startRecognizerRef = useRef<(lang: SpeechLang) => boolean>(() => false);
+  const startingRef = useRef(false);
+  const startWatchdogRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  characterRef.current = options?.character ?? null;
+  rateMultiplierRef.current = options?.rateMultiplier ?? 1;
+
+  const clearStartWatchdog = useCallback(() => {
+    if (startWatchdogRef.current != null) {
+      window.clearTimeout(startWatchdogRef.current);
+      startWatchdogRef.current = null;
+    }
+  }, []);
 
   const publishTranscript = useCallback(() => {
     const next = pickBestTranscript(streamsRef.current);
@@ -101,115 +149,144 @@ export function useSpeech() {
     }
   }, []);
 
-  const stopRecognizer = useCallback((lang: SpeechLang) => {
-    const recognition = recognizersRef.current[lang];
+  const resetListeningState = useCallback(() => {
+    shouldListenRef.current = false;
+    startingRef.current = false;
+    clearStartWatchdog();
+    streamsRef.current["en-US"].running = false;
+    streamsRef.current["he-IL"].running = false;
+    setIsListening(false);
+  }, [clearStartWatchdog]);
+
+  const stopRecognizer = useCallback(() => {
+    const recognition = recognizerRef.current;
+    const lang = activeLangRef.current;
     streamsRef.current[lang].running = false;
     if (!recognition) return;
-    recognition.onresult = null;
-    recognition.onerror = null;
-    recognition.onend = null;
-    recognition.onstart = null;
-    try {
-      recognition.abort();
-    } catch {
-      /* already stopped */
-    }
-    delete recognizersRef.current[lang];
-  }, []);
 
-  const stopAllRecognizers = useCallback(() => {
-    (Object.keys(recognizersRef.current) as SpeechLang[]).forEach(stopRecognizer);
-  }, [stopRecognizer]);
+    try {
+      recognition.onresult = null;
+      recognition.onerror = null;
+      recognition.onend = null;
+      recognition.onstart = null;
+      recognition.onnomatch = null;
+    } catch {
+      /* Safari can throw if the instance is already gone */
+    }
+
+    try {
+      if (isAppleTouchDevice()) {
+        recognition.stop();
+      } else {
+        recognition.abort();
+      }
+    } catch {
+      try {
+        recognition.stop();
+      } catch {
+        /* already stopped */
+      }
+    }
+
+    recognizerRef.current = null;
+  }, []);
 
   const startRecognizer = useCallback(
     (lang: SpeechLang) => {
       const Recognition = getRecognitionConstructor();
       if (!Recognition || !shouldListenRef.current) return false;
-      if (streamsRef.current[lang].running) return true;
 
-      const recognition = new Recognition();
-      recognition.lang = lang;
-      recognition.continuous = true;
-      recognition.interimResults = true;
-      recognition.maxAlternatives = 1;
+      try {
+        const recognition = new Recognition();
+        recognition.continuous = false;
+        recognition.interimResults = true;
+        recognition.maxAlternatives = 1;
+        recognition.lang = isAppleTouchDevice() ? "en-US" : lang;
+        activeLangRef.current = (recognition.lang as SpeechLang) || "en-US";
+        const activeLang = activeLangRef.current;
 
-      recognition.onstart = () => {
-        streamsRef.current[lang].running = true;
-        setIsListening(true);
-      };
-
-      recognition.onresult = (event) => {
-        const result = readResult(event);
-        streamsRef.current[lang] = {
-          text: result.text,
-          confidence: result.confidence,
-          running: true,
+        recognition.onstart = () => {
+          try {
+            clearStartWatchdog();
+            streamsRef.current[activeLang].running = true;
+            setIsListening(true);
+          } catch {
+            resetListeningState();
+          }
         };
-        publishTranscript();
 
-        const english = streamsRef.current["en-US"];
-        const hebrewRunning = streamsRef.current["he-IL"].running;
-        if (
-          lang === "en-US" &&
-          !hebrewRunning &&
-          !switchedForGibberishRef.current &&
-          looksLikeGibberishEnglish(english.text)
-        ) {
-          switchedForGibberishRef.current = true;
-          startRecognizerRef.current("he-IL");
-        }
-      };
+        recognition.onresult = (event) => {
+          try {
+            const result = readResult(event);
+            streamsRef.current[activeLang] = {
+              text: result.text,
+              confidence: result.confidence,
+              running: true,
+            };
+            publishTranscript();
+          } catch {
+            /* keep listening; a bad result must not freeze the mic */
+          }
+        };
 
-      recognition.onerror = (event) => {
-        if (event.error === "not-allowed" || event.error === "service-not-allowed") {
-          shouldListenRef.current = false;
-          streamsRef.current[lang].running = false;
-          setIsListening(false);
-          return;
-        }
-        if (event.error === "aborted") {
-          streamsRef.current[lang].running = false;
-        }
-      };
+        recognition.onnomatch = () => {
+          try {
+            streamsRef.current[activeLang].running = false;
+            publishTranscript();
+          } catch {
+            /* ignore */
+          }
+          resetListeningState();
+        };
 
-      recognition.onend = () => {
-        const stillCurrent = recognizersRef.current[lang] === recognition;
-        streamsRef.current[lang].running = false;
-        if (!shouldListenRef.current || !stillCurrent) {
-          const anyRunning = streamsRef.current["en-US"].running || streamsRef.current["he-IL"].running;
-          if (!anyRunning && !shouldListenRef.current) setIsListening(false);
-          return;
-        }
+        recognition.onerror = (event) => {
+          try {
+            streamsRef.current[activeLang].running = false;
+            const fatal =
+              event.error === "not-allowed" ||
+              event.error === "service-not-allowed" ||
+              event.error === "audio-capture" ||
+              event.error === "network";
+            if (fatal || event.error === "aborted" || event.error === "no-speech") {
+              shouldListenRef.current = false;
+            }
+            publishTranscript();
+          } catch {
+            shouldListenRef.current = false;
+          }
+          resetListeningState();
+        };
 
-        const sibling: SpeechLang = lang === "en-US" ? "he-IL" : "en-US";
-        const siblingRunning = streamsRef.current[sibling].running;
-        if (siblingRunning && !streamsRef.current[lang].text) {
-          return;
-        }
+        recognition.onend = () => {
+          try {
+            const stillCurrent = recognizerRef.current === recognition;
+            streamsRef.current[activeLang].running = false;
+            publishTranscript();
+            if (!stillCurrent) return;
+            recognizerRef.current = null;
+          } catch {
+            recognizerRef.current = null;
+          }
+          resetListeningState();
+        };
 
+        recognizerRef.current = recognition;
         try {
           recognition.start();
-          streamsRef.current[lang].running = true;
         } catch {
-          const anyRunning = streamsRef.current["en-US"].running || streamsRef.current["he-IL"].running;
-          if (!anyRunning) setIsListening(false);
+          recognizerRef.current = null;
+          streamsRef.current[activeLang].running = false;
+          return false;
         }
-      };
-
-      recognizersRef.current[lang] = recognition;
-      try {
-        recognition.start();
         return true;
       } catch {
+        recognizerRef.current = null;
         streamsRef.current[lang].running = false;
-        delete recognizersRef.current[lang];
         return false;
       }
     },
-    [publishTranscript],
+    [clearStartWatchdog, publishTranscript, resetListeningState],
   );
-
-  startRecognizerRef.current = startRecognizer;
 
   useEffect(() => {
     const tts = typeof window !== "undefined" && "speechSynthesis" in window;
@@ -217,10 +294,20 @@ export function useSpeech() {
     setSpeechSupported({ tts, stt });
     setSpeechLang(inferBrowserSpeechLang());
 
-    if (!tts) return;
+    if (!tts) {
+      return () => {
+        shouldListenRef.current = false;
+        stopRecognizer();
+        resetListeningState();
+      };
+    }
 
     const loadVoices = () => {
-      voiceRef.current = pickEnglishVoice(window.speechSynthesis.getVoices());
+      try {
+        voicesRef.current = window.speechSynthesis.getVoices();
+      } catch {
+        voicesRef.current = [];
+      }
     };
 
     loadVoices();
@@ -230,25 +317,35 @@ export function useSpeech() {
       window.speechSynthesis.removeEventListener("voiceschanged", loadVoices);
       window.speechSynthesis.cancel();
       shouldListenRef.current = false;
-      stopAllRecognizers();
+      stopRecognizer();
+      resetListeningState();
     };
-  }, [stopAllRecognizers]);
+  }, [resetListeningState, stopRecognizer]);
 
-  const speak = useCallback((text: string) => {
+  const speak = useCallback((text: string, preview?: { rateMultiplier?: number }) => {
     if (!text.trim() || typeof window === "undefined" || !("speechSynthesis" in window)) return;
 
-    window.speechSynthesis.cancel();
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.lang = "en-US";
-    utterance.rate = 0.95;
-    utterance.pitch = 1.05;
-    if (voiceRef.current) utterance.voice = voiceRef.current;
+    try {
+      window.speechSynthesis.cancel();
+      const character = characterRef.current;
+      const voices = voicesRef.current.length > 0 ? voicesRef.current : window.speechSynthesis.getVoices();
+      const voice = pickCharacterVoice(voices, character);
+      const speed = preview?.rateMultiplier ?? rateMultiplierRef.current ?? 1;
+      const baseRate = character?.voice.rate ?? 0.95;
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.lang = voice?.lang || "en-US";
+      utterance.rate = Math.min(1.4, Math.max(0.6, baseRate * speed));
+      utterance.pitch = character?.voice.pitch ?? 1;
+      if (voice) utterance.voice = voice;
 
-    utterance.onstart = () => setIsSpeaking(true);
-    utterance.onend = () => setIsSpeaking(false);
-    utterance.onerror = () => setIsSpeaking(false);
+      utterance.onstart = () => setIsSpeaking(true);
+      utterance.onend = () => setIsSpeaking(false);
+      utterance.onerror = () => setIsSpeaking(false);
 
-    window.speechSynthesis.speak(utterance);
+      window.speechSynthesis.speak(utterance);
+    } catch {
+      setIsSpeaking(false);
+    }
   }, []);
 
   const stopSpeaking = useCallback(() => {
@@ -260,44 +357,68 @@ export function useSpeech() {
   const stopListening = useCallback(() => {
     shouldListenRef.current = false;
     publishTranscript();
-    stopAllRecognizers();
-    setIsListening(false);
-  }, [publishTranscript, stopAllRecognizers]);
+    stopRecognizer();
+    resetListeningState();
+  }, [publishTranscript, resetListeningState, stopRecognizer]);
 
   const startListening = useCallback(
-    (preferredLang?: SpeechLang) => {
-      const Recognition = getRecognitionConstructor();
-      if (!Recognition) return false;
+    async (preferredLang?: SpeechLang) => {
+      try {
+        const Recognition = getRecognitionConstructor();
+        if (!Recognition) {
+          resetListeningState();
+          return false;
+        }
+        if (startingRef.current || shouldListenRef.current) return isListening;
 
-      shouldListenRef.current = false;
-      stopAllRecognizers();
-
-      const preferred = preferredLang ?? inferBrowserSpeechLang();
-      preferredLangRef.current = preferred;
-      switchedForGibberishRef.current = false;
-      streamsRef.current = emptyStreams();
-      setTranscript("");
-      setSpeechLang(preferred);
-      shouldListenRef.current = true;
-      setIsListening(true);
-
-      const secondary: SpeechLang = preferred === "he-IL" ? "en-US" : "he-IL";
-      const primaryStarted = startRecognizer(preferred);
-      const secondaryStarted = startRecognizer(secondary);
-
-      if (!primaryStarted && !secondaryStarted) {
+        startingRef.current = true;
         shouldListenRef.current = false;
-        setIsListening(false);
+        stopRecognizer();
+
+        const preferred = preferredLang ?? inferBrowserSpeechLang();
+        const lang: SpeechLang = isAppleTouchDevice() ? "en-US" : preferred;
+        streamsRef.current = emptyStreams();
+        setTranscript("");
+        setSpeechLang(lang);
+
+        const micOk = await ensureMicrophoneAccess();
+        if (!micOk) {
+          resetListeningState();
+          return false;
+        }
+
+        await new Promise((resolve) => window.setTimeout(resolve, 80));
+
+        shouldListenRef.current = true;
+        setIsListening(true);
+
+        const started = startRecognizer(lang);
+        if (!started) {
+          resetListeningState();
+          return false;
+        }
+
+        clearStartWatchdog();
+        startWatchdogRef.current = window.setTimeout(() => {
+          if (!streamsRef.current[activeLangRef.current].running) {
+            stopRecognizer();
+            resetListeningState();
+          }
+        }, 5000);
+
+        startingRef.current = false;
+        return true;
+      } catch {
+        stopRecognizer();
+        resetListeningState();
         return false;
       }
-
-      return true;
     },
-    [startRecognizer, stopAllRecognizers],
+    [clearStartWatchdog, isListening, resetListeningState, startRecognizer, stopRecognizer],
   );
 
   const toggleListening = useCallback(
-    (preferredLang?: SpeechLang) => {
+    async (preferredLang?: SpeechLang) => {
       if (isListening) {
         stopListening();
         return true;

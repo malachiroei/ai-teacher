@@ -1,6 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { getCharacter } from "@/lib/characters";
-import { normalizeDailyGoal, normalizePracticeTime } from "@/lib/practice";
+import { normalizeDailyGoal, normalizePracticeTime, normalizeVoiceSpeed } from "@/lib/practice";
 import type { ChatMessageRow, Profile, ProfileInput } from "@/lib/supabase/types";
 import type { GrammarFeedback, Message } from "@/types/chat";
 
@@ -69,6 +69,7 @@ function normalizeProfile(row: Partial<Profile> & Record<string, unknown>, fallb
     ),
     notifications_enabled: Boolean(row.notifications_enabled ?? fallback.notifications_enabled),
     parent_whatsapp: String(row.parent_whatsapp ?? fallback.parent_whatsapp ?? "").trim(),
+    voice_speed: normalizeVoiceSpeed(row.voice_speed ?? fallback.voice_speed),
     practice_date: (row.practice_date as string | null | undefined) ?? null,
     practice_seconds: Number(row.practice_seconds) || 0,
     created_at: row.created_at as string | undefined,
@@ -198,6 +199,7 @@ export async function savePracticeSettings(
     preferred_practice_time: string;
     notifications_enabled: boolean;
     parent_whatsapp: string;
+    voice_speed: number;
   },
 ): Promise<SaveProfileResult> {
   try {
@@ -206,6 +208,7 @@ export async function savePracticeSettings(
       preferred_practice_time: normalizePracticeTime(settings.preferred_practice_time),
       notifications_enabled: Boolean(settings.notifications_enabled),
       parent_whatsapp: settings.parent_whatsapp.trim(),
+      voice_speed: normalizeVoiceSpeed(settings.voice_speed),
       updated_at: new Date().toISOString(),
     };
 

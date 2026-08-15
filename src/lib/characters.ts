@@ -3,6 +3,13 @@ import { translateInterest } from "@/lib/hebrew";
 
 export type CharacterId = "emma" | "leo" | "mia" | "max" | "alex" | "luna" | "nova" | "zoey";
 
+export interface CharacterVoice {
+  gender: "female" | "male";
+  pitch: number;
+  rate: number;
+  preferredNames: string[];
+}
+
 export interface Character {
   id: CharacterId;
   name: string;
@@ -11,6 +18,7 @@ export interface Character {
   shortDescription: string;
   avatarUrl: string;
   accentColor: string;
+  voice: CharacterVoice;
   greetingTemplate: string;
   greetingTranslationTemplate: string;
   topicSentence: string;
@@ -39,6 +47,12 @@ export const CHARACTERS: Character[] = [
     shortDescription: "Patient, supportive, and clear — great for everyday English.",
     avatarUrl: cuteAvatar("lorelei", "Emma", "b6e3f4,c0aede,ffd5dc"),
     accentColor: "#7c6af0",
+    voice: {
+      gender: "female",
+      pitch: 1.08,
+      rate: 0.95,
+      preferredNames: ["Samantha", "Victoria", "Google US English", "Karen"],
+    },
     greetingTemplate:
       "Hi{{nameBit}}! I'm Emma, your friendly English tutor.{{topic}} How are you doing today?",
     greetingTranslationTemplate:
@@ -58,6 +72,12 @@ Stay age-appropriate. Keep helping with grammar and Hebrew translations as requi
     shortDescription: "Energetic gaming buddy who loves Roblox, Minecraft, and Fortnite.",
     avatarUrl: cuteAvatar("adventurer", "Leo", "c0aede,d1d4f9"),
     accentColor: "#22c55e",
+    voice: {
+      gender: "male",
+      pitch: 0.95,
+      rate: 1.02,
+      preferredNames: ["Daniel", "Fred", "Google UK English Male", "Alex"],
+    },
     greetingTemplate:
       "Yo{{nameBit}}! I'm Leo — let's level up your English.{{topic}} Ready to jump in?",
     greetingTranslationTemplate:
@@ -79,6 +99,12 @@ Stay age-appropriate. No violence details, no toxic "git gud" roasting.`,
     shortDescription: "Chatty about music, dance, social media, and fashion.",
     avatarUrl: cuteAvatar("lorelei", "Mia", "ffd5dc,ffdfbf"),
     accentColor: "#ec4899",
+    voice: {
+      gender: "female",
+      pitch: 1.14,
+      rate: 1.02,
+      preferredNames: ["Samantha", "Tessa", "Karen", "Google US English"],
+    },
     greetingTemplate:
       "Hey{{nameBit}}! I'm Mia. Let's chat in English about the stuff you actually care about.{{topic}} What's your vibe today?",
     greetingTranslationTemplate:
@@ -100,6 +126,12 @@ Stay age-appropriate. No dating advice, no adult social-media drama.`,
     shortDescription: "Adventurous guide for sci-fi, space, and mysteries.",
     avatarUrl: cuteAvatar("adventurer", "Max", "b6e3f4,d1d4f9"),
     accentColor: "#0ea5e9",
+    voice: {
+      gender: "male",
+      pitch: 0.86,
+      rate: 0.92,
+      preferredNames: ["Daniel", "Alex", "Aaron", "Google UK English Male"],
+    },
     greetingTemplate:
       "Greetings{{nameBit}}! Captain Max here.{{topic}} Ready for a new adventure in English?",
     greetingTranslationTemplate:
@@ -121,6 +153,12 @@ Stay age-appropriate. Wonder and excitement, not fear or grim sci-fi horror.`,
     shortDescription: "Lives for basketball, soccer, tennis, workouts, and team sports.",
     avatarUrl: cuteAvatar("adventurer", "Alex", "ffdfbf,ffd5dc"),
     accentColor: "#f59e0b",
+    voice: {
+      gender: "male",
+      pitch: 0.92,
+      rate: 1.0,
+      preferredNames: ["Alex", "Daniel", "Fred", "Tom"],
+    },
     greetingTemplate:
       "Hey{{nameBit}}! I'm Alex — let's get your English in game shape.{{topic}} What's your favorite sport right now?",
     greetingTranslationTemplate:
@@ -142,6 +180,12 @@ Stay age-appropriate. No body-shaming, no extreme training pressure.`,
     shortDescription: "Obsessed with anime, manga drawing, cosplay, and Japanese culture.",
     avatarUrl: cuteAvatar("lorelei", "Luna", "c0aede,b6e3f4"),
     accentColor: "#8b5cf6",
+    voice: {
+      gender: "female",
+      pitch: 1.15,
+      rate: 1.0,
+      preferredNames: ["Moira", "Fiona", "Samantha", "Victoria"],
+    },
     greetingTemplate:
       "Hey{{nameBit}}! I'm Luna. Anime, manga, and drawing are my world.{{topic}} What are you watching or drawing lately?",
     greetingTranslationTemplate:
@@ -163,6 +207,12 @@ Stay age-appropriate. No adult anime, no violent gore, no dating/romance advice.
     shortDescription: "Curious about robots, coding, space facts, and cool science experiments.",
     avatarUrl: cuteAvatar("bottts", "Nova", "b6e3f4,c0aede"),
     accentColor: "#14b8a6",
+    voice: {
+      gender: "male",
+      pitch: 0.9,
+      rate: 0.94,
+      preferredNames: ["Fred", "Daniel", "Rishi", "Google UK English Male"],
+    },
     greetingTemplate:
       "Hello{{nameBit}}! I'm Dr. Nova. Let's explore tech, science, and wild ideas in English.{{topic}} What are you curious about today?",
     greetingTranslationTemplate:
@@ -184,6 +234,12 @@ Stay age-appropriate. Wonder and discovery, not scary experiments or unsafe DIY.
     shortDescription: "Talks about pets, dogs, wildlife, veterinary rescue, and nature.",
     avatarUrl: cuteAvatar("lorelei", "Zoey", "d1d4f9,ffd5dc"),
     accentColor: "#10b981",
+    voice: {
+      gender: "female",
+      pitch: 1.02,
+      rate: 0.92,
+      preferredNames: ["Victoria", "Kathy", "Samantha", "Karen"],
+    },
     greetingTemplate:
       "Hi{{nameBit}}! I'm Zoey. I love animals, pets, and the wild outdoors.{{topic}} Do you have a pet, or a favorite animal?",
     greetingTranslationTemplate:
@@ -211,6 +267,52 @@ export function isCharacterId(value: string | null | undefined): value is Charac
 export function getCharacter(id?: string | null): Character {
   if (isCharacterId(id)) return CHARACTER_BY_ID[id];
   return CHARACTER_BY_ID[DEFAULT_CHARACTER_ID];
+}
+
+const FEMALE_VOICE_HINT = /samantha|victoria|karen|moira|tessa|zira|hazel|fiona|kathy|siri|female|woman|girl/i;
+const MALE_VOICE_HINT = /daniel|alex|fred|david|mark|tom|oliver|aaron|rishi|ravi|male|man|guy|boy/i;
+const NOVELTY_VOICE_HINT =
+  /compact|novelty|whisper|bad news|good news|bells|boing|bubbles|cellos|trinoids|zarvox|deranged|hysterical|superstar|wobble/i;
+
+function isEnglishVoice(voice: SpeechSynthesisVoice) {
+  const lang = voice.lang.toLowerCase();
+  return lang.startsWith("en-us") || lang.startsWith("en-gb") || lang === "en";
+}
+
+function scoreVoice(voice: SpeechSynthesisVoice, character: Character) {
+  const name = `${voice.name} ${voice.voiceURI}`.toLowerCase();
+  const lang = voice.lang.toLowerCase();
+  let score = 0;
+
+  if (lang.startsWith("en-us")) score += 5;
+  else if (lang.startsWith("en-gb")) score += 3;
+  else score += 1;
+
+  for (const preferred of character.voice.preferredNames) {
+    if (name.includes(preferred.toLowerCase())) score += 14;
+  }
+
+  const female = FEMALE_VOICE_HINT.test(name);
+  const male = MALE_VOICE_HINT.test(name);
+  if (character.voice.gender === "female") {
+    if (female) score += 7;
+    if (male && !female) score -= 9;
+  } else {
+    if (male) score += 7;
+    if (female && !male) score -= 9;
+  }
+
+  if (NOVELTY_VOICE_HINT.test(name)) score -= 12;
+  if (voice.localService) score += 1;
+  return score;
+}
+
+export function pickCharacterVoice(voices: SpeechSynthesisVoice[], character?: Character | null) {
+  const english = voices.filter(isEnglishVoice);
+  const pool = english.length > 0 ? english : voices;
+  if (pool.length === 0) return null;
+  const persona = character ?? getCharacter();
+  return [...pool].sort((a, b) => scoreVoice(b, persona) - scoreVoice(a, persona))[0] ?? null;
 }
 
 function fill(template: string, vars: Record<string, string>) {

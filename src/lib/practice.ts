@@ -3,8 +3,10 @@ import type { DailyGoalMinutes, Gender, Profile } from "@/lib/supabase/types";
 import type { Message } from "@/types/chat";
 
 export const DAILY_GOAL_OPTIONS = [5, 10, 15, 20] as const;
+export const VOICE_SPEED_OPTIONS = [0.8, 1, 1.2] as const;
 export const DEFAULT_DAILY_GOAL: DailyGoalMinutes = 10;
 export const DEFAULT_PRACTICE_TIME = "17:00";
+export const DEFAULT_VOICE_SPEED: VoiceSpeed = 1;
 
 export interface PracticeSnapshot {
   date: string;
@@ -12,11 +14,14 @@ export interface PracticeSnapshot {
   celebrated: boolean;
 }
 
+export type VoiceSpeed = 0.8 | 1 | 1.2;
+
 export interface PracticeSettings {
   daily_goal_minutes: DailyGoalMinutes;
   preferred_practice_time: string;
   notifications_enabled: boolean;
   parent_whatsapp: string;
+  voice_speed: VoiceSpeed;
 }
 
 const STOP_WORDS = new Set([
@@ -110,12 +115,18 @@ export function normalizePracticeTime(value: unknown) {
   return /^\d{2}:\d{2}$/.test(text) ? text : DEFAULT_PRACTICE_TIME;
 }
 
+export function normalizeVoiceSpeed(value: unknown): VoiceSpeed {
+  const n = Number(value);
+  return (VOICE_SPEED_OPTIONS as readonly number[]).includes(n) ? (n as VoiceSpeed) : DEFAULT_VOICE_SPEED;
+}
+
 export function practiceSettingsFromProfile(profile?: Profile | null): PracticeSettings {
   return {
     daily_goal_minutes: normalizeDailyGoal(profile?.daily_goal_minutes),
     preferred_practice_time: normalizePracticeTime(profile?.preferred_practice_time),
     notifications_enabled: Boolean(profile?.notifications_enabled),
     parent_whatsapp: String(profile?.parent_whatsapp ?? "").trim(),
+    voice_speed: normalizeVoiceSpeed(profile?.voice_speed),
   };
 }
 

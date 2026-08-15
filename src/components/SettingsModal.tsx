@@ -1,28 +1,41 @@
 "use client";
 
 import { useState } from "react";
-import { Bell, BellOff, Loader2, X } from "lucide-react";
+import { Bell, BellOff, Loader2, Volume2, X } from "lucide-react";
 import {
   DAILY_GOAL_OPTIONS,
+  VOICE_SPEED_OPTIONS,
   normalizeWhatsAppPhone,
   requestNotificationPermission,
   type PracticeSettings,
+  type VoiceSpeed,
 } from "@/lib/practice";
 import { cn } from "@/lib/utils";
 
 interface SettingsModalProps {
   settings: PracticeSettings;
+  characterName: string;
   saving?: boolean;
   error?: string;
   onSave: (settings: PracticeSettings) => void;
+  onPreviewVoice: (speed: VoiceSpeed) => void;
   onClose: () => void;
 }
 
-export function SettingsModal({ settings, saving, error, onSave, onClose }: SettingsModalProps) {
+export function SettingsModal({
+  settings,
+  characterName,
+  saving,
+  error,
+  onSave,
+  onPreviewVoice,
+  onClose,
+}: SettingsModalProps) {
   const [goal, setGoal] = useState(settings.daily_goal_minutes);
   const [time, setTime] = useState(settings.preferred_practice_time);
   const [notify, setNotify] = useState(settings.notifications_enabled);
   const [phone, setPhone] = useState(settings.parent_whatsapp);
+  const [speed, setSpeed] = useState<VoiceSpeed>(settings.voice_speed);
   const [localError, setLocalError] = useState("");
 
   async function handleToggleNotify() {
@@ -56,6 +69,7 @@ export function SettingsModal({ settings, saving, error, onSave, onClose }: Sett
       preferred_practice_time: time,
       notifications_enabled: notify,
       parent_whatsapp: trimmed,
+      voice_speed: speed,
     });
   }
 
@@ -147,6 +161,38 @@ export function SettingsModal({ settings, saving, error, onSave, onClose }: Sett
               className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-[15px] outline-none focus:border-[#2f6bff] focus:bg-white"
             />
             <p className="mt-1.5 text-[12px] text-slate-500">Include the country code so WhatsApp can open the chat.</p>
+          </section>
+
+          <section>
+            <p className="mb-2 text-[13px] font-semibold text-slate-800">Voice accent & speed</p>
+            <p className="mb-2 text-[12px] text-slate-500">
+              {characterName} will speak with a matching English voice. Choose a speed that feels comfortable.
+            </p>
+            <div className="grid grid-cols-3 gap-2">
+              {VOICE_SPEED_OPTIONS.map((option) => (
+                <button
+                  key={option}
+                  type="button"
+                  onClick={() => setSpeed(option)}
+                  className={cn(
+                    "rounded-2xl border py-2.5 text-sm font-semibold transition",
+                    speed === option
+                      ? "border-[#2f6bff] bg-blue-50 text-[#2f6bff]"
+                      : "border-slate-200 bg-slate-50 text-slate-700 hover:bg-white",
+                  )}
+                >
+                  {option === 0.8 ? "Slow 0.8x" : option === 1.2 ? "Fast 1.2x" : "Normal 1.0x"}
+                </button>
+              ))}
+            </div>
+            <button
+              type="button"
+              onClick={() => onPreviewVoice(speed)}
+              className="mt-3 flex h-11 w-full items-center justify-center gap-2 rounded-full border border-slate-200 bg-white text-[14px] font-semibold text-slate-700 hover:bg-slate-50"
+            >
+              <Volume2 className="h-4 w-4" />
+              Preview voice
+            </button>
           </section>
 
           {localError || error ? (

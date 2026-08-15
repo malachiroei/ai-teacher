@@ -15,7 +15,7 @@ import { SettingsModal } from "@/components/SettingsModal";
 import { SuggestedAnswers } from "@/components/SuggestedAnswers";
 import { TypingIndicator } from "@/components/TypingIndicator";
 import { UserBubble } from "@/components/UserBubble";
-import { useSpeech } from "@/hooks/useSpeech";
+import { useSpeech, SPEECH_UNAVAILABLE_MESSAGE } from "@/hooks/useSpeech";
 import {
   clearChatHistory,
   describeProfileSaveError,
@@ -82,6 +82,10 @@ export default function HomePage() {
   const scrollerRef = useRef<HTMLDivElement>(null);
   const pendingTranscript = useRef("");
   const wasListening = useRef(false);
+  const needsOnboarding = Boolean(user && authReady && !isProfileComplete(profile));
+  const chatUnlocked = Boolean(user && isProfileComplete(profile));
+  const character = getCharacter(profile?.selected_character);
+  const practiceSettings = practiceSettingsFromProfile(profile);
   const {
     speak,
     stopSpeaking,
@@ -90,12 +94,10 @@ export default function HomePage() {
     isListening,
     transcript,
     speechSupported,
-  } = useSpeech();
-
-  const needsOnboarding = Boolean(user && authReady && !isProfileComplete(profile));
-  const chatUnlocked = Boolean(user && isProfileComplete(profile));
-  const character = getCharacter(profile?.selected_character);
-  const practiceSettings = practiceSettingsFromProfile(profile);
+  } = useSpeech({
+    character,
+    rateMultiplier: practiceSettings.voice_speed,
+  });
   const {
     minutes: practicedMinutes,
     celebrationOpen,
@@ -337,20 +339,24 @@ export default function HomePage() {
     }
   }
 
-  function handleToggleMic() {
+  async function handleToggleMic() {
     if (isListening) {
       stopListening();
       return;
     }
     if (!speechSupported.stt) {
-      flash("Voice input isn't supported in this browser. Try Chrome.");
+      flash(SPEECH_UNAVAILABLE_MESSAGE);
       return;
     }
     const lastUserText = [...messages].reverse().find((message) => message.sender === "user")?.text ?? "";
-    const started = startListening(
-      preferredSpeechLangFromText(input) ?? preferredSpeechLangFromText(lastUserText),
-    );
-    if (!started) flash("Couldn't access the microphone.");
+    try {
+      const started = await startListening(
+        preferredSpeechLangFromText(input) ?? preferredSpeechLangFromText(lastUserText),
+      );
+      if (!started) flash(SPEECH_UNAVAILABLE_MESSAGE);
+    } catch {
+      flash(SPEECH_UNAVAILABLE_MESSAGE);
+    }
   }
 
   async function handleClearChat() {
@@ -466,6 +472,7 @@ export default function HomePage() {
             preferred_practice_time: next.preferred_practice_time,
             notifications_enabled: next.notifications_enabled,
             parent_whatsapp: next.parent_whatsapp,
+            voice_speed: next.voice_speed,
           }
         : current,
     );
@@ -607,11 +614,15 @@ export default function HomePage() {
 
         {settingsOpen ? (
           <SettingsModal
-            key={`${practiceSettings.daily_goal_minutes}-${practiceSettings.preferred_practice_time}-${practiceSettings.parent_whatsapp}-${practiceSettings.notifications_enabled}`}
+            key={`${practiceSettings.daily_goal_minutes}-${practiceSettings.preferred_practice_time}-${practiceSettings.parent_whatsapp}-${practiceSettings.notifications_enabled}-${practiceSettings.voice_speed}`}
             settings={practiceSettings}
+            characterName={character.name}
             saving={savingSettings}
             error={settingsError}
             onSave={(next) => void handleSaveSettings(next)}
+            onPreviewVoice={(speed) =>
+              speak(`Hi! I'm ${character.name}. Let's practice English together.`, { rateMultiplier: speed })
+            }
             onClose={() => setSettingsOpen(false)}
           />
         ) : null}

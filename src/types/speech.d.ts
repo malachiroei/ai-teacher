@@ -33,6 +33,7 @@ interface SpeechRecognitionLike extends EventTarget {
   onerror: ((event: SpeechRecognitionErrorEventLike) => void) | null;
   onend: (() => void) | null;
   onstart: (() => void) | null;
+  onnomatch: (() => void) | null;
 }
 
 interface SpeechRecognitionConstructor {
