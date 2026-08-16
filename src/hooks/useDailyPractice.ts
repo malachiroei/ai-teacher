@@ -15,6 +15,9 @@ import {
 import { createClient } from "@/lib/supabase/client";
 import type { Profile } from "@/lib/supabase/types";
 
+const IDLE_MS = 60_000;
+const MIN_MESSAGES_FOR_GOAL = 2;
+
 export function useDailyPractice(options: {
   userId: string | null;
   enabled: boolean;
@@ -23,14 +26,36 @@ export function useDailyPractice(options: {
   reminderTime: string;
   remindersEnabled: boolean;
   characterName: string;
+  engaged?: boolean;
+  lastUserMessageAt?: number;
+  userMessageCount?: number;
 }) {
-  const { userId, enabled, profile, goalMinutes, reminderTime, remindersEnabled, characterName } = options;
+  const {
+    userId,
+    enabled,
+    profile,
+    goalMinutes,
+    reminderTime,
+    remindersEnabled,
+    characterName,
+    engaged = false,
+    lastUserMessageAt = 0,
+    userMessageCount = 0,
+  } = options;
   const [seconds, setSeconds] = useState(0);
   const [celebrated, setCelebrated] = useState(false);
   const [celebrationOpen, setCelebrationOpen] = useState(false);
   const secondsRef = useRef(0);
   const celebratedRef = useRef(false);
+  const pendingGoalRef = useRef(false);
   const hydratedUser = useRef<string | null>(null);
+  const engagedRef = useRef(engaged);
+  const lastUserMessageAtRef = useRef(lastUserMessageAt);
+  const userMessageCountRef = useRef(userMessageCount);
+
+  engagedRef.current = engaged;
+  lastUserMessageAtRef.current = lastUserMessageAt;
+  userMessageCountRef.current = userMessageCount;
 
   useEffect(() => {
     if (!userId) {
@@ -40,6 +65,7 @@ export function useDailyPractice(options: {
       setCelebrationOpen(false);
       secondsRef.current = 0;
       celebratedRef.current = false;
+      pendingGoalRef.current = false;
       return;
     }
 
@@ -55,9 +81,10 @@ export function useDailyPractice(options: {
     savePracticeSnapshot(userId, next);
     secondsRef.current = merged;
     celebratedRef.current = celebrated;
+    pendingGoalRef.current = !celebrated && merged >= Math.max(1, goalMinutes) * 60;
     setSeconds(merged);
     setCelebrated(celebrated);
-  }, [userId, profile?.id, profile?.practice_date, profile?.practice_seconds]);
+  }, [userId, profile?.id, profile?.practice_date, profile?.practice_seconds, goalMinutes]);
 
   const persist = useCallback(
     (nextSeconds: number, nextCelebrated: boolean, syncRemote: boolean) => {
@@ -73,12 +100,34 @@ export function useDailyPractice(options: {
     [userId],
   );
 
+  const tryCelebrate = useCallback(
+    (nextSeconds: number) => {
+      if (celebratedRef.current) return;
+      const goalSeconds = Math.max(1, goalMinutes) * 60;
+      if (nextSeconds < goalSeconds && !pendingGoalRef.current) return;
+      if (userMessageCountRef.current < MIN_MESSAGES_FOR_GOAL) {
+        pendingGoalRef.current = nextSeconds >= goalSeconds;
+        return;
+      }
+      celebratedRef.current = true;
+      pendingGoalRef.current = false;
+      setCelebrated(true);
+      setCelebrationOpen(true);
+      persist(nextSeconds, true, true);
+    },
+    [goalMinutes, persist],
+  );
+
   useEffect(() => {
     if (!enabled || !userId) return;
 
     let lastSync = Date.now();
     const tick = () => {
       if (typeof document !== "undefined" && document.visibilityState !== "visible") return;
+      const lastMessage = lastUserMessageAtRef.current;
+      const recentlyMessaged = lastMessage > 0 && Date.now() - lastMessage < IDLE_MS;
+      if (!engagedRef.current && !recentlyMessaged) return;
+
       const previous = secondsRef.current;
       const next = previous + 1;
       secondsRef.current = next;
@@ -88,14 +137,7 @@ export function useDailyPractice(options: {
       const justReached = !celebratedRef.current && next >= goalSeconds;
 
       if (crossedMinute || justReached) setSeconds(next);
-
-      if (justReached) {
-        celebratedRef.current = true;
-        setCelebrated(true);
-        setCelebrationOpen(true);
-        persist(next, true, true);
-        return;
-      }
+      if (justReached || pendingGoalRef.current) tryCelebrate(next);
 
       const shouldSync = Date.now() - lastSync >= 30000;
       if (shouldSync) {
@@ -117,7 +159,13 @@ export function useDailyPractice(options: {
       window.removeEventListener("pagehide", onHide);
       persist(secondsRef.current, celebratedRef.current, true);
     };
-  }, [enabled, userId, goalMinutes, persist]);
+  }, [enabled, userId, goalMinutes, persist, tryCelebrate]);
+
+  useEffect(() => {
+    if (pendingGoalRef.current || (!celebratedRef.current && secondsRef.current >= Math.max(1, goalMinutes) * 60)) {
+      tryCelebrate(secondsRef.current);
+    }
+  }, [userMessageCount, goalMinutes, tryCelebrate]);
 
   useEffect(() => {
     if (!remindersEnabled || !enabled) return;

@@ -101,14 +101,14 @@ export function OnboardingModal({ saving, error, onComplete }: OnboardingModalPr
               onChange={(event) => setNickname(event.target.value)}
               suppressHydrationWarning
               autoFocus
-              placeholder="Alin"
+              placeholder="Your name"
               className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3.5 text-lg outline-none focus:border-[#2f6bff] focus:bg-white"
             />
             <input
               value={pronunciation}
               onChange={(event) => setPronunciation(event.target.value)}
               suppressHydrationWarning
-              placeholder="Aleen / אלין"
+              placeholder="How it sounds (optional)"
               className="mt-2 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-[15px] outline-none focus:border-[#2f6bff] focus:bg-white"
             />
             <p className="mt-2 text-[12px] text-slate-500">Optional: how it sounds, so the tutor never mispronounces it.</p>

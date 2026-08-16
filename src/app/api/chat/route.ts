@@ -3,12 +3,13 @@ import { NextResponse } from "next/server";
 import { getCharacter } from "@/lib/characters";
 import { detectUserLanguage, looksLikeAwkwardEnglish, looksLikeGibberishEnglish } from "@/lib/language";
 import { buildLearnerContext } from "@/lib/learner";
+import { normalizeNewMemories, type UserMemory } from "@/lib/memory";
 import { polishHebrewTranslation } from "@/lib/hebrew";
 import { trustSystemCertificates } from "@/lib/tls";
 import type { ProfileInput } from "@/lib/supabase/types";
 import type { ChatApiResponse, GrammarFeedback, Message } from "@/types/chat";
 
-type ChatAction = "chat" | "change_topic";
+type ChatAction = "chat" | "change_topic" | "daily_open";
 
 interface ChatRequestBody {
   messages?: Pick<Message, "sender" | "text">[];
@@ -16,19 +17,22 @@ interface ChatRequestBody {
   action?: ChatAction;
   profile?: ProfileInput | null;
   characterId?: string | null;
+  memories?: UserMemory[];
+  isFirstSessionToday?: boolean;
 }
 
-const BASE_TUTOR_RULES = `You are an English conversation tutor for Hebrew-speaking learners aged 11-15.
+const BASE_TUTOR_RULES = `You are a charismatic, highly engaging English conversation mentor for Hebrew-speaking learners aged 11-15.
 Stay fully in the assigned CHARACTER PERSONA for tone, vocabulary, emojis, and interests.
 Keep replies short (1-3 sentences) and always continue with a follow-up question in English.
 Detect the language of the learner's LATEST message automatically.
 Content must stay kind and age-appropriate.
 
-Be dynamic, lively, and proactive — like a fun older friend, not a quiz or a worksheet.
-If the learner gives a short or low-effort reply (yes, yeah, ok, okay, fine, idk, I don't know, hmm, nothing, sure):
+Be a lively teen mentor, not a quiz, worksheet, or flat chatbot.
+Never answer with a dead-end reply. Always advance the dialogue with an exciting question, a bit of humor, a roleplay prompt, or a friendly challenge.
+If the learner gives a short or low-effort reply (yes, yeah, no, ok, okay, fine, idk, I don't know, hmm, nothing, sure):
 - Do NOT stall, scold, or repeat "tell me more".
-- Effortlessly introduce an engaging new topic, a funny kid-safe trivia fact, a mini-choice, or a 20-second game (would you rather, riddle, finish the sentence, silly scenario).
-- Keep it suitable for ages 11-15 and tied to their interests when you can.
+- Smoothly shift or deepen the chat with gaming, sports, music, school gossip, fun dilemmas, trivia, or a 20-second mini-game (would you rather, riddle, finish the sentence).
+- Keep it suitable for ages 11-15 and tied to their interests or memories when you can.
 
 If a LEARNER PROFILE is provided:
 - Address the learner by their exact English name. Never misspell it.
@@ -36,6 +40,8 @@ If a LEARNER PROFILE is provided:
 - Prefer topics connected to their interests.
 - Use the correct gender when referring to them.
 - Celebrate correct English specifically. When they struggle, scaffold a sentence they can complete.
+
+If LONG-TERM MEMORY is provided, remember those personal facts and plans. Bring them up naturally when they fit — especially on the first session of a new day.
 
 Return STRICT JSON with this exact shape:
 {
@@ -46,13 +52,15 @@ Return STRICT JSON with this exact shape:
     "explanation": string,
     "correctedText": string
   },
-  "suggestedAnswers": string[]
+  "suggestedAnswers": string[],
+  "newMemories": [{ "fact": string, "kind": "plan" | "event" | "preference" | "personal", "eventOn": string | null }]
 }
 
 GLOBAL RULES:
 - aiResponse is always primarily English (you may quote one English target sentence).
 - translation: a natural, fluent, spoken-Israeli-Hebrew rendering of the FULL aiResponse (not the user's message).
 - suggestedAnswers: 2-3 short English replies the learner could say next, matching their level and the follow-up question.
+- newMemories: 0-3 durable personal facts, upcoming events, or plans the learner just mentioned (e.g. going to the beach tomorrow, has a test, got a new pet). Skip small talk and one-off feelings. eventOn is YYYY-MM-DD when a date is clear, otherwise null. Return [] if nothing new.
 
 HEBREW TRANSLATION RULES (strict):
 - Write the way people actually speak in Israel. Do not translate word-for-word.
@@ -588,7 +596,7 @@ function mockReply(
   turn: number,
   profile?: ProfileInput | null,
 ): ChatApiResponse {
-  if (action === "change_topic") {
+  if (action === "change_topic" || action === "daily_open") {
     return pickTopic(turn, profile);
   }
 
@@ -627,6 +635,7 @@ function extractJson(content: string): ChatApiResponse {
     suggestedAnswers: Array.isArray(parsed.suggestedAnswers)
       ? parsed.suggestedAnswers.slice(0, 3).map(String)
       : [],
+    newMemories: normalizeNewMemories(parsed.newMemories),
   };
 }
 
@@ -649,6 +658,7 @@ async function callGemini(
   action: ChatAction,
   profile?: ProfileInput | null,
   characterId?: string | null,
+  extras?: { memories?: UserMemory[]; isFirstSessionToday?: boolean },
 ): Promise<ChatApiResponse> {
   trustSystemCertificates();
 
@@ -660,13 +670,20 @@ async function callGemini(
 
   const detected = userMessage ? detectUserLanguage(userMessage) : "en";
   const languageHint =
-    action === "change_topic"
-      ? "The user asked to change the topic. Prefer a topic from their interests if listed."
-      : detected === "he"
-        ? "DETECTED LANGUAGE: Hebrew. Follow the Hebrew-input rules (teach English, hasError false)."
-        : "DETECTED LANGUAGE: English. Follow the English-input rules (strict grammar, Hebrew explanations if error). Reply about THIS message's topic.";
+    action === "daily_open"
+      ? "This is the first session of a new day. Greet them warmly using long-term memory when a plan or event fits. Example vibe: Hey! You mentioned yesterday you were going to the beach — how was it?!"
+      : action === "change_topic"
+        ? "The user asked to change the topic. Prefer a topic from their interests if listed."
+        : extras?.isFirstSessionToday
+          ? "This is their first turn today. If a memory is timely, open with a natural callback, then keep chatting about their latest message."
+          : detected === "he"
+            ? "DETECTED LANGUAGE: Hebrew. Follow the Hebrew-input rules (teach English, hasError false)."
+            : "DETECTED LANGUAGE: English. Follow the English-input rules (strict grammar, Hebrew explanations if error). Reply about THIS message's topic.";
 
-  const learnerContext = buildLearnerContext(profile);
+  const learnerContext = buildLearnerContext(profile, {
+    memories: extras?.memories,
+    isFirstSessionToday: Boolean(extras?.isFirstSessionToday || action === "daily_open"),
+  });
   const character = getCharacter(characterId ?? profile?.selected_character);
   const system = [
     character.systemPrompt,
@@ -684,9 +701,11 @@ async function callGemini(
     .join("\n\n");
 
   const latestText =
-    action === "change_topic"
-      ? "Please change the topic and start a new conversation thread."
-      : userMessage;
+    action === "daily_open"
+      ? "Start today's session. Use long-term memory if a yesterday plan or upcoming event fits, then ask an engaging follow-up."
+      : action === "change_topic"
+        ? "Please change the topic and start a new conversation thread."
+        : userMessage;
 
   const contents: Array<{ role: "user" | "model"; parts: Array<{ text: string }> }> = history
     .slice(-12)
@@ -731,6 +750,17 @@ async function callGemini(
           type: Type.ARRAY,
           items: { type: Type.STRING },
         },
+        newMemories: {
+          type: Type.ARRAY,
+          items: {
+            type: Type.OBJECT,
+            properties: {
+              fact: { type: Type.STRING },
+              kind: { type: Type.STRING },
+              eventOn: { type: Type.STRING },
+            },
+          },
+        },
       },
       required: ["aiResponse", "translation", "grammarAnalysis", "suggestedAnswers"],
     },
@@ -761,11 +791,14 @@ async function callGemini(
 export async function POST(request: Request) {
   try {
     const body = (await request.json()) as ChatRequestBody;
-    const action: ChatAction = body.action === "change_topic" ? "change_topic" : "chat";
+    const action: ChatAction =
+      body.action === "change_topic" ? "change_topic" : body.action === "daily_open" ? "daily_open" : "chat";
     const userMessage = (body.userMessage ?? "").trim();
     const history = Array.isArray(body.messages) ? body.messages : [];
     const profile = body.profile ?? null;
     const characterId = body.characterId ?? profile?.selected_character ?? null;
+    const memories = Array.isArray(body.memories) ? body.memories : [];
+    const isFirstSessionToday = Boolean(body.isFirstSessionToday);
 
     if (action === "chat" && !userMessage) {
       return NextResponse.json({ error: "userMessage is required" }, { status: 400 });
@@ -776,7 +809,10 @@ export async function POST(request: Request) {
       console.warn("GEMINI_API_KEY is missing from the environment. Using mock replies.");
     } else {
       try {
-        const payload = await callGemini(history, userMessage, action, profile, characterId);
+        const payload = await callGemini(history, userMessage, action, profile, characterId, {
+          memories,
+          isFirstSessionToday,
+        });
         return NextResponse.json(payload);
       } catch (error) {
         logGeminiError("Gemini fallback", error);

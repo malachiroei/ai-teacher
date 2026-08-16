@@ -2,8 +2,9 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { getCharacter } from "@/lib/characters";
 import { parseTutorNicknames, serializeTutorNicknames } from "@/lib/learner";
 import { normalizeDailyGoal, normalizePracticeTime, normalizeVoiceSpeed } from "@/lib/practice";
-import type { ChatMessageRow, ChatSessionRow, Profile, ProfileInput } from "@/lib/supabase/types";
+import type { ChatMessageRow, ChatSessionRow, Profile, ProfileInput, UserMemoryRow } from "@/lib/supabase/types";
 import type { GrammarFeedback, Message } from "@/types/chat";
+import type { NewMemory, UserMemory } from "@/lib/memory";
 
 export function parseInterests(value: unknown): string[] {
   if (Array.isArray(value)) {
@@ -366,6 +367,7 @@ export async function saveMessage(
     text: string;
     translation?: string | null;
     grammarFeedback?: GrammarFeedback | null;
+    createdAt?: number | string | null;
   },
 ) {
   const id =
@@ -374,6 +376,10 @@ export async function saveMessage(
       ? crypto.randomUUID()
       : `${Date.now()}-${Math.random().toString(16).slice(2)}`);
 
+  const createdAt = message.createdAt
+    ? new Date(message.createdAt).toISOString()
+    : new Date().toISOString();
+
   const payload = {
     id,
     user_id: userId,
@@ -381,7 +387,7 @@ export async function saveMessage(
     text: message.text,
     translation: message.translation ?? null,
     grammar_feedback: message.grammarFeedback ?? null,
-    created_at: new Date().toISOString(),
+    created_at: createdAt,
   };
 
   const { error } = await supabase.from("chat_messages").insert(payload);
@@ -521,6 +527,106 @@ export async function listChatSessions(supabase: SupabaseClient, userId: string)
     throw error;
   }
   return ((data ?? []) as ChatSessionRow[]).map(rowToSession);
+}
+
+export async function restoreChatSession(
+  supabase: SupabaseClient,
+  userId: string,
+  session: ArchivedChatSession,
+  current: { messages: Message[]; characterId?: string | null; tutorName?: string },
+) {
+  const sameThread =
+    current.messages.length === session.messages.length &&
+    current.messages[0]?.id === session.messages[0]?.id &&
+    current.messages[current.messages.length - 1]?.id === session.messages[session.messages.length - 1]?.id;
+  if (!sameThread) {
+    await archiveCurrentChat(supabase, userId, current);
+  }
+  await startFreshChat(supabase, userId);
+  for (const message of session.messages) {
+    const result = await saveMessage(supabase, userId, {
+      id: message.id,
+      sender: message.sender,
+      text: message.text,
+      translation: message.translation,
+      grammarFeedback: message.grammarFeedback,
+      createdAt: message.timestamp,
+    });
+    if (!result.success) {
+      console.error("Chat Restore Error:", result.error);
+    }
+  }
+  return session.messages;
+}
+
+function rowToMemory(row: UserMemoryRow): UserMemory {
+  return {
+    id: row.id,
+    fact: row.fact,
+    kind: (row.kind as UserMemory["kind"]) || "personal",
+    eventOn: row.event_on,
+    createdAt: new Date(row.created_at).getTime(),
+  };
+}
+
+export async function loadUserMemories(supabase: SupabaseClient, userId: string): Promise<UserMemory[]> {
+  const { data, error } = await supabase
+    .from("user_memories")
+    .select("*")
+    .eq("user_id", userId)
+    .order("last_mentioned_at", { ascending: false })
+    .limit(20);
+
+  if (error) {
+    console.error("User Memories Load Error:", error);
+    return [];
+  }
+  return ((data ?? []) as UserMemoryRow[]).map(rowToMemory);
+}
+
+export async function upsertUserMemories(
+  supabase: SupabaseClient,
+  userId: string,
+  existing: UserMemory[],
+  incoming: NewMemory[],
+): Promise<UserMemory[]> {
+  if (incoming.length === 0) return existing;
+  const now = new Date().toISOString();
+  const next = [...existing];
+
+  for (const memory of incoming) {
+    const match = next.find((item) => item.fact.toLowerCase() === memory.fact.toLowerCase());
+    if (match) {
+      const { error } = await supabase
+        .from("user_memories")
+        .update({ last_mentioned_at: now, kind: memory.kind, event_on: memory.eventOn ?? match.eventOn ?? null })
+        .eq("id", match.id)
+        .eq("user_id", userId);
+      if (error) console.error("User Memories Update Error:", error);
+      continue;
+    }
+
+    const row = {
+      id:
+        typeof crypto !== "undefined" && "randomUUID" in crypto
+          ? crypto.randomUUID()
+          : `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+      user_id: userId,
+      fact: memory.fact,
+      kind: memory.kind,
+      event_on: memory.eventOn ?? null,
+      created_at: now,
+      last_mentioned_at: now,
+    };
+    const { error } = await supabase.from("user_memories").insert(row);
+    if (error) {
+      console.error("User Memories Save Error:", error);
+      continue;
+    }
+    next.unshift(rowToMemory(row as UserMemoryRow));
+  }
+
+  return next.slice(0, 20);
 }
 
 export async function clearChatHistory(supabase: SupabaseClient, userId: string) {

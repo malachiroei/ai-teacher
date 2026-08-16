@@ -2,6 +2,7 @@ import type { Profile, ProfileInput } from "@/lib/supabase/types";
 import type { Message } from "@/types/chat";
 import { buildCharacterGreeting, getCharacter, type Character } from "@/lib/characters";
 import { hebrewTranslationGuide } from "@/lib/hebrew";
+import { formatMemoriesForPrompt, type UserMemory } from "@/lib/memory";
 
 export const INTEREST_OPTIONS = ["Movies", "Cars", "Travel", "Sports", "Tech", "Music", "Food", "Games"] as const;
 
@@ -118,7 +119,10 @@ function skillGuidance(level: string) {
   return "B1: clear everyday English, a little challenge is OK, still short enough for chat";
 }
 
-export function buildLearnerContext(profile?: ProfileInput | null) {
+export function buildLearnerContext(
+  profile?: ProfileInput | null,
+  extras?: { memories?: UserMemory[]; isFirstSessionToday?: boolean },
+) {
   if (!profile) return "";
 
   const pronouns =
@@ -154,6 +158,13 @@ ADAPTIVE DIFFICULTY (every reply):
 - If they use English correctly: celebrate specifically (tense, vocabulary, a full sentence) — then keep chatting.
 - If they struggle (very short answers, many errors, Hebrew only): gently scaffold — offer a starter they can complete, model 1 clear sentence, then invite them to try.
 - Never talk over their head, and never baby them if they are doing well.
+
+${formatMemoriesForPrompt(extras?.memories ?? [])}
+${
+  extras?.isFirstSessionToday
+    ? "FIRST SESSION TODAY: If a memory is timely, open or continue with a natural callback before moving on."
+    : ""
+}
 
 Personalize: prefer follow-up questions about their interests. Keep vocabulary matched to their level.`;
 }

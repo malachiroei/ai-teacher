@@ -1,3 +1,5 @@
+import type { NewMemory } from "@/lib/memory";
+
 export interface GrammarFeedback {
   hasError: boolean;
   explanation: string;
@@ -20,4 +22,5 @@ export interface ChatApiResponse {
   translation: string;
   grammarAnalysis: GrammarFeedback;
   suggestedAnswers: SuggestedResponse;
+  newMemories?: NewMemory[];
 }

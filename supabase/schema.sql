@@ -51,9 +51,23 @@ create table if not exists public.chat_sessions (
 create index if not exists chat_sessions_user_archived_idx
   on public.chat_sessions (user_id, archived_at desc);
 
+create table if not exists public.user_memories (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users (id) on delete cascade,
+  fact text not null,
+  kind text not null default 'personal',
+  event_on date,
+  created_at timestamptz not null default now(),
+  last_mentioned_at timestamptz not null default now()
+);
+
+create index if not exists user_memories_user_recent_idx
+  on public.user_memories (user_id, last_mentioned_at desc);
+
 alter table public.profiles enable row level security;
 alter table public.chat_messages enable row level security;
 alter table public.chat_sessions enable row level security;
+alter table public.user_memories enable row level security;
 
 drop policy if exists "profiles_select_own" on public.profiles;
 drop policy if exists "profiles_insert_own" on public.profiles;
@@ -64,6 +78,10 @@ drop policy if exists "chat_delete_own" on public.chat_messages;
 drop policy if exists "sessions_select_own" on public.chat_sessions;
 drop policy if exists "sessions_insert_own" on public.chat_sessions;
 drop policy if exists "sessions_delete_own" on public.chat_sessions;
+drop policy if exists "memories_select_own" on public.user_memories;
+drop policy if exists "memories_insert_own" on public.user_memories;
+drop policy if exists "memories_update_own" on public.user_memories;
+drop policy if exists "memories_delete_own" on public.user_memories;
 
 create policy "profiles_select_own" on public.profiles
   for select using (auth.uid() = id);
@@ -84,6 +102,15 @@ create policy "sessions_select_own" on public.chat_sessions
 create policy "sessions_insert_own" on public.chat_sessions
   for insert with check (auth.uid() = user_id);
 create policy "sessions_delete_own" on public.chat_sessions
+  for delete using (auth.uid() = user_id);
+
+create policy "memories_select_own" on public.user_memories
+  for select using (auth.uid() = user_id);
+create policy "memories_insert_own" on public.user_memories
+  for insert with check (auth.uid() = user_id);
+create policy "memories_update_own" on public.user_memories
+  for update using (auth.uid() = user_id) with check (auth.uid() = user_id);
+create policy "memories_delete_own" on public.user_memories
   for delete using (auth.uid() = user_id);
 
 -- If you already created interests as text[], convert it:

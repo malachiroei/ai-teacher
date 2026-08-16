@@ -70,6 +70,16 @@ export interface ChatSessionRow {
   archived_at: string;
 }
 
+export interface UserMemoryRow {
+  id: string;
+  user_id: string;
+  fact: string;
+  kind: string;
+  event_on: string | null;
+  created_at: string;
+  last_mentioned_at: string;
+}
+
 export interface Database {
   public: {
     Tables: {
@@ -127,6 +137,20 @@ export interface Database {
           archived_at?: string;
         };
         Update: Partial<Omit<ChatSessionRow, "id" | "user_id">>;
+        Relationships: [];
+      };
+      user_memories: {
+        Row: UserMemoryRow;
+        Insert: {
+          id?: string;
+          user_id: string;
+          fact: string;
+          kind?: string | null;
+          event_on?: string | null;
+          created_at?: string;
+          last_mentioned_at?: string;
+        };
+        Update: Partial<Omit<UserMemoryRow, "id" | "user_id">>;
         Relationships: [];
       };
     };

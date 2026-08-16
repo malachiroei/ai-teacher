@@ -7,6 +7,7 @@ import {
   VOICE_SPEED_OPTIONS,
   normalizeWhatsAppPhone,
   requestNotificationPermission,
+  voiceSpeedLabel,
   type PracticeSettings,
   type VoiceSpeed,
 } from "@/lib/practice";
@@ -126,22 +127,22 @@ export function SettingsModal({
             <input
               value={englishName}
               onChange={(event) => setEnglishName(event.target.value)}
-              placeholder="Alin"
+              placeholder={nickname || "Your English name"}
               className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-[15px] outline-none focus:border-[#2f6bff] focus:bg-white"
             />
             <label htmlFor="name-pronunciation" className="mb-1.5 mt-3 block text-[13px] font-semibold text-slate-800">
-              How it sounds
+              How it sounds <span className="font-medium text-slate-400">(optional)</span>
             </label>
             <input
               id="name-pronunciation"
               value={pronunciation}
               onChange={(event) => setPronunciation(event.target.value)}
-              placeholder="Aleen / אלין"
+              placeholder="Phonetic spelling"
               className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-[15px] outline-none focus:border-[#2f6bff] focus:bg-white"
             />
             <p className="mt-1.5 text-[12px] text-slate-500">
-              The tutor will always say {englishName.trim() || "this name"}
-              {pronunciation.trim() ? ` (pronounced ${pronunciation.trim()})` : ""}.
+              Optional phonetic guide so the tutor pronounces{" "}
+              {englishName.trim() || "your English name"} correctly — not a second name.
             </p>
           </section>
 
@@ -166,20 +167,33 @@ export function SettingsModal({
                 </option>
               ))}
             </select>
-            <div className="mt-3 grid grid-cols-3 gap-2">
+            <label htmlFor="speech-rate" className="mb-1.5 mt-3 block text-[13px] font-semibold text-slate-800">
+              Speech rate
+            </label>
+            <input
+              id="speech-rate"
+              type="range"
+              min={0}
+              max={VOICE_SPEED_OPTIONS.length - 1}
+              step={1}
+              value={Math.max(0, VOICE_SPEED_OPTIONS.indexOf(speed))}
+              onChange={(event) => setSpeed(VOICE_SPEED_OPTIONS[Number(event.target.value)] ?? 1)}
+              className="w-full accent-[#2f6bff]"
+            />
+            <div className="mt-2 grid grid-cols-2 gap-2">
               {VOICE_SPEED_OPTIONS.map((option) => (
                 <button
                   key={option}
                   type="button"
                   onClick={() => setSpeed(option)}
                   className={cn(
-                    "rounded-2xl border py-2.5 text-sm font-semibold transition",
+                    "rounded-2xl border py-2.5 text-[13px] font-semibold transition",
                     speed === option
                       ? "border-[#2f6bff] bg-blue-50 text-[#2f6bff]"
                       : "border-slate-200 bg-slate-50 text-slate-700 hover:bg-white",
                   )}
                 >
-                  {option === 0.8 ? "Slow 0.8x" : option === 1.2 ? "Fast 1.2x" : "Normal 1.0x"}
+                  {voiceSpeedLabel(option)}
                 </button>
               ))}
             </div>

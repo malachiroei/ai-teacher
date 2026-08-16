@@ -2,7 +2,7 @@
 
 import { CharacterAvatar } from "@/components/CharacterAvatar";
 import { MixedBidiText } from "@/components/MixedBidiText";
-import { Languages, Volume2 } from "lucide-react";
+import { Globe, Volume2 } from "lucide-react";
 import type { Character } from "@/lib/characters";
 import { cn } from "@/lib/utils";
 import type { Message } from "@/types/chat";
@@ -49,7 +49,7 @@ export function AIBubble({
               showTranslation ? "text-[#2f6bff]" : "text-slate-500 hover:text-[#2f6bff]",
             )}
           >
-            <Languages className="h-3.5 w-3.5" />
+            <Globe className="h-3.5 w-3.5" />
           </button>
         </div>
         {showTranslation && message.translation ? (

@@ -6,7 +6,7 @@ import { AIBubble } from "@/components/AIBubble";
 import { AuthModal } from "@/components/AuthModal";
 import { CharacterSelectorModal } from "@/components/CharacterSelectorModal";
 import { ChatHeader } from "@/components/ChatHeader";
-import { ChatHistoryDrawer } from "@/components/ChatHistoryDrawer";
+import { PreviousChatsModal } from "@/components/PreviousChatsModal";
 import { GoalCelebrationModal } from "@/components/GoalCelebrationModal";
 import { InputBar } from "@/components/InputBar";
 import { LoadingScreen } from "@/components/LoadingScreen";
@@ -22,6 +22,8 @@ import {
   describeProfileSaveError,
   fetchProfile,
   listChatSessions,
+  loadUserMemories,
+  restoreChatSession,
   saveMessage,
   isProfileComplete,
   loadChatHistory,
@@ -30,18 +32,21 @@ import {
   saveSelectedCharacter,
   saveTutorNickname,
   startFreshChat,
+  upsertUserMemories,
   type ArchivedChatSession,
 } from "@/lib/chat-history";
 import { getCharacter, type CharacterId } from "@/lib/characters";
 import { useDailyPractice } from "@/hooks/useDailyPractice";
 import { preferredSpeechLangFromText } from "@/lib/language";
 import { buildWelcomeMessage, parseTutorNicknames, profilePayload, withTutorDisplayName } from "@/lib/learner";
+import type { UserMemory } from "@/lib/memory";
 import {
   buildParentWhatsAppMessage,
   countUserMessagesToday,
   extractPracticeTopics,
   normalizeWhatsAppPhone,
   practiceSettingsFromProfile,
+  startOfLocalDay,
   whatsappShareUrl,
 } from "@/lib/practice";
 import { createClient } from "@/lib/supabase/client";
@@ -85,6 +90,8 @@ export default function HomePage() {
   const [sessions, setSessions] = useState<ArchivedChatSession[]>([]);
   const [sessionsLoading, setSessionsLoading] = useState(false);
   const [sessionsError, setSessionsError] = useState("");
+  const [restoringId, setRestoringId] = useState<string | null>(null);
+  const [memories, setMemories] = useState<UserMemory[]>([]);
   const [savingSettings, setSavingSettings] = useState(false);
   const [settingsError, setSettingsError] = useState("");
   const [notice, setNotice] = useState("");
@@ -92,6 +99,7 @@ export default function HomePage() {
   const scrollerRef = useRef<HTMLDivElement>(null);
   const pendingTranscript = useRef("");
   const wasListening = useRef(false);
+  const dailyOpenRef = useRef("");
   const needsOnboarding = Boolean(user && authReady && !isProfileComplete(profile));
   const chatUnlocked = Boolean(user && isProfileComplete(profile));
   const character = withTutorDisplayName(getCharacter(profile?.selected_character), profile);
@@ -105,11 +113,14 @@ export default function HomePage() {
     transcript,
     speechSupported,
     voices,
+    isSpeaking,
   } = useSpeech({
     character,
     rateMultiplier: practiceSettings.voice_speed,
     preferredVoiceUri: practiceSettings.preferred_voice,
   });
+  const userMessageCountToday = countUserMessagesToday(messages);
+  const lastUserMessageAt = [...messages].reverse().find((message) => message.sender === "user")?.timestamp ?? 0;
   const {
     minutes: practicedMinutes,
     celebrationOpen,
@@ -122,6 +133,9 @@ export default function HomePage() {
     reminderTime: practiceSettings.preferred_practice_time,
     remindersEnabled: practiceSettings.notifications_enabled,
     characterName: character.name,
+    engaged: isListening || isSpeaking || isLoading,
+    lastUserMessageAt,
+    userMessageCount: userMessageCountToday,
   });
 
   function openCharacterPicker() {
@@ -162,6 +176,8 @@ export default function HomePage() {
     setProfile(null);
     setHistoryReady(false);
     setMessages([]);
+    setMemories([]);
+    dailyOpenRef.current = "";
     setProfileError("");
 
     if (!nextUser) {
@@ -175,7 +191,11 @@ export default function HomePage() {
       setProfile(nextProfile);
       if (isProfileComplete(nextProfile)) {
         try {
-          const history = await loadChatHistory(supabase, nextUser.id);
+          const [history, nextMemories] = await Promise.all([
+            loadChatHistory(supabase, nextUser.id),
+            loadUserMemories(supabase, nextUser.id),
+          ]);
+          setMemories(nextMemories);
           setMessages(history.length > 0 ? history : [buildWelcomeMessage(nextProfile)]);
         } catch {
           setMessages([buildWelcomeMessage(nextProfile)]);
@@ -241,6 +261,7 @@ export default function HomePage() {
       text: string;
       translation?: string | null;
       grammarFeedback?: GrammarFeedback | null;
+      createdAt?: number | string | null;
     }>,
   ) {
     const supabase = createClient();
@@ -255,9 +276,19 @@ export default function HomePage() {
     return ok;
   }
 
+  async function persistMemories(incoming?: ChatApiResponse["newMemories"]) {
+    if (!user || !incoming?.length) return;
+    try {
+      const next = await upsertUserMemories(createClient(), user.id, memories, incoming);
+      setMemories(next);
+    } catch {
+      /* memory save is best-effort */
+    }
+  }
+
   async function requestReply(payload: {
     userMessage?: string;
-    action?: "chat" | "change_topic";
+    action?: "chat" | "change_topic" | "daily_open";
     history: Message[];
   }): Promise<ChatApiResponse> {
     const response = await fetch("/api/chat", {
@@ -269,6 +300,10 @@ export default function HomePage() {
         messages: payload.history.map(({ sender, text }) => ({ sender, text })),
         profile: profilePayload(profile),
         characterId: character.id,
+        memories,
+        isFirstSessionToday: !payload.history.some(
+          (message) => message.sender === "user" && message.timestamp >= startOfLocalDay(),
+        ),
       }),
     });
 
@@ -320,6 +355,8 @@ export default function HomePage() {
       setSuggestions(data.suggestedAnswers ?? []);
       if (autoSpeak) speak(data.aiResponse);
 
+      void persistMemories(data.newMemories);
+
       const saved = await persistMessages(user.id, [
           { id: userMessage.id, sender: "user", text, grammarFeedback: grammar },
           {
@@ -353,6 +390,7 @@ export default function HomePage() {
       setMessages((current) => [...current, aiMessage]);
       setSuggestions(data.suggestedAnswers ?? []);
       if (autoSpeak) speak(data.aiResponse);
+      void persistMemories(data.newMemories);
       try {
         await persistMessages(user.id, [
           { id: aiMessage.id, sender: "ai", text: data.aiResponse, translation: data.translation },
@@ -428,43 +466,10 @@ export default function HomePage() {
     if (nextCharacter.id === getCharacter(profile.selected_character).id) return;
 
     stopSpeaking();
-    setShowSuggestions(false);
-    setOpenTranslations({});
-
-    const snapshot = messages;
-    const nextProfile = { ...profile, selected_character: nextCharacter.id };
-    setProfile(nextProfile);
-    const welcome = buildWelcomeMessage(nextProfile);
-    setMessages([welcome]);
-    setSuggestions(INITIAL_SUGGESTIONS);
-    if (autoSpeak) {
-      try {
-        speak(welcome.text);
-      } catch {
-        /* speech preview should never block the switch */
-      }
-    }
-
-    void (async () => {
-      try {
-        const supabase = createClient();
-        const saved = saveSelectedCharacter(supabase, user.id, nextCharacter.id);
-        const archived = archiveCurrentChat(supabase, user.id, {
-          messages: snapshot,
-          characterId: character.id,
-          tutorName: character.name,
-        });
-        const [savedResult, archivedResult] = await Promise.all([saved, archived]);
-        if (!archivedResult.success) flash("Tutor switched, but the previous chat couldn't be archived.");
-        await startFreshChat(supabase, user.id);
-        await persistMessages(user.id, [
-          { id: welcome.id, sender: "ai", text: welcome.text, translation: welcome.translation },
-        ]);
-        if (!savedResult.success) flash("Tutor switched, but saving the choice failed.");
-      } catch {
-        flash("Tutor switched. Saving in the background failed.");
-      }
-    })();
+    setProfile({ ...profile, selected_character: nextCharacter.id });
+    void saveSelectedCharacter(createClient(), user.id, nextCharacter.id).then((saved) => {
+      if (!saved.success) flash("Tutor switched, but saving the choice failed.");
+    });
   }
 
   function handleSaveTutorName(name: string) {
@@ -476,6 +481,72 @@ export default function HomePage() {
       if (!result.success) flash("Couldn't save the tutor nickname.");
     });
   }
+
+  async function handleRestoreSession(session: ArchivedChatSession) {
+    if (!user || !profile) return;
+    setRestoringId(session.id);
+    try {
+      const supabase = createClient();
+      const restored = await restoreChatSession(supabase, user.id, session, {
+        messages,
+        characterId: character.id,
+        tutorName: character.name,
+      });
+      const nextCharacter = getCharacter(session.characterId);
+      setProfile({ ...profile, selected_character: nextCharacter.id });
+      setMessages(restored.length > 0 ? restored : [buildWelcomeMessage(profile)]);
+      setOpenTranslations({});
+      setShowSuggestions(false);
+      setHistoryOpen(false);
+      void saveSelectedCharacter(supabase, user.id, nextCharacter.id);
+    } catch {
+      flash("Couldn't open that chat.");
+    } finally {
+      setRestoringId(null);
+    }
+  }
+
+  useEffect(() => {
+    if (!chatUnlocked || !user || !historyReady || memories.length === 0 || isLoading) return;
+    const dayKey = `${user.id}:${new Date().toDateString()}`;
+    if (dailyOpenRef.current === dayKey) return;
+    const hasUserToday = messages.some(
+      (message) => message.sender === "user" && message.timestamp >= startOfLocalDay(),
+    );
+    if (hasUserToday) {
+      dailyOpenRef.current = dayKey;
+      return;
+    }
+    const welcomeOnly = messages.length > 0 && messages.every((message) => message.sender === "ai") && messages.length <= 2;
+    if (!welcomeOnly) {
+      dailyOpenRef.current = dayKey;
+      return;
+    }
+
+    dailyOpenRef.current = dayKey;
+    void (async () => {
+      try {
+        const data = await requestReply({ action: "daily_open", history: messages });
+        const opener: Message = {
+          id: createId(),
+          sender: "ai",
+          text: data.aiResponse,
+          timestamp: Date.now(),
+          translation: data.translation,
+        };
+        setMessages([opener]);
+        setSuggestions(data.suggestedAnswers ?? []);
+        const supabase = createClient();
+        await startFreshChat(supabase, user.id);
+        await persistMessages(user.id, [
+          { id: opener.id, sender: "ai", text: opener.text, translation: opener.translation },
+        ]);
+        if (autoSpeak) speak(data.aiResponse);
+      } catch {
+        /* keep the regular welcome if the memory greeting fails */
+      }
+    })();
+  }, [chatUnlocked, historyReady, memories.length, user, messages, isLoading]);
 
   async function handleSignOut() {
     setMenuOpen(false);
@@ -693,25 +764,30 @@ export default function HomePage() {
             focusVoice={settingsFocusVoice}
             onSave={(next) => void handleSaveSettings(next)}
             onPreviewVoice={(speed, voiceUri) =>
-              speak(`Hi! I'm ${character.name}. Let's practice English together.`, {
-                rateMultiplier: speed,
-                voiceUri,
-              })
+              speak(
+                `Hi ${profile?.nickname?.trim() || "there"}! I'm ${character.name}. Let's practice English together.`,
+                {
+                  rateMultiplier: speed,
+                  voiceUri,
+                },
+              )
             }
             onClose={() => setSettingsOpen(false)}
           />
         ) : null}
 
         {historyOpen ? (
-          <ChatHistoryDrawer
+          <PreviousChatsModal
             sessions={sessions}
             loading={sessionsLoading}
             error={sessionsError}
+            restoringId={restoringId}
+            onRestore={(session) => void handleRestoreSession(session)}
             onClose={() => setHistoryOpen(false)}
           />
         ) : null}
 
-        {celebrationOpen ? (
+        {celebrationOpen && userMessageCountToday >= 2 ? (
           <GoalCelebrationModal
             character={character}
             minutes={practicedMinutes}
