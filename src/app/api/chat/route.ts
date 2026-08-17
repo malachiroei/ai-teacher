@@ -1,100 +1,111 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { NextResponse } from "next/server";
 import { getCharacter } from "@/lib/characters";
-import { detectUserLanguage, looksLikeAwkwardEnglish, looksLikeGibberishEnglish } from "@/lib/language";
+import {
+  collapseRepeatedSpeech,
+  detectUserLanguage,
+  englishSpeechLine,
+  isRedundantSpeechChunk,
+  isSimpleGreeting,
+  looksLikeAwkwardEnglish,
+  looksLikeGibberishEnglish,
+  shouldOfferSayHint,
+  stripUnsolicitedScaffold,
+} from "@/lib/language";
 import { buildLearnerContext } from "@/lib/learner";
 import { normalizeNewMemories, type UserMemory } from "@/lib/memory";
 import { polishHebrewTranslation } from "@/lib/hebrew";
+import { guessSpokenName, isPlacementActive, placementFollowUp, placementUserTurns } from "@/lib/placement";
+import {
+  encodeSse,
+  extractJsonStringField,
+  pullSpeakableChunks,
+  speakableSentences,
+  type ChatStreamEvent,
+} from "@/lib/chat-stream";
 import { trustSystemCertificates } from "@/lib/tls";
 import type { ProfileInput } from "@/lib/supabase/types";
 import type { ChatApiResponse, GrammarFeedback, Message } from "@/types/chat";
 
+export const dynamic = "force-dynamic";
+
+const SSE_HEADERS = {
+  "Content-Type": "text/event-stream; charset=utf-8",
+  "Cache-Control": "no-cache, no-transform",
+  Connection: "keep-alive",
+  "X-Accel-Buffering": "no",
+};
+
+const FAST_MODELS = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"];
+
 type ChatAction = "chat" | "change_topic" | "daily_open";
+type ChatTurn = Pick<Message, "sender" | "text">;
 
 interface ChatRequestBody {
-  messages?: Pick<Message, "sender" | "text">[];
+  messages?: Array<ChatTurn & { role?: string; content?: string }>;
   userMessage?: string;
   action?: ChatAction;
   profile?: ProfileInput | null;
   characterId?: string | null;
   memories?: UserMemory[];
   isFirstSessionToday?: boolean;
+  placement?: boolean;
 }
 
-const BASE_TUTOR_RULES = `You are a charismatic, highly engaging English conversation mentor for Hebrew-speaking learners aged 11-15.
-Stay fully in the assigned CHARACTER PERSONA for tone, vocabulary, emojis, and interests.
-Keep replies short (1-3 sentences) and always continue with a follow-up question in English.
-Detect the language of the learner's LATEST message automatically.
-Content must stay kind and age-appropriate.
+const BASE_TUTOR_RULES = `You are the child's caring, enthusiastic BEST FRIEND and companion for ages 6–13 (Hebrew at home, learning English).
+Stay in CHARACTER, but these BEST-FRIEND rules always win.
+Peer-like Disney/Pixar vibe. Never a strict teacher. Never a quiz machine.
 
-Be a lively teen mentor, not a quiz, worksheet, or flat chatbot.
-Never answer with a dead-end reply. Always advance the dialogue with an exciting question, a bit of humor, a roleplay prompt, or a friendly challenge.
-If the learner gives a short or low-effort reply (yes, yeah, no, ok, okay, fine, idk, I don't know, hmm, nothing, sure):
-- Do NOT stall, scold, or repeat "tell me more".
-- Smoothly shift or deepen the chat with gaming, sports, music, school gossip, fun dilemmas, trivia, or a 20-second mini-game (would you rather, riddle, finish the sentence).
-- Keep it suitable for ages 11-15 and tied to their interests or memories when you can.
+LANGUAGE RULES (every reply):
+- aiResponse is English only: 1 short friendly sentence + 1 simple question. Never more.
+- translation is a clean, natural Hebrew version of that same reply, on its own. Never mix Hebrew into aiResponse.
+- A1 / beginner words. Short. Clear. Energetic. Do not repeat the same phrase twice.
+- Celebrate what they said, then ask the next easy question.
+  Example: "Awesome! I love pizza too! 🍕 What pizza do you like?"
+- React to THEIR words. If they say cats, talk about cats.
 
-If a LEARNER PROFILE is provided:
-- Address the learner by their exact English name. Never misspell it.
-- Match vocabulary, sentence length, and grammar help to their age AND skill level.
-- Prefer topics connected to their interests.
-- Use the correct gender when referring to them.
-- Celebrate correct English specifically. When they struggle, scaffold a sentence they can complete.
+GREETINGS (hi, hey, hello, שלום, היי, הי):
+- This is just a hello. NOT a grammar mistake. NOT a chance to teach a phrase.
+- NEVER say "You can say", "In English you can say", or "בואי ננסה".
+- If you do not know their name yet, reply exactly in this spirit:
+  English: "Hey there! Great to see you! What is your name? 👋"
+  Hebrew translation: "היי! איזה כיף לראות אותך! איך קוראים לך?"
+- If you already know their name, greet them by name and ask how they are. Do not ask their name again.
 
-If LONG-TERM MEMORY is provided, remember those personal facts and plans. Bring them up naturally when they fit — especially on the first session of a new day.
+"You can say: [phrase]" IS FORBIDDEN except when the child explicitly asks "how do I say…" / "איך אומרים" or is clearly stuck forming a sentence. Never inject it into greetings or normal chat.
 
-Return STRICT JSON with this exact shape:
-{
-  "aiResponse": string,
-  "translation": string,
-  "grammarAnalysis": {
-    "hasError": boolean,
-    "explanation": string,
-    "correctedText": string
-  },
-  "suggestedAnswers": string[],
-  "newMemories": [{ "fact": string, "kind": "plan" | "event" | "preference" | "personal", "eventOn": string | null }]
-}
+MEMORY RULES:
+- You remember every detail they have ever told you (pets, hobbies, favorite games, family, school plans, friends, mood).
+- Use the COMPLETE KID PROFILE and BEST-FRIEND MEMORY BANK in the prompt. These are real facts.
+- Proactively bring up past memories and follow up on plans.
+- Do not invent facts. Do not ask their name if the profile already has it.
 
-GLOBAL RULES:
-- aiResponse is always primarily English (you may quote one English target sentence).
-- translation: a natural, fluent, spoken-Israeli-Hebrew rendering of the FULL aiResponse (not the user's message).
-- suggestedAnswers: 2-3 short English replies the learner could say next, matching their level and the follow-up question.
-- newMemories: 0-3 durable personal facts, upcoming events, or plans the learner just mentioned (e.g. going to the beach tomorrow, has a test, got a new pet). Skip small talk and one-off feelings. eventOn is YYYY-MM-DD when a date is clear, otherwise null. Return [] if nothing new.
+PLACEMENT ASSESSMENT (only if the session is still in the 3-step intro):
+Ask ONE super-simple question per turn. Never skip ahead. A bare hi/שלום is NOT their name — greet warmly and ask their name again.
+- Step 1: greet and ask their name.
+- Step 2: after a real name, ask their age.
+- Step 3: after an age, ask their favorite thing (a game, an animal, or a food).
+Then continue as their best friend. Save what you learned.
+
+IF THE CHILD SPEAKS HEBREW:
+- Not an error. Reply warmly in simple English. Put the Hebrew meaning only in translation.
+- grammarAnalysis.hasError MUST be false.
+
+FIRST MESSAGE OF A NEW DAY:
+If memories exist, greet them instantly. Reference their latest memory or ask about their day. Do not wait for them to start.
+
+Return STRICT compact JSON only:
+{"aiResponse":"1 short English sentence + 1 simple question","translation":"Natural Hebrew of that reply"}
+No other fields. Keep aiResponse under 20 words so speech can start immediately.
 
 HEBREW TRANSLATION RULES (strict):
-- Write the way people actually speak in Israel. Do not translate word-for-word.
-- NEVER use slash forms such as אוהב/ת, את/ה, שמח/ה, יכול/ה. Choose ONE gendered form.
-- If the learner is a boy/male: אתה, אתה אוהב, אתה יכול, שלך.
-- If the learner is a girl/female: את, את אוהבת, את יכולה, שלך.
-- If gender is other: avoid gendered verbs (יש לך, אפשר, בואו נדבר). Never use slashes.
-- ALWAYS translate interest/topic nouns into Hebrew. Never leave English topic words in translation.
-  Movies=סרטים, Cars=מכוניות, Travel=טיולים, Sports=ספורט, Tech=טכנולוגיה, Music=מוזיקה, Food=אוכל, Games=משחקים.
-- Keep punctuation in Hebrew reading order. If you must include an English name or quoted phrase, keep that English phrase intact as one unit and do not mix letters inside Hebrew words.
-- grammarAnalysis.explanation must also follow these same natural, gendered Hebrew rules.
-
-IF THE USER WROTE/SPOKE HEBREW (Hebrew letters present):
-- This is NOT a grammar error. Do not scold them.
-- Acknowledge what they meant in a friendly way.
-- Teach the natural English: include the exact line: In English, you can say: "..."
-- Then ask a follow-up question in English so they practice.
-- grammarAnalysis.hasError MUST be false.
-- grammarAnalysis.correctedText = the natural English equivalent.
-- grammarAnalysis.explanation = a short helpful Hebrew tip (translation/teaching), not an error.
-
-IF THE USER WROTE/SPOKE ENGLISH:
-- Continue the conversation naturally in English about THE SAME TOPIC they just mentioned.
-- You MUST react to their specific words. If they talk about the beach, talk about the beach, sun, swimming, sand, or waves — never reply with a generic unrelated question.
-- Do not use empty filler like "Thanks for sharing. Can you tell me a little more?" unless you also add a concrete follow-up about what they said.
-- Treat phonetic / badly spelled English as English, not as nonsense. Infer the intended meaning and keep chatting about it.
-  Examples you MUST catch (hasError true, gentle Hebrew explanation, correctedText is the natural English):
-  - "i am goog tank you" → "I am good, thank you."
-  - "i go tow bich today" → "I'm going to the beach today."
-- Flag hasError true for: grammar mistakes, severe spelling, incomplete sentences (e.g. just "I am"), or awkward/nonsensical phrasing (e.g. "Bay car action").
-- If hasError is true: explanation MUST be clear, gentle Hebrew; correctedText is the natural English fix. Then continue the conversation about what they meant.
-- If the sentence is fine: hasError false, brief Hebrew praise, correctedText repeats the original (lightly cleaned).
-
-If the user asks to change topic, pick a fresh everyday topic — preferably from their interests.`;
+- Speak like people in Israel. No word-for-word translation.
+- NEVER slash forms: אוהב/ת, את/ה, שמח/ה, יכול/ה. Choose ONE form.
+- Boy/male: אתה, אתה אוהב, אתה יכול, שלך.
+- Girl/female: את, את אוהבת, את יכולה, שלך.
+- Other: avoid gendered verbs (יש לך, אפשר, בואו נדבר).
+- Topic nouns in Hebrew: Movies=סרטים, Cars=מכוניות, Travel=טיולים, Sports=ספורט, Tech=טכנולוגיה, Music=מוזיקה, Food=אוכל, Games=משחקים.
+- Keep English names intact. Do not add teaching scaffolds in translation.`;
 
 const TOPIC_STARTERS: ChatApiResponse[] = [
   {
@@ -281,7 +292,6 @@ interface HebrewLesson {
   ack: string;
   followUp: string;
   translation: string;
-  tip: string;
   suggestions: string[];
 }
 
@@ -289,19 +299,17 @@ const HEBREW_LESSONS: HebrewLesson[] = [
   {
     test: /שלום|היי|הי\b|בוקר טוב|ערב טוב/,
     english: "Hello!",
-    ack: "Nice to hear from you!",
-    followUp: "How are you doing today?",
-    translation: 'נחמד לשמוע ממך! באנגלית אפשר להגיד: "Hello!" מה שלומך היום?',
-    tip: 'באנגלית ברכה טבעית היא "Hello!" או "Hi!"',
-    suggestions: ["I'm doing great!", "I'm a bit tired.", "Pretty good, thanks."],
+    ack: "Hey there! Great to see you!",
+    followUp: "What is your name?",
+    translation: "היי! איזה כיף לראות אותך! איך קוראים לך?",
+    suggestions: ["My name is Tom.", "I'm Maya.", "I am Alex."],
   },
   {
     test: /מה שלומך|מה נשמע|איך אתה|איך את\b/,
     english: "How are you?",
-    ack: "That's a great question.",
-    followUp: "I'm doing well — how about you?",
-    translation: 'שאלה מצוינת. באנגלית אפשר להגיד: "How are you?" אני בסדר — ומה איתך?',
-    tip: 'כדי לשאול מה שלומך אומרים "How are you?"',
+    ack: "I'm great!",
+    followUp: "How are you today?",
+    translation: "אני מעולה! מה שלומך היום?",
     suggestions: ["I'm fine, thanks.", "I'm great today.", "A little tired."],
   },
   {
@@ -309,17 +317,15 @@ const HEBREW_LESSONS: HebrewLesson[] = [
     english: "I'm fine.",
     ack: "Glad to hear that!",
     followUp: "What did you do today?",
-    translation: 'שמחה לשמוע! באנגלית אפשר להגיד: "I\'m fine." מה עשית היום?',
-    tip: 'באנגלית אומרים "I\'m fine" או "I\'m good."',
-    suggestions: ["I worked from home.", "I met a friend.", "Not much, just relaxing."],
+    translation: "שמח לשמוע! מה עשית היום?",
+    suggestions: ["I played a game.", "I met a friend.", "Not much, just relaxing."],
   },
   {
     test: /עייף|עייפה|לא ישנתי/,
     english: "I'm tired.",
-    ack: "I hear you — long day?",
+    ack: "Aw, rest sounds nice.",
     followUp: "Did you sleep well last night?",
-    translation: 'אני שומעת אותך — יום ארוך? באנגלית אפשר להגיד: "I\'m tired." ישנת טוב בלילה?',
-    tip: 'כדי להגיד שאתה עייף: "I\'m tired."',
+    translation: "אוי, מנוחה זה כיף. ישנת טוב בלילה?",
     suggestions: ["Not really.", "Yes, I slept well.", "I went to bed late."],
   },
   {
@@ -327,92 +333,122 @@ const HEBREW_LESSONS: HebrewLesson[] = [
     english: "I'm happy.",
     ack: "That's wonderful!",
     followUp: "What made you feel that way?",
-    translation: 'זה נפלא! באנגלית אפשר להגיד: "I\'m happy." מה גרם לך להרגיש ככה?',
-    tip: 'אומרים "I\'m happy" או "I feel great."',
-    suggestions: ["I got good news.", "The weather is nice.", "I spent time with friends."],
+    translation: "איזה כיף! מה גרם לך להרגיש ככה?",
+    suggestions: ["I got good news.", "The weather is nice.", "I played with friends."],
   },
   {
     test: /רעב|רעבה|אוכל|לאכול/,
     english: "I'm hungry.",
-    ack: "Food is always a good topic!",
-    followUp: "What do you feel like eating?",
-    translation: 'אוכל תמיד נושא טוב! באנגלית אפשר להגיד: "I\'m hungry." מה בא לך לאכול?',
-    tip: 'כדי להגיד שאתה רעב: "I\'m hungry."',
-    suggestions: ["I want pizza.", "Something healthy.", "Maybe just a snack."],
+    ack: "Yum, food is fun!",
+    followUp: "What do you want to eat?",
+    translation: "מממ, אוכל זה כיף! מה בא לך לאכול?",
+    suggestions: ["I want pizza.", "I like fruit.", "Maybe just a snack."],
   },
   {
     test: /רוצה ללמוד|ללמוד אנגלית|אנגלית/,
     english: "I want to learn English.",
-    ack: "I love that goal.",
-    followUp: "Which skill do you want to practice most — speaking, listening, or writing?",
-    translation: 'מטרה נהדרת. באנגלית אפשר להגיד: "I want to learn English." מה הכי חשוב לך לתרגל — דיבור, האזנה או כתיבה?',
-    tip: 'אומרים "I want to learn English."',
-    suggestions: ["Speaking, please.", "I want better listening.", "A bit of everything."],
+    ack: "I love that!",
+    followUp: "What do you want to talk about?",
+    translation: "איזה כיף! על מה בא לך לדבר?",
+    suggestions: ["Animals!", "Food!", "Games!"],
   },
   {
     test: /אוהב|אוהבת/,
     english: "I like it.",
     ack: "Nice!",
-    followUp: "Can you tell me what you like, in English?",
-    translation: 'נחמד! באנגלית אפשר להגיד: "I like it." תוכל להגיד מה אתה אוהב, באנגלית?',
-    tip: 'אומרים "I like …" ואז את הדבר שאוהבים.',
-    suggestions: ["I like music.", "I like sports.", "I like cooking."],
+    followUp: "What do you like?",
+    translation: "נחמד! מה אתה אוהב?",
+    suggestions: ["I like music.", "I like sports.", "I like pizza."],
   },
   {
-    test: /עובד|עבודה|עובדת/,
-    english: "I work.",
-    ack: "Got it — work is a useful topic.",
-    followUp: "What do you do for work?",
-    translation: 'הבנתי — עבודה זה נושא שימושי. באנגלית אפשר להגיד: "I work." במה אתה עובד?',
-    tip: 'אפשר להגיד "I work" או "I have a job."',
-    suggestions: ["I work in an office.", "I'm a student.", "I work from home."],
+    test: /עובד|עבודה|עובדת|בית ספר|כיתה/,
+    english: "I go to school.",
+    ack: "School is a great topic!",
+    followUp: "What class do you like?",
+    translation: "בית ספר זה נושא מעולה! איזה שיעור אתה אוהב?",
+    suggestions: ["I like art.", "I like sport.", "I like English."],
   },
   {
     test: /תודה|תודה רבה/,
     english: "Thank you.",
-    ack: "You're very welcome!",
-    followUp: "What would you like to talk about next?",
-    translation: 'על לא דבר! באנגלית אפשר להגיד: "Thank you." על מה תרצה לדבר עכשיו?',
-    tip: 'תודה באנגלית: "Thank you" או "Thanks."',
-    suggestions: ["Let's talk about hobbies.", "Tell me about your day.", "I want to practice food words."],
+    ack: "You're welcome!",
+    followUp: "What should we talk about next?",
+    translation: "על לא דבר! על מה נדבר עכשיו?",
+    suggestions: ["Let's talk about hobbies.", "Tell me about your day.", "I like games."],
   },
   {
     test: /נעים להכיר/,
     english: "Nice to meet you.",
     ack: "Nice to meet you too!",
-    followUp: "Where are you from?",
-    translation: 'גם לי נעים להכיר! באנגלית אפשר להגיד: "Nice to meet you." מאיפה אתה?',
-    tip: 'כשנפגשים אומרים "Nice to meet you."',
-    suggestions: ["I'm from Israel.", "I live in Tel Aviv.", "I live in a small town."],
+    followUp: "What is your favorite thing?",
+    translation: "גם לי נעים להכיר! מה הדבר האהוב עליך?",
+    suggestions: ["I like pizza.", "I like dogs.", "I like soccer."],
   },
 ];
 
-function hebrewLessonReply(userMessage: string): ChatApiResponse {
-  const lesson = HEBREW_LESSONS.find((item) => item.test.test(userMessage));
-  if (lesson) {
+function emptyGrammar(correctedText = ""): GrammarFeedback {
+  return { hasError: false, explanation: "", correctedText };
+}
+
+function naturalGreetingReply(profile?: ProfileInput | null, askName = false): ChatApiResponse {
+  const name = String(profile?.nickname ?? "").trim();
+  if (!askName && name) {
     return {
-      aiResponse: `${lesson.ack} In English, you can say: "${lesson.english}" ${lesson.followUp}`,
-      translation: lesson.translation,
-      grammarAnalysis: {
-        hasError: false,
-        explanation: lesson.tip,
-        correctedText: lesson.english,
-      },
-      suggestedAnswers: lesson.suggestions,
+      aiResponse: `Hey ${name}! Great to see you! How are you today? 👋`,
+      translation: `היי ${name}! איזה כיף לראות אותך! מה שלומך היום?`,
+      grammarAnalysis: emptyGrammar(),
+      suggestedAnswers: ["I'm great!", "I am happy.", "A little tired."],
     };
   }
 
   return {
-    aiResponse:
-      'Thanks for sharing that in Hebrew — I understood you. In English, you can say the same idea in a short sentence. How would you say it in English?',
-    translation:
-      "תודה ששיתפת בעברית — הבנתי אותך. עכשיו נסה להגיד את אותו רעיון במשפט קצר באנגלית. איך היית אומר את זה באנגלית?",
-    grammarAnalysis: {
-      hasError: false,
-      explanation: "דיברת בעברית — זה מצוין. אין כאן שגיאה; זה טיפ תרגום. נסה עכשיו באנגלית.",
-      correctedText: "I want to say this in English.",
-    },
-    suggestedAnswers: ["I want to say this in English.", "Can you help me translate?", "Let me try in English."],
+    aiResponse: "Hey there! Great to see you! What is your name? 👋",
+    translation: "היי! איזה כיף לראות אותך! איך קוראים לך?",
+    grammarAnalysis: emptyGrammar(),
+    suggestedAnswers: ["My name is Tom.", "I'm Maya.", "I am Alex."],
+  };
+}
+
+function maybeGreetingReply(
+  userMessage: string,
+  action: ChatAction,
+  history: ChatTurn[],
+  profile?: ProfileInput | null,
+  placement?: boolean,
+): ChatApiResponse | null {
+  if (action !== "chat") return null;
+  if (!isSimpleGreeting(userMessage)) return null;
+  const inPlacement = Boolean(placement || isPlacementActive(history));
+  return naturalGreetingReply(profile, inPlacement || !String(profile?.nickname ?? "").trim());
+}
+
+function hebrewLessonReply(userMessage: string, allowScaffold: boolean): ChatApiResponse {
+  const lesson = HEBREW_LESSONS.find((item) => item.test.test(userMessage));
+  if (lesson) {
+    return {
+      aiResponse: allowScaffold
+        ? `You can say: ${lesson.english} ${lesson.followUp}`
+        : `${lesson.ack} ${lesson.followUp}`,
+      translation: lesson.translation,
+      grammarAnalysis: emptyGrammar(allowScaffold ? lesson.english : ""),
+      suggestedAnswers: lesson.suggestions,
+    };
+  }
+
+  if (allowScaffold) {
+    return {
+      aiResponse: "You can say: I like that! What do you like?",
+      translation: "אפשר להגיד: I like that! מה אתה אוהב?",
+      grammarAnalysis: emptyGrammar("I like that."),
+      suggestedAnswers: ["I like dogs.", "I like pizza.", "I am happy."],
+    };
+  }
+
+  return {
+    aiResponse: "Cool! What do you like to do?",
+    translation: "מגניב! מה אתה אוהב לעשות?",
+    grammarAnalysis: emptyGrammar(),
+    suggestedAnswers: ["I like pizza.", "I like games.", "I like dogs."],
   };
 }
 
@@ -516,16 +552,7 @@ function mockEnglishReply(
   }
 
   if (/\b(hi|hello|hey|good morning|good evening)\b/.test(lower)) {
-    return {
-      aiResponse: name
-        ? `Hi ${name}! It's great to chat with you. How has your day been so far?`
-        : "Hi there! It's great to meet you. How has your day been so far?",
-      translation: name
-        ? `היי ${name}! כיף לשוחח איתך. איך עבר עליך היום עד עכשיו?`
-        : "היי! כיף להכיר אותך. איך עבר עליך היום עד עכשיו?",
-      grammarAnalysis,
-      suggestedAnswers: ["It's been a good day.", "A bit tiring, actually.", "Pretty quiet so far."],
-    };
+    return naturalGreetingReply(profile);
   }
 
   if (/\b(hobby|hobbies|free time|weekend)\b/.test(lower)) {
@@ -583,34 +610,113 @@ function mockEnglishReply(
   }
 
   return {
-    aiResponse: "Thanks for sharing that. Can you tell me a little more, or give me an example?",
-    translation: "תודה ששיתפת. תוכל לספר לי קצת יותר, או לתת דוגמה?",
-    grammarAnalysis,
-    suggestedAnswers: ["Sure, for example...", "Let me think about that.", "Can you ask it another way?"],
+    aiResponse: "Awesome! Let's talk more. What is your favorite color?",
+    translation: "מעולה! בואו נדבר עוד. מה הצבע האהוב עליך?",
+    grammarAnalysis: {
+      hasError: false,
+      explanation: "תשובה קצרה זה בסדר גמור.",
+      correctedText: userMessage.trim(),
+    },
+    suggestedAnswers: ["I like blue.", "I like red.", "My favorite is green."],
+  };
+}
+
+function mockPlacementReply(
+  userMessage: string,
+  history: ChatTurn[],
+  profile?: ProfileInput | null,
+): ChatApiResponse {
+  const greeting = isSimpleGreeting(userMessage);
+  const turns = Math.max(0, placementUserTurns(history) - (greeting ? 1 : 0));
+  if (greeting || turns <= 0) {
+    return naturalGreetingReply(profile, true);
+  }
+
+  const name = guessSpokenName(userMessage) || String(profile?.nickname ?? "").trim();
+  const next = placementFollowUp(turns, name, profile?.gender);
+  const text = turns >= 3 ? `Awesome! I love that too! What color do you like?` : next.text;
+
+  return {
+    aiResponse: text,
+    translation: next.translation,
+    grammarAnalysis: emptyGrammar(userMessage.trim()),
+    suggestedAnswers: next.suggestions,
+    newMemories:
+      turns === 1 && name
+        ? [{ fact: `Name is ${name}`, kind: "personal" as const, eventOn: null }]
+        : turns === 2
+          ? [{ fact: `Age is ${userMessage.trim()}`, kind: "personal" as const, eventOn: null }]
+          : turns >= 3
+            ? [{ fact: `Likes ${userMessage.trim()}`, kind: "preference" as const, eventOn: null }]
+            : [],
+  };
+}
+
+function mockDailyGreeting(profile?: ProfileInput | null, memories: UserMemory[] = []): ChatApiResponse {
+  const name = String(profile?.nickname || profile?.name || "friend").trim() || "friend";
+  const latest = memories[0];
+  const fact = latest?.fact ?? "your day";
+  const shortFact = fact.replace(/^Child's name is /i, "").slice(0, 40);
+  return {
+    aiResponse: `Hey ${name}! ${latest ? `I still remember ${shortFact.toLowerCase()}.` : "I missed you!"} How are you today?`,
+    translation: `היי ${name}! ${latest ? "אני זוכר אותך." : "התגעגעתי אליך!"} מה שלומך היום?`,
+    grammarAnalysis: {
+      hasError: false,
+      explanation: "ברוכים השבים! אין כאן שגיאה.",
+      correctedText: "",
+    },
+    suggestedAnswers: ["I'm great!", "I am happy.", "I played a game."],
   };
 }
 
 function mockReply(
   userMessage: string,
   action: ChatAction,
-  turn: number,
+  history: ChatTurn[],
   profile?: ProfileInput | null,
+  placement?: boolean,
+  memories: UserMemory[] = [],
 ): ChatApiResponse {
-  if (action === "change_topic" || action === "daily_open") {
-    return pickTopic(turn, profile);
+  if (action === "daily_open") {
+    return mockDailyGreeting(profile, memories);
+  }
+
+  const greeting = maybeGreetingReply(userMessage, action, history, profile, placement);
+  if (greeting) return greeting;
+
+  if (placement || isPlacementActive(history)) {
+    return mockPlacementReply(userMessage, history, profile);
+  }
+
+  if (action === "change_topic") {
+    return pickTopic(history.length, profile);
   }
 
   if (detectUserLanguage(userMessage) === "he") {
-    return hebrewLessonReply(userMessage);
+    return hebrewLessonReply(userMessage, shouldOfferSayHint(userMessage));
   }
 
   return mockEnglishReply(userMessage, analyzeGrammar(userMessage), profile);
 }
 
-function polishReply(reply: ChatApiResponse, profile?: ProfileInput | null): ChatApiResponse {
+function polishReply(reply: ChatApiResponse, profile?: ProfileInput | null, userMessage = ""): ChatApiResponse {
+  const allowScaffold = shouldOfferSayHint(userMessage);
+  let aiResponse = collapseRepeatedSpeech(englishSpeechLine(reply.aiResponse));
+  if (!allowScaffold) aiResponse = stripUnsolicitedScaffold(aiResponse);
+  aiResponse = collapseRepeatedSpeech(aiResponse);
+
+  let translation = reply.translation;
+  if (!allowScaffold) {
+    translation = translation
+      .replace(/באנגלית אפשר להגיד:\s*["']?[^"']*["']?\s*/g, "")
+      .replace(/בואי ננסה:\s*[^.!?]*/g, "")
+      .replace(/אפשר להגיד:\s*["']?[^"']*["']?\s*/g, "");
+  }
+
   return {
     ...reply,
-    translation: polishHebrewTranslation(reply.translation, profile?.gender),
+    aiResponse,
+    translation: polishHebrewTranslation(translation, profile?.gender),
     grammarAnalysis: {
       ...reply.grammarAnalysis,
       explanation: polishHebrewTranslation(reply.grammarAnalysis.explanation, profile?.gender),
@@ -619,24 +725,37 @@ function polishReply(reply: ChatApiResponse, profile?: ProfileInput | null): Cha
 }
 
 function extractJson(content: string): ChatApiResponse {
-  const start = content.indexOf("{");
-  const end = content.lastIndexOf("}");
-  const raw = start >= 0 && end > start ? content.slice(start, end + 1) : content;
-  const parsed = JSON.parse(raw) as ChatApiResponse;
-
-  return {
-    aiResponse: parsed.aiResponse ?? "",
-    translation: parsed.translation ?? "",
-    grammarAnalysis: {
-      hasError: Boolean(parsed.grammarAnalysis?.hasError),
-      explanation: parsed.grammarAnalysis?.explanation ?? "",
-      correctedText: parsed.grammarAnalysis?.correctedText ?? "",
-    },
-    suggestedAnswers: Array.isArray(parsed.suggestedAnswers)
-      ? parsed.suggestedAnswers.slice(0, 3).map(String)
-      : [],
-    newMemories: normalizeNewMemories(parsed.newMemories),
-  };
+  try {
+    const start = content.indexOf("{");
+    const end = content.lastIndexOf("}");
+    const raw = start >= 0 && end > start ? content.slice(start, end + 1) : content;
+    const parsed = JSON.parse(raw) as ChatApiResponse;
+    const aiResponse = collapseRepeatedSpeech(englishSpeechLine(String(parsed.aiResponse ?? "").trim()));
+    if (!aiResponse) throw new Error("Missing aiResponse");
+    return {
+      aiResponse,
+      translation: parsed.translation ?? "",
+      grammarAnalysis: {
+        hasError: Boolean(parsed.grammarAnalysis?.hasError),
+        explanation: parsed.grammarAnalysis?.explanation ?? "",
+        correctedText: parsed.grammarAnalysis?.correctedText ?? "",
+      },
+      suggestedAnswers: Array.isArray(parsed.suggestedAnswers)
+        ? parsed.suggestedAnswers.slice(0, 3).map(String)
+        : [],
+      newMemories: normalizeNewMemories(parsed.newMemories),
+    };
+  } catch {
+    const aiResponse = collapseRepeatedSpeech(englishSpeechLine(extractJsonStringField(content, "aiResponse").trim()));
+    if (!aiResponse) throw new Error("Empty Gemini response");
+    return {
+      aiResponse,
+      translation: extractJsonStringField(content, "translation"),
+      grammarAnalysis: { hasError: false, explanation: "", correctedText: "" },
+      suggestedAnswers: [],
+      newMemories: [],
+    };
+  }
 }
 
 function logGeminiError(label: string, error: unknown) {
@@ -652,33 +771,93 @@ function logGeminiError(label: string, error: unknown) {
   }
 }
 
-async function callGemini(
-  history: Pick<Message, "sender" | "text">[],
+function normalizeHistory(messages: ChatRequestBody["messages"]): ChatTurn[] {
+  if (!Array.isArray(messages)) return [];
+  return messages
+    .map((message) => {
+      const role = String(message.role ?? message.sender ?? "").toLowerCase();
+      const sender: ChatTurn["sender"] =
+        role === "assistant" || role === "model" || role === "ai" ? "ai" : "user";
+      const text = String(message.content ?? message.text ?? "").trim();
+      return { sender, text };
+    })
+    .filter((message) => message.text.length > 0);
+}
+
+function progressFromPartial(
+  accumulated: string,
+  spoken: number,
+  lastCaption: string,
+  spokenText: string,
+  allowScaffold: boolean,
+) {
+  const events: ChatStreamEvent[] = [];
+  const raw = extractJsonStringField(accumulated, "aiResponse");
+  const translation = extractJsonStringField(accumulated, "translation");
+  let nextCaption = lastCaption;
+  const caption = collapseRepeatedSpeech(allowScaffold ? raw : stripUnsolicitedScaffold(raw));
+  if (caption && caption !== lastCaption) {
+    events.push({ type: "caption", text: caption, translation });
+    nextCaption = caption;
+  }
+  const pulled = pullSpeakableChunks(raw, spoken);
+  let nextSpokenText = spokenText;
+  for (const chunk of pulled.chunks) {
+    let clean = collapseRepeatedSpeech(englishSpeechLine(chunk));
+    if (!allowScaffold) clean = collapseRepeatedSpeech(stripUnsolicitedScaffold(clean));
+    if (!clean || isRedundantSpeechChunk(clean, nextSpokenText)) continue;
+    nextSpokenText = nextSpokenText ? `${nextSpokenText} ${clean}` : clean;
+    events.push({ type: "sentence", text: clean });
+  }
+  return { spoken: pulled.consumed, lastCaption: nextCaption, spokenText: nextSpokenText, events };
+}
+
+function eventsForCompleteReply(reply: ChatApiResponse): ChatStreamEvent[] {
+  const events: ChatStreamEvent[] = [{ type: "caption", text: reply.aiResponse, translation: reply.translation }];
+  for (const chunk of speakableSentences(reply.aiResponse)) {
+    events.push({ type: "sentence", text: chunk });
+  }
+  events.push({ type: "done", payload: reply });
+  return events;
+}
+
+async function streamGemini(
+  history: ChatTurn[],
   userMessage: string,
   action: ChatAction,
-  profile?: ProfileInput | null,
-  characterId?: string | null,
-  extras?: { memories?: UserMemory[]; isFirstSessionToday?: boolean },
+  profile: ProfileInput | null | undefined,
+  characterId: string | null | undefined,
+  extras: { memories?: UserMemory[]; isFirstSessionToday?: boolean; placement?: boolean } | undefined,
+  onEvent: (event: ChatStreamEvent) => void,
 ): Promise<ChatApiResponse> {
   trustSystemCertificates();
 
   const apiKey = process.env.GEMINI_API_KEY?.trim();
-  if (!apiKey) {
-    console.warn("GEMINI_API_KEY is missing. The tutor will use mock replies until you add it to .env.local.");
-    throw new Error("Missing GEMINI_API_KEY");
-  }
+  if (!apiKey) throw new Error("Missing GEMINI_API_KEY");
 
   const detected = userMessage ? detectUserLanguage(userMessage) : "en";
+  const placement = Boolean(extras?.placement || isPlacementActive(history));
+  const userTurns = placementUserTurns(history);
+  const allowScaffold = shouldOfferSayHint(userMessage);
+  const greeting = maybeGreetingReply(userMessage, action, history, profile, placement);
+  if (greeting) {
+    const payload = polishReply(greeting, profile, userMessage);
+    for (const event of eventsForCompleteReply(payload)) onEvent(event);
+    return payload;
+  }
+
   const languageHint =
-    action === "daily_open"
-      ? "This is the first session of a new day. Greet them warmly using long-term memory when a plan or event fits. Example vibe: Hey! You mentioned yesterday you were going to the beach — how was it?!"
-      : action === "change_topic"
-        ? "The user asked to change the topic. Prefer a topic from their interests if listed."
-        : extras?.isFirstSessionToday
-          ? "This is their first turn today. If a memory is timely, open with a natural callback, then keep chatting about their latest message."
-          : detected === "he"
-            ? "DETECTED LANGUAGE: Hebrew. Follow the Hebrew-input rules (teach English, hasError false)."
-            : "DETECTED LANGUAGE: English. Follow the English-input rules (strict grammar, Hebrew explanations if error). Reply about THIS message's topic.";
+    action === "daily_open" || extras?.isFirstSessionToday
+      ? "FIRST MESSAGE TODAY. Memories exist. Greet them by name like a best friend. Follow up on their latest plan, pet, game, or day. 1-2 short sentences, then a fun question. Do NOT ask their name again. Do NOT restart placement."
+      : placement
+        ? `PLACEMENT MODE is ON. Child turns so far: ${userTurns}. Ask only the next missing step (name, then age, then favorite thing). One short question. If they only said hi/hello/שלום/היי, that is NOT their name — greet warmly and ask their name again.`
+        : action === "change_topic"
+          ? "The child asked for a new topic. Pick animals, colors, food, games, or sports. Keep it A1."
+          : allowScaffold
+            ? 'The child asked how to say something, or is stuck. You may give one "You can say: …" hint, then one simple question. English in aiResponse, Hebrew only in translation.'
+            : detected === "he"
+              ? "The child used Hebrew. Reply warmly in simple English. Hebrew meaning only in translation. Do NOT say You can say / בואי ננסה."
+              : "The child used English. Stay on their topic. One-word answers are great. If a memory fits, mention it.";
 
   const learnerContext = buildLearnerContext(profile, {
     memories: extras?.memories,
@@ -686,12 +865,12 @@ async function callGemini(
   });
   const character = getCharacter(characterId ?? profile?.selected_character);
   const system = [
-    character.systemPrompt,
     BASE_TUTOR_RULES,
+    character.systemPrompt,
     learnerContext,
     languageHint,
     'The "translation" field must be natural spoken Hebrew, fully gendered for this learner, with topic nouns in Hebrew. No slash forms like אוהב/ת.',
-    "Stay on the learner's latest topic. If they mention the beach, talk about the beach.",
+    "Keep the FULL conversation history. Never drop earlier turns or memories.",
     `Never break character. You are ${character.name} (${character.title}).`,
     profile?.custom_tutor_name && profile.custom_tutor_name !== character.name
       ? `The learner calls you "${profile.custom_tutor_name}". Introduce and refer to yourself as ${profile.custom_tutor_name} while keeping this persona.`
@@ -702,20 +881,21 @@ async function callGemini(
 
   const latestText =
     action === "daily_open"
-      ? "Start today's session. Use long-term memory if a yesterday plan or upcoming event fits, then ask an engaging follow-up."
+      ? "The child just opened the app. Give an instant warm greeting that references their latest memory or asks about their day."
       : action === "change_topic"
-        ? "Please change the topic and start a new conversation thread."
+        ? "Please start a new easy topic for a young beginner."
         : userMessage;
 
-  const contents: Array<{ role: "user" | "model"; parts: Array<{ text: string }> }> = history
-    .slice(-12)
-    .map((message) => ({
-      role: (message.sender === "ai" ? "model" : "user") as "user" | "model",
-      parts: [{ text: message.text }],
-    }));
+  const contents: Array<{ role: "user" | "model"; parts: Array<{ text: string }> }> = history.map((message) => ({
+    role: (message.sender === "ai" ? "model" : "user") as "user" | "model",
+    parts: [{ text: message.text }],
+  }));
 
-  while (contents.length > 0 && contents[0].role === "model") {
-    contents.shift();
+  if (contents[0]?.role === "model") {
+    contents.unshift({
+      role: "user",
+      parts: [{ text: "(Full conversation starts now. Remember every line. Continue as the tutor.)" }],
+    });
   }
 
   const last = contents[contents.length - 1];
@@ -729,7 +909,8 @@ async function callGemini(
 
   const ai = new GoogleGenAI({ apiKey });
   const config = {
-    temperature: 0.8,
+    temperature: 0.7,
+    maxOutputTokens: 120,
     responseMimeType: "application/json",
     systemInstruction: system,
     responseSchema: {
@@ -737,55 +918,69 @@ async function callGemini(
       properties: {
         aiResponse: { type: Type.STRING },
         translation: { type: Type.STRING },
-        grammarAnalysis: {
-          type: Type.OBJECT,
-          properties: {
-            hasError: { type: Type.BOOLEAN },
-            explanation: { type: Type.STRING },
-            correctedText: { type: Type.STRING },
-          },
-          required: ["hasError", "explanation", "correctedText"],
-        },
-        suggestedAnswers: {
-          type: Type.ARRAY,
-          items: { type: Type.STRING },
-        },
-        newMemories: {
-          type: Type.ARRAY,
-          items: {
-            type: Type.OBJECT,
-            properties: {
-              fact: { type: Type.STRING },
-              kind: { type: Type.STRING },
-              eventOn: { type: Type.STRING },
-            },
-          },
-        },
       },
-      required: ["aiResponse", "translation", "grammarAnalysis", "suggestedAnswers"],
+      required: ["aiResponse", "translation"],
     },
   };
 
-  const models = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"];
   let lastError: unknown;
 
-  for (const model of models) {
+  for (const model of FAST_MODELS) {
     try {
-      const response = await ai.models.generateContent({
+      const stream = await ai.models.generateContentStream({
         model,
         contents,
         config,
       });
-      const content = response.text;
-      if (!content) throw new Error("Empty Gemini response");
-      return polishReply(extractJson(content), profile);
+      let accumulated = "";
+      let spoken = 0;
+      let lastCaption = "";
+      let spokenText = "";
+      for await (const chunk of stream) {
+        accumulated += chunk.text ?? "";
+        const progress = progressFromPartial(accumulated, spoken, lastCaption, spokenText, allowScaffold);
+        spoken = progress.spoken;
+        lastCaption = progress.lastCaption;
+        spokenText = progress.spokenText;
+        for (const event of progress.events) onEvent(event);
+      }
+      if (!accumulated.trim()) throw new Error("Empty Gemini stream");
+      const payload = polishReply(extractJson(accumulated), profile, userMessage);
+      for (const chunk of speakableSentences(payload.aiResponse)) {
+        if (isRedundantSpeechChunk(chunk, spokenText)) continue;
+        spokenText = spokenText ? `${spokenText} ${chunk}` : chunk;
+        onEvent({ type: "sentence", text: chunk });
+      }
+      onEvent({ type: "caption", text: payload.aiResponse, translation: payload.translation });
+      onEvent({ type: "done", payload });
+      return payload;
     } catch (error) {
       lastError = error;
-      logGeminiError(`Gemini ${model} failed`, error);
+      logGeminiError(`Gemini stream ${model} failed`, error);
     }
   }
 
-  throw lastError instanceof Error ? lastError : new Error("Gemini request failed");
+  throw lastError instanceof Error ? lastError : new Error("Gemini stream failed");
+}
+
+function sseResponse(write: (send: (event: ChatStreamEvent) => void) => Promise<void>) {
+  const encoder = new TextEncoder();
+  const stream = new ReadableStream({
+    async start(controller) {
+      const send = (event: ChatStreamEvent) => {
+        controller.enqueue(encoder.encode(encodeSse(event)));
+      };
+      try {
+        await write(send);
+      } catch (error) {
+        logGeminiError("Chat SSE failed", error);
+        controller.error(error);
+        return;
+      }
+      controller.close();
+    },
+  });
+  return new Response(stream, { headers: SSE_HEADERS });
 }
 
 export async function POST(request: Request) {
@@ -794,33 +989,42 @@ export async function POST(request: Request) {
     const action: ChatAction =
       body.action === "change_topic" ? "change_topic" : body.action === "daily_open" ? "daily_open" : "chat";
     const userMessage = (body.userMessage ?? "").trim();
-    const history = Array.isArray(body.messages) ? body.messages : [];
+    const history = normalizeHistory(body.messages);
     const profile = body.profile ?? null;
     const characterId = body.characterId ?? profile?.selected_character ?? null;
     const memories = Array.isArray(body.memories) ? body.memories : [];
     const isFirstSessionToday = Boolean(body.isFirstSessionToday);
+    const placement =
+      action !== "daily_open" && (Boolean(body.placement) || isPlacementActive(history));
 
     if (action === "chat" && !userMessage) {
       return NextResponse.json({ error: "userMessage is required" }, { status: 400 });
     }
 
+    const extras = { memories, isFirstSessionToday, placement };
     const apiKey = process.env.GEMINI_API_KEY?.trim();
-    if (!apiKey) {
-      console.warn("GEMINI_API_KEY is missing from the environment. Using mock replies.");
-    } else {
-      try {
-        const payload = await callGemini(history, userMessage, action, profile, characterId, {
-          memories,
-          isFirstSessionToday,
-        });
-        return NextResponse.json(payload);
-      } catch (error) {
-        logGeminiError("Gemini fallback", error);
-      }
-    }
 
-    const payload = mockReply(userMessage, action, history.length, profile);
-    return NextResponse.json(polishReply(payload, profile));
+    return sseResponse(async (send) => {
+      const greeting = maybeGreetingReply(userMessage, action, history, profile, placement);
+      if (greeting) {
+        for (const event of eventsForCompleteReply(polishReply(greeting, profile, userMessage))) send(event);
+        return;
+      }
+
+      if (apiKey) {
+        try {
+          await streamGemini(history, userMessage, action, profile, characterId, extras, send);
+          return;
+        } catch (error) {
+          logGeminiError("Gemini fallback", error);
+        }
+      } else {
+        console.warn("GEMINI_API_KEY is missing from the environment. Using mock replies.");
+      }
+
+      const payload = polishReply(mockReply(userMessage, action, history, profile, placement, memories), profile, userMessage);
+      for (const event of eventsForCompleteReply(payload)) send(event);
+    });
   } catch (error) {
     logGeminiError("Chat POST failed", error);
     return NextResponse.json({ error: "Invalid request" }, { status: 400 });

@@ -10,22 +10,39 @@ export async function createClient() {
     throw new Error("Missing NEXT_PUBLIC_SUPABASE_URL or NEXT_PUBLIC_SUPABASE_ANON_KEY");
   }
 
-  const cookieStore = await cookies();
+  try {
+    const cookieStore = await cookies();
 
-  return createServerClient<Database>(url, key, {
-    cookies: {
-      getAll() {
-        return cookieStore.getAll();
+    return createServerClient<Database>(url, key, {
+      cookies: {
+        getAll() {
+          try {
+            return cookieStore.getAll();
+          } catch {
+            return [];
+          }
+        },
+        setAll(cookiesToSet) {
+          try {
+            cookiesToSet.forEach(({ name, value, options }) => {
+              cookieStore.set(name, value, options);
+            });
+          } catch {
+            /* set from a Server Component — middleware refreshes the session */
+          }
+        },
       },
-      setAll(cookiesToSet) {
-        try {
-          cookiesToSet.forEach(({ name, value, options }) => {
-            cookieStore.set(name, value, options);
-          });
-        } catch {
-          /* set from a Server Component — middleware refreshes the session */
-        }
+    });
+  } catch {
+    return createServerClient<Database>(url, key, {
+      cookies: {
+        getAll() {
+          return [];
+        },
+        setAll() {
+          /* no cookies available */
+        },
       },
-    },
-  });
+    });
+  }
 }

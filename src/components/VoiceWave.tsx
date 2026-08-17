@@ -22,7 +22,7 @@ export function VoiceWave({ mode, color = "#3DFF8A" }: VoiceWaveProps) {
 
     let raf = 0;
     let time = 0;
-    let amplitude = 0.16;
+    let amplitude = 0.03;
 
     const resize = () => {
       const dpr = Math.min(window.devicePixelRatio || 1, 2);
@@ -39,14 +39,14 @@ export function VoiceWave({ mode, color = "#3DFF8A" }: VoiceWaveProps) {
     const draw = () => {
       const { width: w, height: h } = canvas.getBoundingClientRect();
       const current = modeRef.current;
-      const target =
-        current === "speaking" ? 0.95 : current === "listening" ? 0.8 : current === "thinking" ? 0.72 : 0.15;
-      amplitude += (target - amplitude) * 0.07;
-      time += current === "idle" ? 0.016 : current === "thinking" ? 0.048 : 0.054;
+      const active = current === "speaking" || current === "listening";
+      const target = current === "speaking" ? 0.96 : current === "listening" ? 0.84 : 0.022;
+      amplitude += (target - amplitude) * (active ? 0.14 : 0.2);
+      time += active ? 0.056 : 0.004;
 
       ctx.clearRect(0, 0, w, h);
 
-      if (current !== "idle") {
+      if (active) {
         const wash = ctx.createLinearGradient(0, 0, w, 0);
         wash.addColorStop(0, "transparent");
         wash.addColorStop(0.5, `${color}55`);
@@ -55,11 +55,13 @@ export function VoiceWave({ mode, color = "#3DFF8A" }: VoiceWaveProps) {
         ctx.fillRect(0, h * 0.2, w, h * 0.6);
       }
 
-      const layers = [
-        { gain: 1, freq: 1.55, speed: 1, width: 2.4, alpha: 0.95 },
-        { gain: 0.58, freq: 2.45, speed: 1.4, width: 1.5, alpha: 0.42 },
-        { gain: 0.32, freq: 3.3, speed: 0.72, width: 1.15, alpha: 0.26 },
-      ];
+      const layers = active
+        ? [
+            { gain: 1, freq: 1.55, speed: 1, width: 2.4, alpha: 0.95 },
+            { gain: 0.58, freq: 2.45, speed: 1.4, width: 1.5, alpha: 0.42 },
+            { gain: 0.32, freq: 3.3, speed: 0.72, width: 1.15, alpha: 0.26 },
+          ]
+        : [{ gain: 1, freq: 1, speed: 0.2, width: 1.6, alpha: 0.55 }];
 
       for (const layer of layers) {
         ctx.beginPath();
@@ -67,20 +69,20 @@ export function VoiceWave({ mode, color = "#3DFF8A" }: VoiceWaveProps) {
         ctx.strokeStyle = color;
         ctx.globalAlpha = layer.alpha;
         ctx.shadowColor = color;
-        ctx.shadowBlur = current === "idle" ? 10 : 26;
+        ctx.shadowBlur = active ? 26 : 4;
         const mid = h / 2;
         for (let x = 0; x <= w; x += 2) {
           const nx = x / w;
           const envelope = Math.sin(Math.PI * nx) ** 1.15;
-          const y =
-            mid +
+          const wave =
             Math.sin(nx * Math.PI * 2 * layer.freq + time * layer.speed) *
               amplitude *
               layer.gain *
               h *
-              0.42 *
+              (active ? 0.42 : 0.08) *
               envelope +
-            Math.sin(nx * Math.PI * 7 + time * 1.7) * amplitude * 0.12 * h * envelope;
+            (active ? Math.sin(nx * Math.PI * 7 + time * 1.7) * amplitude * 0.12 * h * envelope : 0);
+          const y = mid + wave;
           if (x === 0) ctx.moveTo(x, y);
           else ctx.lineTo(x, y);
         }

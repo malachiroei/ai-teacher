@@ -92,3 +92,24 @@ export function hebrewTranslationGuide(gender?: Gender | string | null) {
 export function splitBidiRuns(text: string) {
   return text.split(/([A-Za-z][A-Za-z0-9'’.\-]*)/g).filter((part) => part.length > 0);
 }
+
+export function stripHebrewScript(text: string) {
+  return text
+    .replace(/[\u0590-\u05FF][\u0590-\u05FF\s.,!?׳״:'"()0-9-]*/g, " ")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+}
+
+export function extractHebrewHint(text: string) {
+  const match = text.match(/[\u0590-\u05FF][\u0590-\u05FF\s.,!?׳״:'"()0-9-]*(?::\s*[A-Za-z][A-Za-z0-9'’.,!? ]*)?/);
+  return match?.[0]?.trim() ?? "";
+}
+
+export function splitCaptionLines(english: string, translation?: string | null) {
+  const source = english.trim();
+  const hebrew = (translation ?? "").trim() || extractHebrewHint(source);
+  return {
+    english: stripHebrewScript(source),
+    hebrew,
+  };
+}

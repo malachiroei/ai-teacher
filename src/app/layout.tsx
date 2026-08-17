@@ -9,8 +9,28 @@ const jakarta = Plus_Jakarta_Sans({
 });
 
 export const metadata: Metadata = {
-  title: "Emma · English Chat",
-  description: "Practice English in a live conversation with Emma, your AI tutor.",
+  applicationName: "BuddyAI",
+  title: {
+    default: "BuddyAI – Your AI English Best Friend",
+    template: "%s",
+  },
+  description: "Talk, play, and master English naturally with your futuristic AI companion.",
+  manifest: "/manifest.json",
+  appleWebApp: {
+    capable: true,
+    title: "BuddyAI",
+    statusBarStyle: "black-translucent",
+  },
+  icons: {
+    icon: [
+      { url: "/favicon.ico", sizes: "48x48" },
+      { url: "/icon.svg", type: "image/svg+xml" },
+      { url: "/icon-192.png", sizes: "192x192", type: "image/png" },
+      { url: "/icon-512.png", sizes: "512x512", type: "image/png" },
+    ],
+    apple: [{ url: "/apple-touch-icon.png", sizes: "180x180" }],
+    shortcut: ["/favicon.ico"],
+  },
 };
 
 export const viewport: Viewport = {
@@ -19,7 +39,7 @@ export const viewport: Viewport = {
   maximumScale: 1,
   viewportFit: "cover",
   interactiveWidget: "resizes-content",
-  themeColor: "#050805",
+  themeColor: "#0a0a0c",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

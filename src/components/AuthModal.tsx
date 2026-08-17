@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { Loader2 } from "lucide-react";
+import { BuddyAIMark } from "@/components/BuddyAIMark";
 import { createClient } from "@/lib/supabase/client";
 
 interface AuthModalProps {
@@ -48,11 +49,9 @@ export function AuthModal({ onAuthenticated }: AuthModalProps) {
   return (
     <div className="ambient-shell absolute inset-0 z-[60] flex flex-col px-6 pt-12 pb-8">
       <div className="mb-8 text-center">
-        <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-[#2f6bff] text-2xl font-bold text-white shadow-lg shadow-blue-200">
-          E
-        </div>
-        <h1 className="text-2xl font-bold text-slate-900">Practice English with Emma</h1>
-        <p className="mt-1 text-sm text-slate-500">Sign in to save your chats and progress.</p>
+        <BuddyAIMark className="mx-auto mb-4 h-16 w-16 rounded-2xl shadow-[0_8px_28px_rgba(61,255,138,0.28)]" />
+        <h1 className="text-2xl font-bold text-slate-900">BuddyAI</h1>
+        <p className="mt-1 text-sm text-slate-500">Your AI English best friend. Sign in to save chats and progress.</p>
       </div>
 
       <div className="mb-5 grid grid-cols-2 rounded-full bg-slate-100 p-1">

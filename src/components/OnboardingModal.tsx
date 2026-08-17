@@ -116,7 +116,7 @@ export function OnboardingModal({ saving, error, onComplete }: OnboardingModalPr
         ) : null}
 
         {step === 1 ? (
-          <Step title="How old are you?" hint="This helps Emma pick the right topics">
+          <Step title="How old are you?" hint="This helps BuddyAI pick the right topics">
             <input
               type="number"
               inputMode="numeric"
@@ -133,7 +133,7 @@ export function OnboardingModal({ saving, error, onComplete }: OnboardingModalPr
         ) : null}
 
         {step === 2 ? (
-          <Step title="How should Emma address you?" hint="Used for he/she and Hebrew grammar">
+          <Step title="How should BuddyAI address you?" hint="Used for he/she and Hebrew grammar">
             <div className="grid gap-2">
               {(
                 [
@@ -151,7 +151,7 @@ export function OnboardingModal({ saving, error, onComplete }: OnboardingModalPr
         ) : null}
 
         {step === 3 ? (
-          <Step title="What's your English level?" hint="Emma will match her vocabulary to you">
+          <Step title="What's your English level?" hint="BuddyAI will match vocabulary to you">
             <div className="grid gap-2">
               {(
                 [

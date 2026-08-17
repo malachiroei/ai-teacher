@@ -41,7 +41,7 @@ export function CharacterSelectorModal({ selectedId, nicknames, onSelect, onClos
         <div className="flex items-center justify-between px-4 py-3.5">
           <div>
             <h2 className="text-[16px] font-semibold tracking-tight text-white">Choose your tutor</h2>
-            <p className="mt-0.5 text-[12px] text-white/50">Pick a character to practice English with</p>
+            <p className="mt-0.5 text-[12px] text-white/50">Pick a BuddyAI companion to talk with</p>
           </div>
           <button
             type="button"

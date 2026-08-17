@@ -3,10 +3,11 @@ import type { DailyGoalMinutes, Gender, Profile } from "@/lib/supabase/types";
 import type { Message } from "@/types/chat";
 
 export const DAILY_GOAL_OPTIONS = [5, 10, 15, 20] as const;
-export const VOICE_SPEED_OPTIONS = [0.7, 0.85, 1, 1.15] as const;
+export const VOICE_SPEED_OPTIONS = [0.75, 0.9, 1.1] as const;
 export const DEFAULT_DAILY_GOAL: DailyGoalMinutes = 10;
 export const DEFAULT_PRACTICE_TIME = "17:00";
-export const DEFAULT_VOICE_SPEED: VoiceSpeed = 1;
+export const DEFAULT_VOICE_SPEED: VoiceSpeed = 0.9;
+export const VOICE_SPEED_STORAGE_KEY = "voice_speed";
 
 export interface PracticeSnapshot {
   date: string;
@@ -14,7 +15,7 @@ export interface PracticeSnapshot {
   celebrated: boolean;
 }
 
-export type VoiceSpeed = 0.7 | 0.85 | 1 | 1.15;
+export type VoiceSpeed = 0.75 | 0.9 | 1.1;
 
 export interface PracticeSettings {
   daily_goal_minutes: DailyGoalMinutes;
@@ -118,16 +119,48 @@ export function normalizePracticeTime(value: unknown) {
 
 export function normalizeVoiceSpeed(value: unknown): VoiceSpeed {
   const n = Number(value);
-  if (n === 0.8) return 0.85;
-  if (n === 1.2) return 1.15;
-  return (VOICE_SPEED_OPTIONS as readonly number[]).includes(n) ? (n as VoiceSpeed) : DEFAULT_VOICE_SPEED;
+  if (n === 0.75 || n === 0.9 || n === 1.1) return n;
+  if (n <= 0.8) return 0.75;
+  if (n >= 1.05) return 1.1;
+  return DEFAULT_VOICE_SPEED;
 }
 
 export function voiceSpeedLabel(speed: VoiceSpeed) {
-  if (speed === 0.7) return "Very Slow 0.7x";
-  if (speed === 0.85) return "Slow 0.85x";
-  if (speed === 1.15) return "Fast 1.15x";
-  return "Normal 1.0x";
+  if (speed === 0.75) return "Slow 0.75x";
+  if (speed === 1.1) return "Fast 1.1x";
+  return "Normal 0.9x";
+}
+
+export function formatVoiceSpeed(speed: VoiceSpeed) {
+  if (speed === 0.75) return "0.75x";
+  if (speed === 1.1) return "1.1x";
+  return "0.9x";
+}
+
+export function nextVoiceSpeed(speed: VoiceSpeed): VoiceSpeed {
+  const index = VOICE_SPEED_OPTIONS.indexOf(speed);
+  return VOICE_SPEED_OPTIONS[(index + 1) % VOICE_SPEED_OPTIONS.length] ?? DEFAULT_VOICE_SPEED;
+}
+
+export function readStoredVoiceSpeed(fallback?: unknown): VoiceSpeed {
+  if (typeof window !== "undefined") {
+    try {
+      const raw = window.localStorage.getItem(VOICE_SPEED_STORAGE_KEY);
+      if (raw != null && raw !== "") return normalizeVoiceSpeed(raw);
+    } catch {
+      /* private mode */
+    }
+  }
+  return normalizeVoiceSpeed(fallback);
+}
+
+export function writeStoredVoiceSpeed(speed: VoiceSpeed) {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(VOICE_SPEED_STORAGE_KEY, String(speed));
+  } catch {
+    /* ignore quota / private mode */
+  }
 }
 
 export function practiceSettingsFromProfile(profile?: Profile | null): PracticeSettings {
@@ -249,7 +282,7 @@ export function buildParentWhatsAppMessage(input: {
   const name = input.childName.trim() || "הילד/ה";
   const topics = input.topics.length > 0 ? input.topics.join(", ") : "שיחה חופשית באנגלית";
   return [
-    `היי! 🌟 ${name} ${finishedVerb(input.gender)} עכשיו בהצלחה ${input.minutes} דקות של אימון אנגלית עם ${input.characterName} באפליקציה!`,
+    `היי! 🌟 ${name} ${finishedVerb(input.gender)} עכשיו בהצלחה ${input.minutes} דקות של אימון אנגלית עם ${input.characterName} ב-BuddyAI!`,
     `נושאי השיחה היום: ${topics}`,
     "כל הכבוד על ההתמדה! 👏",
   ].join("\n");
@@ -297,9 +330,9 @@ export function showPracticeNotification(characterName: string) {
   }
   if (alreadyNotifiedToday()) return false;
   try {
-    new Notification("Time to practice English!", {
+    new Notification("Time to practice with BuddyAI!", {
       body: `Your daily session with ${characterName} is waiting. Let's go! 🌟`,
-      tag: "ai-teacher-daily-practice",
+      tag: "buddyai-daily-practice",
     });
     markNotifiedToday();
     return true;

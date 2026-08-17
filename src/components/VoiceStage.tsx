@@ -2,8 +2,10 @@
 
 import { useEffect, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { Mic, Volume2, VolumeX } from "lucide-react";
+import { Keyboard, Mic, Send, Volume2, VolumeX } from "lucide-react";
+import { MixedBidiText } from "@/components/MixedBidiText";
 import { VoiceWave, type VoiceWaveMode } from "@/components/VoiceWave";
+import { splitCaptionLines } from "@/lib/hebrew";
 import type { Character } from "@/lib/characters";
 import { cn } from "@/lib/utils";
 
@@ -15,11 +17,15 @@ interface VoiceStageProps {
   listening?: boolean;
   transcript?: string;
   aiCaption?: string;
+  aiTranslation?: string;
   autoSpeak: boolean;
+  voiceSpeed: string;
   disabled?: boolean;
   onToggleMic: () => void;
   onToggleSpeak: () => void;
+  onCycleVoiceSpeed: () => void;
   onOpenCharacters: () => void;
+  onSendText: (text: string) => void;
 }
 
 export function VoiceStage({
@@ -30,32 +36,46 @@ export function VoiceStage({
   listening = false,
   transcript = "",
   aiCaption = "",
+  aiTranslation = "",
   autoSpeak,
+  voiceSpeed,
   disabled,
   onToggleMic,
   onToggleSpeak,
+  onCycleVoiceSpeed,
   onOpenCharacters,
+  onSendText,
 }: VoiceStageProps) {
   const portrait = character.portraitUrl ?? character.avatarUrl;
   const [portraitSrc, setPortraitSrc] = useState(portrait);
   const [portraitFailed, setPortraitFailed] = useState(false);
-  const mode: VoiceWaveMode = speaking ? "speaking" : listening ? "listening" : thinking ? "thinking" : "idle";
-  const live = thinking || speaking || listening;
+  const [keyboardOpen, setKeyboardOpen] = useState(false);
+  const [draft, setDraft] = useState("");
+  const mode: VoiceWaveMode = speaking ? "speaking" : listening ? "listening" : "idle";
+  const live = speaking || listening;
   const trimmedTranscript = transcript.trim();
-  const subtitle = listening
+  const statusCaption = listening
     ? trimmedTranscript
       ? `Listening: ${trimmedTranscript}`
       : "Listening…"
-    : speaking && aiCaption.trim()
-      ? aiCaption.trim()
-      : thinking
-        ? `${tutorName} is thinking...`
-        : aiCaption.trim();
+    : thinking && !aiCaption.trim()
+      ? `${tutorName} is thinking...`
+      : "";
+  const captionLines = !listening ? splitCaptionLines(aiCaption, aiTranslation) : { english: "", hebrew: "" };
+  const showAiCaption = !listening && Boolean(captionLines.english);
+  const showStatus = Boolean(statusCaption) && !showAiCaption;
 
   useEffect(() => {
     setPortraitSrc(portrait);
     setPortraitFailed(false);
   }, [portrait]);
+
+  function submitDraft() {
+    const text = draft.trim();
+    if (!text || disabled) return;
+    setDraft("");
+    onSendText(text);
+  }
 
   return (
     <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden bg-[#050805]">
@@ -111,7 +131,7 @@ export function VoiceStage({
         className="relative z-20 mt-auto px-6 pb-[max(1rem,env(safe-area-inset-bottom))]"
         onPointerDown={(event) => event.stopPropagation()}
       >
-        {!subtitle ? (
+        {!showAiCaption && !showStatus ? (
           <p className="mb-2 text-center text-[12px] font-medium tracking-[0.18em] text-white/55 uppercase">
             Speaking with {tutorName}
           </p>
@@ -119,25 +139,80 @@ export function VoiceStage({
 
         <div className="mb-3 flex min-h-[3.5rem] items-end justify-center">
           <AnimatePresence mode="wait">
-            {subtitle ? (
+            {showStatus ? (
               <motion.p
-                key={listening ? "listen" : thinking ? "think" : "speak"}
+                key={listening ? "listen" : "think"}
                 initial={{ opacity: 0, y: 8 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -6 }}
                 transition={{ duration: 0.2 }}
+                dir="ltr"
                 className="voice-subtitle max-w-[22rem] text-center text-[15px] font-medium leading-snug text-white"
               >
-                {subtitle}
+                {statusCaption}
               </motion.p>
+            ) : showAiCaption ? (
+              <motion.div
+                key="caption"
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -6 }}
+                transition={{ duration: 0.2 }}
+                className="voice-subtitle flex max-w-[22rem] flex-col items-center gap-1 text-center"
+              >
+                <p dir="ltr" className="text-[15px] font-medium leading-snug text-white">
+                  {captionLines.english}
+                </p>
+                {captionLines.hebrew ? (
+                  <p dir="rtl" className="text-sm leading-snug text-gray-300 [unicode-bidi:isolate]">
+                    <MixedBidiText text={captionLines.hebrew} />
+                  </p>
+                ) : null}
+              </motion.div>
             ) : null}
           </AnimatePresence>
         </div>
 
+        <AnimatePresence initial={false}>
+          {keyboardOpen ? (
+            <motion.form
+              key="keyboard"
+              initial={{ opacity: 0, y: 10, height: 0 }}
+              animate={{ opacity: 1, y: 0, height: "auto" }}
+              exit={{ opacity: 0, y: 8, height: 0 }}
+              transition={{ duration: 0.22, ease: "easeOut" }}
+              className="mb-3 overflow-hidden"
+              onSubmit={(event) => {
+                event.preventDefault();
+                submitDraft();
+              }}
+            >
+              <div className="flex items-center gap-2 rounded-full border border-white/14 bg-white/10 px-2 py-1.5 shadow-[0_8px_28px_rgba(0,0,0,0.28)] backdrop-blur-xl">
+                <input
+                  value={draft}
+                  onChange={(event) => setDraft(event.target.value)}
+                  placeholder="Type a message…"
+                  disabled={disabled}
+                  autoFocus
+                  className="min-w-0 flex-1 bg-transparent px-3 py-2 text-[15px] text-white outline-none placeholder:text-white/35"
+                />
+                <button
+                  type="submit"
+                  disabled={disabled || !draft.trim()}
+                  aria-label="Send message"
+                  className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[var(--accent)] text-[#04140a] transition enabled:hover:brightness-110 disabled:opacity-40"
+                >
+                  <Send className="h-4 w-4" />
+                </button>
+              </div>
+            </motion.form>
+          ) : null}
+        </AnimatePresence>
+
         <div className={cn("relative mx-[-0.5rem]", live && "wave-glow")}>
           <VoiceWave mode={mode} color={character.accentColor} />
         </div>
-        <div className="mt-3 flex items-center justify-center gap-10">
+        <div className="mt-3 flex items-center justify-center gap-4">
           <button
             type="button"
             onClick={onToggleMic}
@@ -154,6 +229,17 @@ export function VoiceStage({
           </button>
           <button
             type="button"
+            onClick={() => setKeyboardOpen((open) => !open)}
+            aria-label={keyboardOpen ? "Hide keyboard" : "Show keyboard"}
+            className={cn(
+              "flex h-12 w-12 items-center justify-center rounded-full ring-1 ring-white/12 transition hover:bg-white/10",
+              keyboardOpen ? "bg-white/12 text-white" : "bg-white/8 text-white/70",
+            )}
+          >
+            <Keyboard className="h-5 w-5" />
+          </button>
+          <button
+            type="button"
             onClick={onToggleSpeak}
             aria-label={autoSpeak ? "Mute voice replies" : "Unmute voice replies"}
             className={cn(
@@ -162,6 +248,14 @@ export function VoiceStage({
             )}
           >
             {autoSpeak ? <Volume2 className="h-5 w-5" /> : <VolumeX className="h-5 w-5" />}
+          </button>
+          <button
+            type="button"
+            onClick={onCycleVoiceSpeed}
+            aria-label={`Voice speed ${voiceSpeed}. Tap to change.`}
+            className="flex h-12 min-w-[3.35rem] items-center justify-center rounded-full bg-white/8 px-3 text-[13px] font-semibold tracking-wide text-white/85 ring-1 ring-white/12 backdrop-blur-md transition hover:bg-white/12"
+          >
+            {voiceSpeed}
           </button>
         </div>
       </div>

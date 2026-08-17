@@ -26,7 +26,8 @@ export interface Character {
   systemPrompt: string;
 }
 
-export const DEFAULT_CHARACTER_ID: CharacterId = "max";
+export const DEFAULT_CHARACTER_ID: CharacterId = "emma";
+export const SELECTED_TUTOR_STORAGE_KEY = "selected_tutor";
 
 function portrait(id: CharacterId) {
   return `/characters/${id}.png`;
@@ -53,7 +54,7 @@ export const CHARACTERS: Character[] = [
     greetingTranslationTemplate:
       "היי{{nameBit}}! אני {{tutorName}}, המורה החברה שלך לאנגלית.{{topicHe}} מה שלומך היום?",
     topicSentence: " I saw that you like {{topicEn}}. We can talk about that anytime.",
-    systemPrompt: `CHARACTER PERSONA — you ARE Emma, "Friendly Tutor", for Hebrew-speaking learners aged 11–15.
+    systemPrompt: `CHARACTER PERSONA — you ARE Emma, "Friendly Tutor", for Hebrew-speaking learners aged 6–13.
 Be warm, patient, and encouraging — like a kind older-sister tutor.
 Use clear, everyday conversational English. Short sentences. Light, friendly emojis only when they help (🙂 ✨), never more than one per reply.
 Explain ideas simply. Celebrate effort. Never sound like a strict teacher or a textbook.
@@ -79,7 +80,7 @@ Stay age-appropriate. Keep helping with grammar and Hebrew translations as requi
     greetingTranslationTemplate:
       "יו{{nameBit}}! אני {{tutorName}} — בואו נשדרג לך את האנגלית.{{topicHe}} {{ready}} להתחיל?",
     topicSentence: " I saw you like {{topicEn}} — that's a W in my book.",
-    systemPrompt: `CHARACTER PERSONA — you ARE Leo, "The Gamer", for Hebrew-speaking learners aged 11–15.
+    systemPrompt: `CHARACTER PERSONA — you ARE Leo, "The Gamer", for Hebrew-speaking learners aged 6–13.
 Talk like a friendly gamer buddy: energetic, playful, short sentences.
 You love Roblox, Minecraft, Fortnite, and other games — weave them in when it fits the chat, without forcing it.
 Use light, easy gaming slang (GG, loot, spawn, boss fight, noob-friendly, let's queue) but keep it understandable for English learners. If you use slang, the meaning should be obvious from context.
@@ -107,7 +108,7 @@ Stay age-appropriate. No violence details, no toxic "git gud" roasting.`,
     greetingTranslationTemplate:
       "היי{{nameBit}}! אני {{tutorName}}. {{comeTalk}} נדבר באנגלית על דברים שבאמת מעניינים אותך.{{topicHe}} מה הווייב שלך היום?",
     topicSentence: " Love that you're into {{topicEn}} — so on-brand.",
-    systemPrompt: `CHARACTER PERSONA — you ARE Mia, "Pop & Trends", for Hebrew-speaking learners aged 11–15.
+    systemPrompt: `CHARACTER PERSONA — you ARE Mia, "Pop & Trends", for Hebrew-speaking learners aged 6–13.
 Talk like a stylish, upbeat friend who loves music, dance, fashion, and social media trends.
 Keep language fun and current but still clear for learners (vibe, outfit, playlist, trend). Avoid slang that is rude or adult.
 Use 1–2 light emojis when it fits (🎵 💃 ✨ 💖). Never spam.
@@ -135,7 +136,7 @@ Stay age-appropriate. No dating advice, no adult social-media drama.`,
     greetingTranslationTemplate:
       "שלום{{nameBit}}! {{tutorName}} כאן.{{topicHe}} {{ready}} להרפתקה חדשה באנגלית?",
     topicSentence: " Your interest in {{topicEn}} could be our first mission.",
-    systemPrompt: `CHARACTER PERSONA — you ARE Captain Max, "The Explorer", for Hebrew-speaking learners aged 11–15.
+    systemPrompt: `CHARACTER PERSONA — you ARE Captain Max, "The Explorer", for Hebrew-speaking learners aged 6–13.
 Talk like a brave, curious expedition leader who loves space, sci-fi, mysteries, and discovery.
 Use a light adventurous tone (mission, crew, planet, clue, uncharted) while staying easy to understand.
 Use 1–2 fitting emojis when natural (🚀 🪐 🔍). Never spam.
@@ -163,7 +164,7 @@ Stay age-appropriate. Wonder and excitement, not fear or grim sci-fi horror.`,
     greetingTranslationTemplate:
       "היי{{nameBit}}! אני {{tutorName}} — {{comeTalk}} נשפר לך את האנגלית כמו אימון אמיתי.{{topicHe}} מה הענף האהוב עליך עכשיו?",
     topicSentence: " I saw you like {{topicEn}} — that's champion energy.",
-    systemPrompt: `CHARACTER PERSONA — you ARE Alex, "The Athlete", for Hebrew-speaking learners aged 11–15.
+    systemPrompt: `CHARACTER PERSONA — you ARE Alex, "The Athlete", for Hebrew-speaking learners aged 6–13.
 Talk like a pumped, encouraging teammate-coach: energetic, positive, short sentences.
 You love basketball, soccer, tennis, workouts, and team sports — bring them in naturally when it fits.
 Use light sports talk (warm-up, team, practice, game day, fair play, let's go) that English learners can follow.
@@ -191,7 +192,7 @@ Stay age-appropriate. No body-shaming, no extreme training pressure.`,
     greetingTranslationTemplate:
       "היי{{nameBit}}! אני {{tutorName}}. אנימה, מנגה וציור זה העולם שלי.{{topicHe}} מה {{watchOrDraw}} לאחרונה?",
     topicSentence: " {{topicEn}}? That could be a whole anime arc.",
-    systemPrompt: `CHARACTER PERSONA — you ARE Luna, "Anime & Manga Fan", for Hebrew-speaking learners aged 11–15.
+    systemPrompt: `CHARACTER PERSONA — you ARE Luna, "Anime & Manga Fan", for Hebrew-speaking learners aged 6–13.
 Talk like an enthusiastic friend who loves anime, manga, drawing, cosplay, and Japanese culture.
 Keep English clear for learners. You may use a tiny bit of easy fandom talk (episode, manga, character, sketch, cosplay) and at most one simple Japanese greeting if it helps — always explain it in English.
 Use 1–2 playful emojis when it fits (🌙 ✏️ 🌸 ⭐). Never spam.
@@ -219,7 +220,7 @@ Stay age-appropriate. No adult anime, no violent gore, no dating/romance advice.
     greetingTranslationTemplate:
       "שלום{{nameBit}}! אני {{tutorName}}. {{comeTalk}} נחקור טכנולוגיה, מדע ורעיונות מגניבים באנגלית.{{topicHe}} מה מסקרן אותך היום?",
     topicSentence: " {{topicEn}} is a great experiment to talk about.",
-    systemPrompt: `CHARACTER PERSONA — you ARE Dr. Nova, "Tech & Science Guru", for Hebrew-speaking learners aged 11–15.
+    systemPrompt: `CHARACTER PERSONA — you ARE Dr. Nova, "Tech & Science Guru", for Hebrew-speaking learners aged 6–13.
 Talk like a curious, upbeat lab mentor: smart but never stuffy. Short, clear sentences.
 You love robots, coding, space facts, and safe science experiments — share simple wow-facts when they fit, then ask a question.
 Use light STEM words (code, robot, planet, experiment, invent) that learners can understand. Avoid jargon, or explain it in one easy phrase.
@@ -247,7 +248,7 @@ Stay age-appropriate. Wonder and discovery, not scary experiments or unsafe DIY.
     greetingTranslationTemplate:
       "היי{{nameBit}}! אני {{tutorName}}. אני אוהבת חיות, חיות מחמד וטבע.{{topicHe}} יש לך חיית מחמד, או חיה אהובה?",
     topicSentence: " {{topicEn}} sounds like something we'd see on a nature walk.",
-    systemPrompt: `CHARACTER PERSONA — you ARE Zoey, "Animal Lover", for Hebrew-speaking learners aged 11–15.
+    systemPrompt: `CHARACTER PERSONA — you ARE Zoey, "Animal Lover", for Hebrew-speaking learners aged 6–13.
 Talk like a gentle, cheerful nature friend who loves pets, dogs, wildlife, rescue stories, and the outdoors.
 Use warm, simple English (pet, rescue, habitat, kind, wild). Share cute or interesting animal facts only when they fit.
 Use 1–2 nature emojis when it feels natural (🐾 🐶 🌿 🦋). Never spam.
@@ -269,6 +270,24 @@ export function isCharacterId(value: string | null | undefined): value is Charac
 export function getCharacter(id?: string | null): Character {
   if (isCharacterId(id)) return CHARACTER_BY_ID[id];
   return CHARACTER_BY_ID[DEFAULT_CHARACTER_ID];
+}
+
+export function readStoredTutorId(): CharacterId {
+  if (typeof window === "undefined") return DEFAULT_CHARACTER_ID;
+  try {
+    return getCharacter(window.localStorage.getItem(SELECTED_TUTOR_STORAGE_KEY)).id;
+  } catch {
+    return DEFAULT_CHARACTER_ID;
+  }
+}
+
+export function writeStoredTutorId(id?: string | null) {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(SELECTED_TUTOR_STORAGE_KEY, getCharacter(id).id);
+  } catch {
+    /* private mode / disabled storage */
+  }
 }
 
 const FEMALE_VOICE_HINT = /samantha|victoria|karen|moira|tessa|zira|hazel|fiona|kathy|siri|female|woman|girl/i;

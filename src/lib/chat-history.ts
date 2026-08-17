@@ -5,6 +5,14 @@ import { normalizeDailyGoal, normalizePracticeTime, normalizeVoiceSpeed } from "
 import type { ChatMessageRow, ChatSessionRow, Profile, ProfileInput, UserMemoryRow } from "@/lib/supabase/types";
 import type { GrammarFeedback, Message } from "@/types/chat";
 import type { NewMemory, UserMemory } from "@/lib/memory";
+import {
+  extractFactsFromUtterance,
+  mapMemoryCategory,
+  normalizeFactText,
+  parseFavoriteAnimal,
+  parseSpokenAge,
+} from "@/lib/memory";
+import { guessSpokenName } from "@/lib/placement";
 
 type AppSupabaseClient = SupabaseClient;
 
@@ -567,26 +575,207 @@ function rowToMemory(row: UserMemoryRow): UserMemory {
     fact: row.fact,
     kind: (row.kind as UserMemory["kind"]) || "personal",
     eventOn: row.event_on,
-    createdAt: new Date(row.created_at).getTime(),
+    createdAt: Date.parse(String(row.created_at)) || Date.now(),
   };
 }
 
+function newRowId() {
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) return crypto.randomUUID();
+  return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+let memoriesUnavailable = false;
+
+export async function saveExtractedFact(
+  supabase: AppSupabaseClient,
+  userId: string,
+  fact: string,
+  category: string,
+  eventDate?: string | null,
+): Promise<UserMemory | null> {
+  if (!userId || memoriesUnavailable) return null;
+  const clean = normalizeFactText(fact);
+  if (clean.length < 4) return null;
+  const kind = mapMemoryCategory(category);
+  const eventOn = eventDate ? String(eventDate).slice(0, 10) : null;
+  const now = new Date().toISOString();
+
+  try {
+    const existing = await loadUserMemories(supabase, userId);
+    if (memoriesUnavailable) return null;
+    const match = existing.find((item) => item.fact.toLowerCase() === clean.toLowerCase());
+    if (match) {
+      try {
+        const { error } = await supabase
+          .from("user_memories")
+          .update({ kind, event_on: eventOn ?? match.eventOn ?? null })
+          .eq("id", match.id)
+          .eq("user_id", userId);
+        if (error) memoriesUnavailable = true;
+      } catch {
+        memoriesUnavailable = true;
+      }
+      return { ...match, kind, eventOn: eventOn ?? match.eventOn ?? null };
+    }
+
+    const row = {
+      id: newRowId(),
+      user_id: userId,
+      fact: clean,
+      kind,
+      event_on: eventOn,
+      created_at: now,
+    };
+
+    const { data, error } = await supabase
+      .from("user_memories")
+      .insert(row as never)
+      .select("id, fact, kind, event_on, created_at")
+      .maybeSingle();
+
+    if (error) {
+      memoriesUnavailable = true;
+      return null;
+    }
+
+    const saved = (data ?? row) as Record<string, unknown>;
+    return rowToMemory({
+      id: String(saved.id ?? row.id),
+      user_id: userId,
+      fact: String(saved.fact ?? clean),
+      kind: String(saved.kind ?? kind),
+      event_on: (saved.event_on as string | null | undefined) ?? eventOn,
+      created_at: String(saved.created_at ?? now),
+      last_mentioned_at: now,
+    });
+  } catch {
+    memoriesUnavailable = true;
+    return null;
+  }
+}
+
+export async function patchKidProfile(
+  supabase: AppSupabaseClient,
+  userId: string,
+  current: Profile | null | undefined,
+  patch: { nickname?: string; age?: number; interests?: string[]; english_level?: string },
+): Promise<Profile | null> {
+  if (!userId || !current) return current ?? null;
+  try {
+    const interests = Array.from(
+      new Set([...(current.interests ?? []), ...(patch.interests ?? [])].map((item) => item.trim()).filter(Boolean)),
+    );
+    const body: Record<string, unknown> = {
+      updated_at: new Date().toISOString(),
+    };
+    if (patch.nickname?.trim()) {
+      body.nickname = patch.nickname.trim();
+      body.full_name = patch.nickname.trim();
+    }
+    if (typeof patch.age === "number" && patch.age > 0) body.age = patch.age;
+    if (patch.interests?.length) body.interests = interests.join(", ");
+    if (patch.english_level) body.english_level = patch.english_level;
+    if (Object.keys(body).length <= 1) return current;
+
+    const attempts = [body, omitKeys(body, ["full_name"]), omitKeys(body, ["full_name", "interests"])];
+    for (const attempt of attempts) {
+      const { data, error } = await supabase.from("profiles").update(attempt).eq("id", userId).select("*").maybeSingle();
+      if (error) {
+        console.warn("Kid profile patch skipped:", error.message ?? error);
+        continue;
+      }
+      return normalizeProfile((data ?? { ...current, ...attempt }) as Profile & Record<string, unknown>, current, userId);
+    }
+    return {
+      ...current,
+      nickname: String(body.nickname ?? current.nickname),
+      age: Number(body.age ?? current.age) || current.age,
+      interests: patch.interests?.length ? interests : current.interests,
+      english_level: (patch.english_level as Profile["english_level"]) || current.english_level,
+    };
+  } catch {
+    return current;
+  }
+}
+
+export async function rememberKidTurn(
+  supabase: AppSupabaseClient,
+  userId: string,
+  existing: UserMemory[],
+  spokenText: string,
+  incoming: NewMemory[] = [],
+  extras?: { profile?: Profile | null; placementTurn?: number },
+): Promise<{ memories: UserMemory[]; profile: Profile | null }> {
+  let profile = extras?.profile ?? null;
+  const extracted = extractFactsFromUtterance(spokenText, {
+    placementTurn: extras?.placementTurn,
+    childName: extras?.placementTurn === 1 ? guessSpokenName(spokenText) : undefined,
+  });
+  const incomingFacts = [...incoming, ...extracted];
+
+  if (extras?.placementTurn === 1) {
+    const name = guessSpokenName(spokenText);
+    if (name) {
+      profile = await patchKidProfile(supabase, userId, profile, { nickname: name });
+      incomingFacts.unshift({ fact: `Child's name is ${name}`, kind: "personal", eventOn: null });
+    }
+  }
+  if (extras?.placementTurn === 2) {
+    const age = parseSpokenAge(spokenText);
+    if (age) {
+      profile = await patchKidProfile(supabase, userId, profile, { age });
+    }
+  }
+  if (extras?.placementTurn === 3) {
+    const animal = parseFavoriteAnimal(spokenText);
+    if (animal) {
+      profile = await patchKidProfile(supabase, userId, profile, { interests: [animal] });
+    }
+  }
+
+  const next = await upsertUserMemories(supabase, userId, existing, incomingFacts);
+  return { memories: next, profile };
+}
+
+export async function seedProfileMemories(
+  supabase: AppSupabaseClient,
+  userId: string,
+  profile: Profile | null | undefined,
+): Promise<UserMemory[]> {
+  if (!userId || !profile) return [];
+  const seeds: Array<{ fact: string; category: string }> = [];
+  if (profile.nickname) seeds.push({ fact: `Child's name is ${profile.nickname}`, category: "personal" });
+  if (profile.age) seeds.push({ fact: `Age is ${profile.age}`, category: "personal" });
+  if (profile.english_level) {
+    seeds.push({ fact: `English comfort level is ${profile.english_level}`, category: "personal" });
+  }
+  for (const interest of profile.interests ?? []) {
+    seeds.push({ fact: `Likes ${interest}`, category: "preference" });
+  }
+  const memories: UserMemory[] = [];
+  for (const seed of seeds) {
+    const saved = await saveExtractedFact(supabase, userId, seed.fact, seed.category);
+    if (saved) memories.push(saved);
+  }
+  return memories;
+}
+
 export async function loadUserMemories(supabase: AppSupabaseClient, userId: string): Promise<UserMemory[]> {
-  if (!userId) return [];
+  if (!userId || memoriesUnavailable) return [];
 
   try {
     const { data, error } = await supabase
       .from("user_memories")
-      .select("id, user_id, fact, kind, event_on, created_at")
+      .select("id, fact, kind, event_on, created_at")
       .eq("user_id", userId)
       .limit(20);
 
     if (error) {
-      console.warn("User memories unavailable; continuing without them.");
+      memoriesUnavailable = true;
       return [];
     }
 
-    const rows = [...(data ?? [])].sort((a, b) => {
+    const rows = [...((data ?? []) as Array<Record<string, unknown>>) ].sort((a, b) => {
       const aTime = Date.parse(String(a.created_at ?? "")) || 0;
       const bTime = Date.parse(String(b.created_at ?? "")) || 0;
       return bTime - aTime;
@@ -594,17 +783,17 @@ export async function loadUserMemories(supabase: AppSupabaseClient, userId: stri
 
     return rows.map((row) =>
       rowToMemory({
-        id: row.id,
-        user_id: row.user_id,
-        fact: row.fact,
-        kind: row.kind,
-        event_on: row.event_on,
-        created_at: row.created_at,
-        last_mentioned_at: row.created_at,
+        id: String(row.id ?? ""),
+        user_id: userId,
+        fact: String(row.fact ?? ""),
+        kind: String(row.kind ?? "personal"),
+        event_on: (row.event_on as string | null | undefined) ?? null,
+        created_at: String(row.created_at ?? ""),
+        last_mentioned_at: String(row.created_at ?? ""),
       }),
     );
   } catch {
-    console.warn("User memories unavailable; continuing without them.");
+    memoriesUnavailable = true;
     return [];
   }
 }
@@ -618,48 +807,17 @@ export async function upsertUserMemories(
   if (incoming.length === 0) return existing;
 
   try {
-    const now = new Date().toISOString();
     const next = [...existing];
-
     for (const memory of incoming) {
-      const match = next.find((item) => item.fact.toLowerCase() === memory.fact.toLowerCase());
-      if (match) {
-        const { error } = await supabase
-          .from("user_memories")
-          .update({ kind: memory.kind, event_on: memory.eventOn ?? match.eventOn ?? null })
-          .eq("id", match.id)
-          .eq("user_id", userId);
-        if (error) console.warn("User memories unavailable; continuing without them.");
-        continue;
-      }
-
-      const row = {
-        id:
-          typeof crypto !== "undefined" && "randomUUID" in crypto
-            ? crypto.randomUUID()
-            : `${Date.now()}-${Math.random().toString(16).slice(2)}`,
-        user_id: userId,
-        fact: memory.fact,
-        kind: memory.kind,
-        event_on: memory.eventOn ?? null,
-        created_at: now,
-      };
-      const { error } = await supabase.from("user_memories").insert(row);
-      if (error) {
-        console.warn("User memories unavailable; continuing without them.");
-        continue;
-      }
-      next.unshift(
-        rowToMemory({
-          ...row,
-          last_mentioned_at: now,
-        } as UserMemoryRow),
-      );
+      const saved = await saveExtractedFact(supabase, userId, memory.fact, memory.kind, memory.eventOn);
+      if (!saved) continue;
+      const index = next.findIndex((item) => item.fact.toLowerCase() === saved.fact.toLowerCase() || item.id === saved.id);
+      if (index >= 0) next[index] = saved;
+      else next.unshift(saved);
     }
-
-    return next.slice(0, 20);
+    return next.slice(0, 24);
   } catch {
-    console.warn("User memories unavailable; continuing without them.");
+    memoriesUnavailable = true;
     return existing;
   }
 }

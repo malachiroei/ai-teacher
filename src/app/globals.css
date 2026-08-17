@@ -185,10 +185,6 @@ body {
 
 .voice-subtitle {
   text-shadow: 0 2px 18px rgba(0, 0, 0, 0.55);
-  display: -webkit-box;
-  -webkit-line-clamp: 3;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
 }
 
 .glass-bubble {

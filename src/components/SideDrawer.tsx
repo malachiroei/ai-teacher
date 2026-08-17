@@ -1,7 +1,8 @@
 "use client";
 
 import { AnimatePresence, motion } from "framer-motion";
-import { AudioLines, History, LogOut, MessageSquarePlus, Settings2, Users, Volume2, VolumeX, X } from "lucide-react";
+import { AudioLines, History, LogOut, Settings2, Sparkles, Users, Volume2, VolumeX, X } from "lucide-react";
+import { BuddyAIMark } from "@/components/BuddyAIMark";
 import type { Character } from "@/lib/characters";
 import { cn } from "@/lib/utils";
 
@@ -62,7 +63,10 @@ export function SideDrawer({
             transition={{ type: "spring", damping: 30, stiffness: 340 }}
           >
             <div className="flex items-center justify-between px-4 pt-4 pb-2">
-              <p className="text-[13px] font-semibold tracking-wide text-white/40 uppercase">Menu</p>
+              <div className="flex items-center gap-2">
+                <BuddyAIMark className="h-7 w-7 rounded-lg" />
+                <p className="text-[13px] font-semibold tracking-wide text-white/70">BuddyAI</p>
+              </div>
               <button
                 type="button"
                 onClick={onClose}
@@ -106,7 +110,7 @@ export function SideDrawer({
                 onClick={onToggleSpeak}
               />
               <DrawerItem icon={History} label="Previous chats" onClick={onOpenHistory} />
-              <DrawerItem icon={MessageSquarePlus} label="New chat" onClick={onClearChat} />
+              <DrawerItem icon={Sparkles} label="Start Fresh / Assessment" onClick={onClearChat} />
             </nav>
 
             {onSignOut ? (

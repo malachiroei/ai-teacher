@@ -102,69 +102,71 @@ export function buildWelcomeMessage(profile?: Profile | null): Message {
 }
 
 function ageBand(age: number) {
-  if (!Number.isFinite(age) || age <= 0) return "pre-teen to mid-teen (11–15): keep it playful, clear, and age-safe";
-  if (age <= 10) return "younger child: very simple words, short sentences, lots of encouragement";
-  if (age <= 12) return "11–12: everyday vocabulary, short-to-medium sentences, playful tone";
-  if (age <= 15) return "13–15: slightly richer vocabulary, still teen-friendly, no adult slang";
-  return "older teen: natural English, still warm and supportive";
+  if (!Number.isFinite(age) || age <= 0) return "young child (6–13): tiny words, 1–2 short sentences, lots of warmth";
+  if (age <= 8) return "young child: very simple words, one short sentence, lots of encouragement";
+  if (age <= 10) return "ages 9–10: simple A1 English, short questions, playful tone";
+  if (age <= 13) return "ages 11–13: still beginner-friendly, short sentences, no slang";
+  return "young teen: keep it warm, simple, and age-safe";
 }
 
 function skillGuidance(level: string) {
-  if (level === "beginner") {
-    return "A1–A2: very simple words, 4–10 word sentences, repeat key phrases, model a sentence they can copy";
-  }
   if (level === "advanced") {
-    return "B2–C1: natural, native-like English, still warm; challenge with richer vocab only when they are succeeding";
+    return "still keep it kid-simple unless they clearly succeed with longer lines";
   }
-  return "B1: clear everyday English, a little challenge is OK, still short enough for chat";
+  if (level === "intermediate") {
+    return "A2: short everyday English, one idea at a time";
+  }
+  return "A1 beginner: 3–8 word sentences, copyable phrases, celebrate one-word answers";
 }
 
 export function buildLearnerContext(
   profile?: ProfileInput | null,
   extras?: { memories?: UserMemory[]; isFirstSessionToday?: boolean },
 ) {
-  if (!profile) return "";
+  const memories = extras?.memories ?? [];
+  const memoryBlock = formatMemoriesForPrompt(memories);
+  if (!profile && !memoryBlock) return "";
 
   const pronouns =
-    profile.gender === "girl" ? "she/her" : profile.gender === "boy" ? "he/him" : "they/them";
-  const hebrew = hebrewTranslationGuide(profile.gender);
-  const level = String(profile.english_level || profile.englishLevel || "beginner");
+    profile?.gender === "girl" ? "she/her" : profile?.gender === "boy" ? "he/him" : "they/them";
+  const hebrew = hebrewTranslationGuide(profile?.gender);
+  const level = String(profile?.english_level || profile?.englishLevel || "beginner");
   const vocab = skillGuidance(level);
-  const englishName = englishDisplayName(profile) || "learner";
+  const englishName = englishDisplayName(profile) || "friend";
   const pronounced = namePronunciation(profile);
-  const age = Number(profile.age) || 13;
-  const tutorName = String(profile.custom_tutor_name ?? "").trim();
+  const age = Number(profile?.age) || 8;
+  const tutorName = String(profile?.custom_tutor_name ?? "").trim();
+  const interests = Array.isArray(profile?.interests)
+    ? profile.interests.join(", ")
+    : profile?.interests || "games, animals, and fun everyday things";
 
   const nameLine = pronounced
-    ? `The learner's name is ${englishName} (pronounced ${pronounced}). Always refer to them consistently as '${englishName}' and do not misspell or mispronounce it.`
-    : `The learner's name is ${englishName}. Always refer to them consistently as '${englishName}' and do not misspell or mispronounce it.`;
+    ? `The child's name is ${englishName} (pronounced ${pronounced}). Always use this name. Never misspell it.`
+    : `The child's name is ${englishName}. Always use this name. Never misspell it.`;
 
-  return `LEARNER PROFILE (always use this):
+  const profileBlock = profile
+    ? `COMPLETE KID PROFILE (use every line):
 - ${nameLine}
 - Age: ${age} — ${ageBand(age)}
-- Gender: ${profile.gender} (English pronouns ${pronouns})
+- Gender: ${profile.gender ?? "unknown"} (English pronouns ${pronouns})
 - Hebrew address: ${hebrew}
-- English level / detected skill: ${level} (${vocab})
-- Interests: ${
-    Array.isArray(profile.interests)
-      ? profile.interests.join(", ")
-      : profile.interests || "everyday topics"
-  }
-- Interest nouns in Hebrew: Movies=סרטים, Cars=מכוניות, Travel=טיולים, Sports=ספורט, Tech=טכנולוגיה, Music=מוזיקה, Food=אוכל, Games=משחקים.
-${tutorName ? `- The learner calls you "${tutorName}". Introduce and refer to yourself as ${tutorName} while staying in character.` : ""}
+- English comfort: ${level} (${vocab})
+- Hobbies / favorites: ${interests}
+${tutorName ? `- They call you "${tutorName}". You are ${tutorName}, their best friend.` : ""}`
+    : "KID PROFILE: still learning their details. Use memories below.";
 
-ADAPTIVE DIFFICULTY (every reply):
-- Match vocabulary complexity, sentence length, and grammar corrections to age ${age} and skill ${level}.
-- If they use English correctly: celebrate specifically (tense, vocabulary, a full sentence) — then keep chatting.
-- If they struggle (very short answers, many errors, Hebrew only): gently scaffold — offer a starter they can complete, model 1 clear sentence, then invite them to try.
-- Never talk over their head, and never baby them if they are doing well.
+  return `${profileBlock}
 
-${formatMemoriesForPrompt(extras?.memories ?? [])}
+YOU ARE THEIR BEST FRIEND:
+- Remember every detail they have ever told you: pets, hobbies, favorite games, family, school plans, friends, mood.
+- Proactively bring up past memories and follow up on plans.
+- Short, energetic, simple English. 1–2 sentences. Always end with a fun easy question.
+- Celebrate everything they say. Make them excited to talk to you every day.
+
+${memoryBlock}
 ${
   extras?.isFirstSessionToday
-    ? "FIRST SESSION TODAY: If a memory is timely, open or continue with a natural callback before moving on."
+    ? "FIRST SESSION TODAY: Greet them instantly like you missed them. Reference their latest memory or ask about their day. Do not wait for them to start. Do not restart the name quiz if you already know them."
     : ""
-}
-
-Personalize: prefer follow-up questions about their interests. Keep vocabulary matched to their level.`;
+}`;
 }

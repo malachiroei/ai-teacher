@@ -190,10 +190,10 @@ export function SettingsModal({
               max={VOICE_SPEED_OPTIONS.length - 1}
               step={1}
               value={Math.max(0, VOICE_SPEED_OPTIONS.indexOf(speed))}
-              onChange={(event) => setSpeed(VOICE_SPEED_OPTIONS[Number(event.target.value)] ?? 1)}
+              onChange={(event) => setSpeed(VOICE_SPEED_OPTIONS[Number(event.target.value)] ?? 0.9)}
               className="w-full accent-[#2f6bff]"
             />
-            <div className="mt-2 grid grid-cols-2 gap-2">
+            <div className="mt-2 grid grid-cols-3 gap-2">
               {VOICE_SPEED_OPTIONS.map((option) => (
                 <button
                   key={option}

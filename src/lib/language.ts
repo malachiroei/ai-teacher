@@ -105,6 +105,106 @@ export function looksLikeAwkwardEnglish(text: string) {
   return looksLikeGibberishEnglish(trimmed);
 }
 
+function stripGreetingDecorations(text: string) {
+  return text
+    .trim()
+    .replace(/[\u{1F300}-\u{1FAFF}]/gu, "")
+    .replace(/[!?.,…~❤️\-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+export function isSimpleGreeting(text: string) {
+  const t = stripGreetingDecorations(text);
+  if (!t) return false;
+  return /^(hi+|hii+|hey+|hello+|yo+|sup|howdy)( there| guys| everybody| everyone)?$/i.test(t)
+    || /^(שלום|שלום רב|היי+|הי+|הללו|בוקר טוב|ערב טוב|צהריים טובים|מה נשמע)$/.test(t);
+}
+
+export function askedForPhraseHelp(text: string) {
+  return /how do i say|how can i say|how to say|what(?:'| i)?s the english|איך אומרים|איך אומר|איך להגיד/i.test(
+    text.trim(),
+  );
+}
+
+export function shouldOfferSayHint(text: string) {
+  if (askedForPhraseHelp(text)) return true;
+  if (isSimpleGreeting(text)) return false;
+  return looksLikeAwkwardEnglish(text) || looksLikeGibberishEnglish(text);
+}
+
+export function normalizeSpeechKey(text: string) {
+  return text
+    .toLowerCase()
+    .replace(/[\u{1F300}-\u{1FAFF}]/gu, "")
+    .replace(/[^\p{L}\p{N}\s]/gu, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+export function englishSpeechLine(text: string) {
+  return text.replace(/[\u0590-\u05FF][\u0590-\u05FF\s,.'’"!?-]*/g, " ").replace(/\s+/g, " ").trim();
+}
+
+export function stripUnsolicitedScaffold(text: string) {
+  return text
+    .replace(/(?:^|\s)(?:in english,?\s*)?you can say:\s*["']?[^"'\n]*["']?\s*/gi, " ")
+    .replace(/\s*בואי ננסה:\s*[^\n]*?(?=[.!?]|[\u0590-\u05FF]|$)/g, " ")
+    .replace(/\s*באנגלית אפשר להגיד:\s*[^\n]*/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function collapseDoubledPhrase(text: string): string {
+  const words = text.split(/\s+/).filter(Boolean);
+  if (words.length < 4) return text;
+  for (let n = Math.floor(words.length / 2); n >= 2; n -= 1) {
+    const a = normalizeSpeechKey(words.slice(0, n).join(" "));
+    const b = normalizeSpeechKey(words.slice(n, n * 2).join(" "));
+    if (a && a === b) {
+      const rest = words.slice(n * 2);
+      const head = words.slice(0, n).join(" ");
+      return rest.length ? `${head} ${collapseDoubledPhrase(rest.join(" "))}` : head;
+    }
+  }
+  return text;
+}
+
+function splitSpeakableSentences(text: string) {
+  const out: string[] = [];
+  const pattern = /[^.!?…]+(?:[.!?…]["')\]]*)?/g;
+  let match: RegExpExecArray | null;
+  while ((match = pattern.exec(text))) {
+    const piece = match[0].trim();
+    if (piece) out.push(piece);
+  }
+  return out.length > 0 ? out : text.trim() ? [text.trim()] : [];
+}
+
+export function collapseRepeatedSpeech(text: string) {
+  if (!text) return "";
+  let next = text.replace(/\s+/g, " ").trim();
+  next = next.replace(/\b([\p{L}'’]+)(?:\s+\1\b)+/giu, "$1");
+
+  const unique: string[] = [];
+  for (const sentence of splitSpeakableSentences(next)) {
+    const key = normalizeSpeechKey(sentence);
+    if (key && unique.some((prev) => normalizeSpeechKey(prev) === key)) continue;
+    unique.push(sentence);
+  }
+  next = unique.join(" ");
+  return collapseDoubledPhrase(next).replace(/\s+/g, " ").trim();
+}
+
+export function isRedundantSpeechChunk(chunk: string, spoken: string) {
+  const a = normalizeSpeechKey(chunk);
+  if (!a) return true;
+  const b = normalizeSpeechKey(spoken);
+  if (!b) return false;
+  if (a === b) return true;
+  return b.includes(a);
+}
+
 export function inferBrowserSpeechLang(): SpeechLang {
   if (typeof navigator === "undefined") return "en-US";
   const langs = [...(navigator.languages ?? []), navigator.language]

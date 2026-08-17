@@ -3,32 +3,51 @@ import { NextResponse, type NextRequest } from "next/server";
 import type { Database } from "@/lib/database.types";
 
 export async function updateSession(request: NextRequest) {
-  let supabaseResponse = NextResponse.next({ request });
+  const passThrough = NextResponse.next({ request });
 
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-  if (!url || !key) return supabaseResponse;
+  try {
+    const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+    if (!url || !key) return passThrough;
 
-  const supabase = createServerClient<Database>(url, key, {
-    cookies: {
-      getAll() {
-        return request.cookies.getAll();
+    let supabaseResponse = NextResponse.next({ request });
+
+    const supabase = createServerClient<Database>(url, key, {
+      cookies: {
+        getAll() {
+          try {
+            return request.cookies.getAll();
+          } catch {
+            return [];
+          }
+        },
+        setAll(cookiesToSet) {
+          try {
+            cookiesToSet.forEach(({ name, value }) => {
+              request.cookies.set(name, value);
+            });
+            supabaseResponse = NextResponse.next({ request });
+            cookiesToSet.forEach(({ name, value, options }) => {
+              supabaseResponse.cookies.set(name, value, options);
+            });
+          } catch {
+            /* request may be read-only; keep the existing response */
+          }
+        },
       },
-      setAll(cookiesToSet) {
-        cookiesToSet.forEach(({ name, value }) => {
-          request.cookies.set(name, value);
-        });
-        supabaseResponse = NextResponse.next({ request });
-        cookiesToSet.forEach(({ name, value, options }) => {
-          supabaseResponse.cookies.set(name, value, options);
-        });
-      },
-    },
-  });
+    });
 
-  await Promise.race([
-    supabase.auth.getUser(),
-    new Promise((resolve) => setTimeout(resolve, 1500)),
-  ]);
-  return supabaseResponse;
+    try {
+      await Promise.race([
+        supabase.auth.getUser().catch(() => null),
+        new Promise((resolve) => setTimeout(resolve, 1500)),
+      ]);
+    } catch {
+      return NextResponse.next({ request });
+    }
+
+    return supabaseResponse;
+  } catch {
+    return passThrough;
+  }
 }
