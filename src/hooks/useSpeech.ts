@@ -15,8 +15,9 @@ export const SPEECH_UNAVAILABLE_MESSAGE =
 
 export const MIC_PERMISSION_MESSAGE = "Please allow microphone access in your browser settings";
 
-const SILENCE_IDLE_MS = 4000;
+const SILENCE_SUBMIT_MS = 4000;
 const FINAL_SUBMIT_MS = 700;
+const ONEND_RESULT_GRACE_MS = 300;
 
 type RecognitionInstance = InstanceType<NonNullable<ReturnType<typeof getRecognitionConstructor>>>;
 
@@ -82,22 +83,28 @@ function pickBestTranscript(streams: Record<SpeechLang, LangStream>) {
   return hebrewScore > englishScore ? streams["he-IL"].text.trim() : streams["en-US"].text.trim();
 }
 
-function readResult(event: {
+function readResultChunk(event: {
   resultIndex: number;
   results: { length: number; [index: number]: { isFinal: boolean; [index: number]: { transcript: string; confidence: number } } };
 }) {
-  let text = "";
+  let interim = "";
+  let final = "";
   let confidence = 0;
-  let isFinal = false;
+  let sawFinal = false;
 
-  for (let i = 0; i < event.results.length; i += 1) {
+  for (let i = event.resultIndex; i < event.results.length; i += 1) {
     const result = event.results[i];
-    text += result[0].transcript;
-    confidence = result[0].confidence || confidence;
-    if (result.isFinal) isFinal = true;
+    const piece = result[0]?.transcript ?? "";
+    confidence = result[0]?.confidence || confidence;
+    if (result.isFinal) {
+      final += piece;
+      sawFinal = true;
+    } else {
+      interim += piece;
+    }
   }
 
-  return { text: text.trim(), confidence, isFinal };
+  return { interim, final, confidence, isFinal: sawFinal };
 }
 
 let unlockContext: AudioContext | null = null;
@@ -189,11 +196,12 @@ export function useSpeech(options?: {
   const submittedRef = useRef(false);
   const listenGenerationRef = useRef(0);
   const latestTranscriptRef = useRef("");
+  const committedTranscriptRef = useRef("");
   const silenceTimerRef = useRef<number | null>(null);
   const speechQueueRef = useRef<string[]>([]);
   const ttsBusyRef = useRef(false);
   const ttsGenerationRef = useRef(0);
-  const submitListeningRef = useRef<(forceIdle?: boolean) => void>(() => {});
+  const sendTranscriptRef = useRef<(text?: string) => void>(() => {});
 
   characterRef.current = options?.character ?? null;
   rateMultiplierRef.current = options?.rateMultiplier ?? 1;
@@ -208,16 +216,12 @@ export function useSpeech(options?: {
     }
   }, []);
 
-  const currentSpokenText = useCallback(() => {
-    return (latestTranscriptRef.current || pickBestTranscript(streamsRef.current)).trim();
-  }, []);
-
-  const publishLiveTranscript = useCallback((raw: string) => {
-    const best = pickBestTranscript(streamsRef.current) || raw.trim();
-    if (!best) return;
-    latestTranscriptRef.current = best;
-    setTranscript(best);
-    setSpeechLang(hasHebrewScript(best) ? "he-IL" : "en-US");
+  const snapshotSpokenText = useCallback(() => {
+    return (
+      latestTranscriptRef.current ||
+      committedTranscriptRef.current ||
+      pickBestTranscript(streamsRef.current)
+    ).trim();
   }, []);
 
   const resetListeningState = useCallback(() => {
@@ -249,39 +253,49 @@ export function useSpeech(options?: {
     recognizerRef.current = null;
   }, []);
 
-  const submitListening = useCallback(
-    (forceIdle = false) => {
+  const sendTranscript = useCallback(
+    (rawText?: string) => {
       if (submittedRef.current) {
         stopRecognizer();
         resetListeningState();
         return;
       }
+
+      const text = (rawText ?? snapshotSpokenText()).trim();
+      if (!text) {
+        submittedRef.current = true;
+        stopRecognizer();
+        resetListeningState();
+        return;
+      }
+
       submittedRef.current = true;
-      listenGenerationRef.current += 1;
-      const text = currentSpokenText();
       shouldListenRef.current = false;
+      clearSilenceTimer();
+      setIsListening(false);
+      onFinalTranscriptRef.current?.(text);
+      latestTranscriptRef.current = "";
+      committedTranscriptRef.current = "";
       stopRecognizer();
       resetListeningState();
-      if (!forceIdle && text) {
-        onFinalTranscriptRef.current?.(text);
-      }
     },
-    [currentSpokenText, resetListeningState, stopRecognizer],
+    [clearSilenceTimer, resetListeningState, snapshotSpokenText, stopRecognizer],
   );
 
-  submitListeningRef.current = submitListening;
+  sendTranscriptRef.current = sendTranscript;
 
-  const armSilence = useCallback(
+  const armSilenceSubmit = useCallback(
     (delayMs: number) => {
       clearSilenceTimer();
       const session = listenGenerationRef.current;
       silenceTimerRef.current = window.setTimeout(() => {
-        if (session !== listenGenerationRef.current) return;
-        const text = currentSpokenText();
-        submitListeningRef.current(!text);
+        if (session !== listenGenerationRef.current || submittedRef.current) return;
+        const text = snapshotSpokenText();
+        if (!text) return;
+        sendTranscriptRef.current(text);
       }, delayMs);
     },
-    [clearSilenceTimer, currentSpokenText],
+    [clearSilenceTimer, snapshotSpokenText],
   );
 
   const startRecognizer = useCallback(
@@ -305,26 +319,30 @@ export function useSpeech(options?: {
           try {
             streamsRef.current[activeLang].running = true;
             setIsListening(true);
-            armSilence(SILENCE_IDLE_MS);
           } catch {
-            submitListeningRef.current(true);
+            sendTranscriptRef.current("");
           }
         };
 
         recognition.onresult = (event) => {
           if (session !== listenGenerationRef.current || submittedRef.current) return;
           try {
-            const result = readResult(event);
-            streamsRef.current[activeLang] = {
-              text: result.text,
-              confidence: result.confidence,
-              running: true,
-            };
-            if (result.text) {
-              latestTranscriptRef.current = result.text;
+            const { interim, final, confidence, isFinal } = readResultChunk(event);
+            if (final) {
+              committedTranscriptRef.current = `${committedTranscriptRef.current} ${final}`.trim();
             }
-            publishLiveTranscript(result.text);
-            armSilence(result.isFinal ? FINAL_SUBMIT_MS : SILENCE_IDLE_MS);
+            const currentText = `${committedTranscriptRef.current} ${interim}`.trim() || (final || interim).trim();
+            if (currentText) {
+              latestTranscriptRef.current = currentText;
+              streamsRef.current[activeLang] = {
+                text: currentText,
+                confidence,
+                running: true,
+              };
+              setTranscript(currentText);
+              setSpeechLang(hasHebrewScript(currentText) ? "he-IL" : "en-US");
+              armSilenceSubmit(isFinal ? FINAL_SUBMIT_MS : SILENCE_SUBMIT_MS);
+            }
           } catch {
             /* keep listening; a bad result must not freeze the mic */
           }
@@ -339,7 +357,7 @@ export function useSpeech(options?: {
           const error = String(event.error || "");
           if (error === "not-allowed" || error === "service-not-allowed" || error === "audio-capture") {
             onListenErrorRef.current?.("not-allowed");
-            submitListeningRef.current(true);
+            sendTranscriptRef.current("");
             return;
           }
           if (error === "aborted" || error === "no-speech") {
@@ -350,16 +368,16 @@ export function useSpeech(options?: {
 
         recognition.onend = () => {
           if (session !== listenGenerationRef.current) return;
-          if (submittedRef.current) {
-            resetListeningState();
-            return;
-          }
-          const text = currentSpokenText();
-          if (text) {
-            submitListeningRef.current(false);
-            return;
-          }
-          submitListeningRef.current(true);
+          const immediate = snapshotSpokenText();
+          window.setTimeout(() => {
+            if (session !== listenGenerationRef.current) return;
+            if (submittedRef.current) {
+              resetListeningState();
+              return;
+            }
+            const textToSend = snapshotSpokenText() || immediate;
+            sendTranscriptRef.current(textToSend);
+          }, ONEND_RESULT_GRACE_MS);
         };
 
         recognizerRef.current = recognition;
@@ -378,7 +396,7 @@ export function useSpeech(options?: {
         return false;
       }
     },
-    [armSilence, currentSpokenText, publishLiveTranscript, resetListeningState],
+    [armSilenceSubmit, resetListeningState, snapshotSpokenText],
   );
 
   useEffect(() => {
@@ -563,8 +581,8 @@ export function useSpeech(options?: {
   );
 
   const stopListening = useCallback(() => {
-    submitListening(false);
-  }, [submitListening]);
+    sendTranscript();
+  }, [sendTranscript]);
 
   const startListening = useCallback(
     (preferredLang?: SpeechLang) => {
@@ -587,13 +605,13 @@ export function useSpeech(options?: {
 
         streamsRef.current = emptyStreams();
         latestTranscriptRef.current = "";
+        committedTranscriptRef.current = "";
         setTranscript("");
         setSpeechLang(resolveRecognitionLang(preferredLang).startsWith("he") ? "he-IL" : "en-US");
 
         submittedRef.current = false;
         shouldListenRef.current = true;
         setIsListening(true);
-        armSilence(SILENCE_IDLE_MS);
 
         const started = startRecognizer(preferredLang);
         startingRef.current = false;
@@ -610,7 +628,7 @@ export function useSpeech(options?: {
         return false;
       }
     },
-    [armSilence, isListening, resetListeningState, startRecognizer, stopRecognizer],
+    [isListening, resetListeningState, startRecognizer, stopRecognizer],
   );
 
   const toggleListening = useCallback(
