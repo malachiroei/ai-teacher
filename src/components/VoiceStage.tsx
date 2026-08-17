@@ -71,18 +71,20 @@ export function VoiceStage({
       },
     };
   }
-  const mode: VoiceWaveMode = speaking ? "speaking" : listening ? "listening" : "idle";
-  const live = speaking || listening;
+  const mode: VoiceWaveMode = speaking ? "speaking" : thinking ? "thinking" : listening ? "listening" : "idle";
+  const live = speaking || listening || thinking;
   const trimmedTranscript = transcript.trim();
-  const statusCaption = listening
-    ? trimmedTranscript
-      ? `Listening: ${trimmedTranscript}`
-      : "Listening…"
-    : thinking && !aiCaption.trim()
-      ? `${tutorName} is thinking...`
-      : "";
-  const captionLines = !listening ? splitCaptionLines(aiCaption, aiTranslation) : { english: "", hebrew: "" };
-  const showAiCaption = !listening && Boolean(captionLines.english);
+  const statusCaption = thinking && !aiCaption.trim()
+    ? `${tutorName} is thinking...`
+    : listening
+      ? trimmedTranscript
+        ? `Listening: ${trimmedTranscript}`
+        : "Listening…"
+      : !speaking && !aiCaption.trim()
+        ? "Tap mic to talk"
+        : "";
+  const captionLines = !listening || thinking ? splitCaptionLines(aiCaption, aiTranslation) : { english: "", hebrew: "" };
+  const showAiCaption = (!listening || thinking) && Boolean(captionLines.english);
   const showStatus = Boolean(statusCaption) && !showAiCaption;
 
   useEffect(() => {
@@ -161,7 +163,7 @@ export function VoiceStage({
           <AnimatePresence mode="wait">
             {showStatus ? (
               <motion.p
-                key={listening ? "listen" : "think"}
+                key={thinking ? "think" : listening ? "listen" : "idle"}
                 initial={{ opacity: 0, y: 8 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -6 }}

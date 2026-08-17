@@ -15,6 +15,9 @@ export const SPEECH_UNAVAILABLE_MESSAGE =
 
 export const MIC_PERMISSION_MESSAGE = "Please allow microphone access in your browser settings";
 
+const SILENCE_IDLE_MS = 4000;
+const FINAL_SUBMIT_MS = 700;
+
 type RecognitionInstance = InstanceType<NonNullable<ReturnType<typeof getRecognitionConstructor>>>;
 
 interface LangStream {
@@ -127,10 +130,19 @@ function unlockAudioContext() {
   }
 }
 
+export function cancelSpeechSynthesis() {
+  if (typeof window === "undefined" || !("speechSynthesis" in window)) return;
+  try {
+    window.speechSynthesis.cancel();
+    resumeSpeechSynthesis();
+  } catch {
+    /* ignore */
+  }
+}
+
 export function unlockSpeechSynthesis() {
   if (typeof window === "undefined") return;
   try {
-    unlockAudioContext();
     if (!("speechSynthesis" in window)) return;
     resumeSpeechSynthesis();
     const warm = new SpeechSynthesisUtterance("");
@@ -142,6 +154,11 @@ export function unlockSpeechSynthesis() {
   } catch {
     resumeSpeechSynthesis();
   }
+}
+
+function unlockPlaybackAudio() {
+  if (isMobileDevice()) return;
+  unlockAudioContext();
 }
 
 export function useSpeech(options?: {
@@ -169,25 +186,20 @@ export function useSpeech(options?: {
   const onListenErrorRef = useRef(options?.onListenError);
   const shouldListenRef = useRef(false);
   const startingRef = useRef(false);
-  const finalizedRef = useRef(true);
-  const startWatchdogRef = useRef<number | null>(null);
+  const submittedRef = useRef(false);
+  const listenGenerationRef = useRef(0);
+  const latestTranscriptRef = useRef("");
   const silenceTimerRef = useRef<number | null>(null);
   const speechQueueRef = useRef<string[]>([]);
   const ttsBusyRef = useRef(false);
   const ttsGenerationRef = useRef(0);
+  const submitListeningRef = useRef<(forceIdle?: boolean) => void>(() => {});
 
   characterRef.current = options?.character ?? null;
   rateMultiplierRef.current = options?.rateMultiplier ?? 1;
   preferredVoiceUriRef.current = options?.preferredVoiceUri ?? "";
   onFinalTranscriptRef.current = options?.onFinalTranscript;
   onListenErrorRef.current = options?.onListenError;
-
-  const clearStartWatchdog = useCallback(() => {
-    if (startWatchdogRef.current != null) {
-      window.clearTimeout(startWatchdogRef.current);
-      startWatchdogRef.current = null;
-    }
-  }, []);
 
   const clearSilenceTimer = useCallback(() => {
     if (silenceTimerRef.current != null) {
@@ -196,23 +208,26 @@ export function useSpeech(options?: {
     }
   }, []);
 
-  const publishTranscript = useCallback(() => {
-    const next = pickBestTranscript(streamsRef.current);
-    if (next) {
-      setTranscript(next);
-      setSpeechLang(hasHebrewScript(next) ? "he-IL" : "en-US");
-    }
+  const currentSpokenText = useCallback(() => {
+    return (latestTranscriptRef.current || pickBestTranscript(streamsRef.current)).trim();
+  }, []);
+
+  const publishLiveTranscript = useCallback((raw: string) => {
+    const best = pickBestTranscript(streamsRef.current) || raw.trim();
+    if (!best) return;
+    latestTranscriptRef.current = best;
+    setTranscript(best);
+    setSpeechLang(hasHebrewScript(best) ? "he-IL" : "en-US");
   }, []);
 
   const resetListeningState = useCallback(() => {
     shouldListenRef.current = false;
     startingRef.current = false;
-    clearStartWatchdog();
     clearSilenceTimer();
     streamsRef.current["en-US"].running = false;
     streamsRef.current["he-IL"].running = false;
     setIsListening(false);
-  }, [clearSilenceTimer, clearStartWatchdog]);
+  }, [clearSilenceTimer]);
 
   const stopRecognizer = useCallback(() => {
     const recognition = recognizerRef.current;
@@ -220,25 +235,12 @@ export function useSpeech(options?: {
     streamsRef.current[lang].running = false;
     if (!recognition) return;
 
+    // Keep onend attached so mobile WebKit can still submit leftover speech.
     try {
-      recognition.onresult = null;
-      recognition.onerror = null;
-      recognition.onend = null;
-      recognition.onstart = null;
-      recognition.onnomatch = null;
-    } catch {
-      /* Safari can throw if the instance is already gone */
-    }
-
-    try {
-      if (isAppleTouchDevice()) {
-        recognition.stop();
-      } else {
-        recognition.abort();
-      }
+      recognition.stop();
     } catch {
       try {
-        recognition.stop();
+        recognition.abort();
       } catch {
         /* already stopped */
       }
@@ -247,24 +249,40 @@ export function useSpeech(options?: {
     recognizerRef.current = null;
   }, []);
 
-  const finalizeListeningRef = useRef<() => void>(() => {});
-
-  const finalizeListening = useCallback(() => {
-    if (finalizedRef.current) {
+  const submitListening = useCallback(
+    (forceIdle = false) => {
+      if (submittedRef.current) {
+        stopRecognizer();
+        resetListeningState();
+        return;
+      }
+      submittedRef.current = true;
+      listenGenerationRef.current += 1;
+      const text = currentSpokenText();
+      shouldListenRef.current = false;
       stopRecognizer();
       resetListeningState();
-      return;
-    }
-    finalizedRef.current = true;
-    shouldListenRef.current = false;
-    publishTranscript();
-    const text = pickBestTranscript(streamsRef.current).trim();
-    stopRecognizer();
-    resetListeningState();
-    if (text) onFinalTranscriptRef.current?.(text);
-  }, [publishTranscript, resetListeningState, stopRecognizer]);
+      if (!forceIdle && text) {
+        onFinalTranscriptRef.current?.(text);
+      }
+    },
+    [currentSpokenText, resetListeningState, stopRecognizer],
+  );
 
-  finalizeListeningRef.current = finalizeListening;
+  submitListeningRef.current = submitListening;
+
+  const armSilence = useCallback(
+    (delayMs: number) => {
+      clearSilenceTimer();
+      const session = listenGenerationRef.current;
+      silenceTimerRef.current = window.setTimeout(() => {
+        if (session !== listenGenerationRef.current) return;
+        const text = currentSpokenText();
+        submitListeningRef.current(!text);
+      }, delayMs);
+    },
+    [clearSilenceTimer, currentSpokenText],
+  );
 
   const startRecognizer = useCallback(
     (lang?: SpeechLang) => {
@@ -273,6 +291,7 @@ export function useSpeech(options?: {
 
       try {
         const recognition = new Recognition();
+        const session = listenGenerationRef.current;
         const mobile = isMobileDevice();
         recognition.continuous = !mobile;
         recognition.interimResults = true;
@@ -281,25 +300,19 @@ export function useSpeech(options?: {
         activeLangRef.current = recognition.lang.startsWith("he") ? "he-IL" : "en-US";
         const activeLang = activeLangRef.current;
 
-        const armSilence = (delayMs: number) => {
-          if (mobile) return;
-          clearSilenceTimer();
-          silenceTimerRef.current = window.setTimeout(() => {
-            finalizeListeningRef.current();
-          }, delayMs);
-        };
-
         recognition.onstart = () => {
+          if (session !== listenGenerationRef.current) return;
           try {
-            clearStartWatchdog();
             streamsRef.current[activeLang].running = true;
             setIsListening(true);
+            armSilence(SILENCE_IDLE_MS);
           } catch {
-            finalizeListeningRef.current();
+            submitListeningRef.current(true);
           }
         };
 
         recognition.onresult = (event) => {
+          if (session !== listenGenerationRef.current || submittedRef.current) return;
           try {
             const result = readResult(event);
             streamsRef.current[activeLang] = {
@@ -307,34 +320,46 @@ export function useSpeech(options?: {
               confidence: result.confidence,
               running: true,
             };
-            publishTranscript();
-            armSilence(result.isFinal ? 120 : 600);
+            if (result.text) {
+              latestTranscriptRef.current = result.text;
+            }
+            publishLiveTranscript(result.text);
+            armSilence(result.isFinal ? FINAL_SUBMIT_MS : SILENCE_IDLE_MS);
           } catch {
             /* keep listening; a bad result must not freeze the mic */
           }
         };
 
         recognition.onnomatch = () => {
-          finalizeListeningRef.current();
+          /* Wait for onend so any interim text can still submit. */
         };
 
         recognition.onerror = (event) => {
+          if (session !== listenGenerationRef.current) return;
           const error = String(event.error || "");
-          if (error === "no-speech" || error === "aborted") {
-            finalizeListeningRef.current();
-            return;
-          }
           if (error === "not-allowed" || error === "service-not-allowed" || error === "audio-capture") {
             onListenErrorRef.current?.("not-allowed");
-            finalizeListeningRef.current();
+            submitListeningRef.current(true);
             return;
           }
-          finalizeListeningRef.current();
+          if (error === "aborted" || error === "no-speech") {
+            /* onend is the submission fallback; do not drop spoken text here. */
+            return;
+          }
         };
 
         recognition.onend = () => {
-          if (recognizerRef.current !== recognition && recognizerRef.current) return;
-          finalizeListeningRef.current();
+          if (session !== listenGenerationRef.current) return;
+          if (submittedRef.current) {
+            resetListeningState();
+            return;
+          }
+          const text = currentSpokenText();
+          if (text) {
+            submitListeningRef.current(false);
+            return;
+          }
+          submitListeningRef.current(true);
         };
 
         recognizerRef.current = recognition;
@@ -353,7 +378,7 @@ export function useSpeech(options?: {
         return false;
       }
     },
-    [clearSilenceTimer, clearStartWatchdog, publishTranscript],
+    [armSilence, currentSpokenText, publishLiveTranscript, resetListeningState],
   );
 
   useEffect(() => {
@@ -422,6 +447,7 @@ export function useSpeech(options?: {
     }
 
     try {
+      unlockPlaybackAudio();
       unlockSpeechSynthesis();
       resumeSpeechSynthesis();
       const character = characterRef.current;
@@ -537,8 +563,8 @@ export function useSpeech(options?: {
   );
 
   const stopListening = useCallback(() => {
-    finalizeListening();
-  }, [finalizeListening]);
+    submitListening(false);
+  }, [submitListening]);
 
   const startListening = useCallback(
     (preferredLang?: SpeechLang) => {
@@ -551,37 +577,40 @@ export function useSpeech(options?: {
         }
         if (startingRef.current || shouldListenRef.current) return isListening;
 
-        unlockSpeechSynthesis();
-        resumeSpeechSynthesis();
+        // Cancel leftover TTS so iOS/WebKit can open the mic. Do not create
+        // AudioContext or silent utterances here — they deadlock recognition.
+        cancelSpeechSynthesis();
         startingRef.current = true;
-        finalizedRef.current = true;
+        listenGenerationRef.current += 1;
         shouldListenRef.current = false;
         stopRecognizer();
 
         streamsRef.current = emptyStreams();
+        latestTranscriptRef.current = "";
         setTranscript("");
         setSpeechLang(resolveRecognitionLang(preferredLang).startsWith("he") ? "he-IL" : "en-US");
 
-        finalizedRef.current = false;
+        submittedRef.current = false;
         shouldListenRef.current = true;
         setIsListening(true);
+        armSilence(SILENCE_IDLE_MS);
 
         const started = startRecognizer(preferredLang);
         startingRef.current = false;
         if (!started) {
-          finalizedRef.current = true;
+          submittedRef.current = true;
           resetListeningState();
           return false;
         }
         return true;
       } catch {
-        finalizedRef.current = true;
+        submittedRef.current = true;
         stopRecognizer();
         resetListeningState();
         return false;
       }
     },
-    [isListening, resetListeningState, startRecognizer, stopRecognizer],
+    [armSilence, isListening, resetListeningState, startRecognizer, stopRecognizer],
   );
 
   const toggleListening = useCallback(

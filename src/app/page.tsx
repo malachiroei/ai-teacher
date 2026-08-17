@@ -680,7 +680,6 @@ export default function HomePage() {
       return;
     }
     stopSpeaking();
-    unlockSpeech();
     setSpokenReply("");
     setSpokenTranslation("");
     const lastUserText = [...messages].reverse().find((message) => message.sender === "user")?.text ?? "";
