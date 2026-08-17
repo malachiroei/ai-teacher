@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState, type MouseEvent, type TouchEvent } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { Keyboard, Mic, Send, Volume2, VolumeX } from "lucide-react";
 import { MixedBidiText } from "@/components/MixedBidiText";
@@ -51,6 +51,26 @@ export function VoiceStage({
   const [portraitFailed, setPortraitFailed] = useState(false);
   const [keyboardOpen, setKeyboardOpen] = useState(false);
   const [draft, setDraft] = useState("");
+  const micTouchRef = useRef(false);
+  const speakTouchRef = useRef(false);
+
+  function bindImmediateTap(fromTouch: { current: boolean }, handler: () => void) {
+    return {
+      onTouchStart: (event: TouchEvent<HTMLButtonElement>) => {
+        fromTouch.current = true;
+        handler();
+        event.preventDefault();
+      },
+      onClick: (event: MouseEvent<HTMLButtonElement>) => {
+        if (fromTouch.current) {
+          fromTouch.current = false;
+          event.preventDefault();
+          return;
+        }
+        handler();
+      },
+    };
+  }
   const mode: VoiceWaveMode = speaking ? "speaking" : listening ? "listening" : "idle";
   const live = speaking || listening;
   const trimmedTranscript = transcript.trim();
@@ -215,15 +235,15 @@ export function VoiceStage({
         <div className="mt-3 flex items-center justify-center gap-4">
           <button
             type="button"
-            onClick={onToggleMic}
             disabled={disabled && !listening}
             aria-label={listening ? "Stop listening" : "Start listening"}
             className={cn(
-              "flex h-16 w-16 items-center justify-center rounded-full text-white transition active:scale-95",
+              "flex h-16 w-16 touch-manipulation items-center justify-center rounded-full text-white transition active:scale-95",
               listening
                 ? "bg-[var(--accent)] shadow-[0_0_36px_color-mix(in_srgb,var(--accent)_70%,transparent)]"
                 : "bg-white/8 ring-1 ring-white/15 shadow-[0_0_28px_color-mix(in_srgb,var(--accent)_28%,transparent)] hover:bg-white/12",
             )}
+            {...bindImmediateTap(micTouchRef, onToggleMic)}
           >
             <Mic className="h-7 w-7" />
           </button>
@@ -240,12 +260,12 @@ export function VoiceStage({
           </button>
           <button
             type="button"
-            onClick={onToggleSpeak}
             aria-label={autoSpeak ? "Mute voice replies" : "Unmute voice replies"}
             className={cn(
-              "flex h-12 w-12 items-center justify-center rounded-full ring-1 ring-white/12 transition hover:bg-white/10",
+              "flex h-12 w-12 touch-manipulation items-center justify-center rounded-full ring-1 ring-white/12 transition hover:bg-white/10",
               autoSpeak ? "bg-white/8 text-white" : "bg-white/5 text-white/40",
             )}
+            {...bindImmediateTap(speakTouchRef, onToggleSpeak)}
           >
             {autoSpeak ? <Volume2 className="h-5 w-5" /> : <VolumeX className="h-5 w-5" />}
           </button>

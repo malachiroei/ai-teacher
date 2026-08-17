@@ -13,7 +13,7 @@ import { LoadingScreen } from "@/components/LoadingScreen";
 import { OnboardingModal } from "@/components/OnboardingModal";
 import { SettingsModal } from "@/components/SettingsModal";
 import { VoiceStage } from "@/components/VoiceStage";
-import { useSpeech, SPEECH_UNAVAILABLE_MESSAGE } from "@/hooks/useSpeech";
+import { useSpeech, SPEECH_UNAVAILABLE_MESSAGE, MIC_PERMISSION_MESSAGE } from "@/hooks/useSpeech";
 import { useVisualViewport } from "@/hooks/useVisualViewport";
 import {
   archiveCurrentChat,
@@ -182,6 +182,11 @@ export default function HomePage() {
     rateMultiplier: voiceSpeed,
     preferredVoiceUri: practiceSettings.preferred_voice,
     onFinalTranscript: (text) => sendSpokenRef.current(text),
+    onListenError: (reason) => {
+      const text = reason === "not-allowed" ? MIC_PERMISSION_MESSAGE : SPEECH_UNAVAILABLE_MESSAGE;
+      setNotice(text);
+      window.setTimeout(() => setNotice(""), 2800);
+    },
   });
   const userMessageCountToday = countUserMessagesToday(messages);
   const lastUserMessageAt = [...messages].reverse().find((message) => message.sender === "user")?.timestamp ?? 0;
@@ -664,8 +669,7 @@ export default function HomePage() {
     }
   }
 
-  async function handleToggleMic() {
-    unlockSpeech();
+  function handleToggleMic() {
     if (isListening) {
       stopListening();
       return;
@@ -676,17 +680,14 @@ export default function HomePage() {
       return;
     }
     stopSpeaking();
+    unlockSpeech();
     setSpokenReply("");
     setSpokenTranslation("");
     const lastUserText = [...messages].reverse().find((message) => message.sender === "user")?.text ?? "";
-    try {
-      const started = await startListening(
-        preferredSpeechLangFromText(input) ?? preferredSpeechLangFromText(lastUserText),
-      );
-      if (!started) flash(SPEECH_UNAVAILABLE_MESSAGE);
-    } catch {
-      flash(SPEECH_UNAVAILABLE_MESSAGE);
-    }
+    const started = startListening(
+      preferredSpeechLangFromText(input) ?? preferredSpeechLangFromText(lastUserText),
+    );
+    if (!started) flash(SPEECH_UNAVAILABLE_MESSAGE);
   }
 
   async function beginNewChat(nextProfile = profile) {
@@ -1015,6 +1016,7 @@ export default function HomePage() {
           character={character}
           autoSpeak={autoSpeak}
           onToggleSpeak={() => {
+            unlockSpeech();
             setAutoSpeak((value) => {
               if (value) stopSpeaking();
               return !value;
@@ -1046,12 +1048,13 @@ export default function HomePage() {
           autoSpeak={autoSpeak}
           voiceSpeed={formatVoiceSpeed(voiceSpeed)}
           disabled={isLoading || awaitingGreeting || !chatUnlocked}
-          onToggleMic={() => void handleToggleMic()}
+          onToggleMic={handleToggleMic}
           onSendText={(text) => {
             unlockSpeech();
             void sendMessage(text);
           }}
           onToggleSpeak={() => {
+            unlockSpeech();
             setAutoSpeak((value) => {
               if (value) stopSpeaking();
               return !value;
