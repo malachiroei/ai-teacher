@@ -93,9 +93,10 @@ export default function HomePage() {
   const [settingsError, setSettingsError] = useState("");
   const [notice, setNotice] = useState("");
 
-  const pendingTranscript = useRef("");
-  const wasListening = useRef(false);
+  const sendingRef = useRef(false);
+  const sendSpokenRef = useRef<(text: string) => void>(() => {});
   const dailyOpenRef = useRef("");
+  const [spokenReply, setSpokenReply] = useState("");
   const viewport = useVisualViewport();
   const needsOnboarding = Boolean(user && profileChecked && !isProfileComplete(profile));
   const chatUnlocked = Boolean(user && isProfileComplete(profile));
@@ -115,6 +116,7 @@ export default function HomePage() {
     character,
     rateMultiplier: practiceSettings.voice_speed,
     preferredVoiceUri: practiceSettings.preferred_voice,
+    onFinalTranscript: (text) => sendSpokenRef.current(text),
   });
   const userMessageCountToday = countUserMessagesToday(messages);
   const lastUserMessageAt = [...messages].reverse().find((message) => message.sender === "user")?.timestamp ?? 0;
@@ -201,7 +203,10 @@ export default function HomePage() {
         }
         void loadUserMemories(supabase, nextUser.id)
           .then((nextMemories) => setMemories(nextMemories))
-          .catch(() => setMemories([]));
+          .catch(() => {
+            console.warn("User memories unavailable; continuing without them.");
+            setMemories([]);
+          });
       }
     } catch {
       flash("Couldn't load your profile.");
@@ -258,23 +263,6 @@ export default function HomePage() {
     }
   }, [bootstrapUser]);
 
-  useEffect(() => {
-    if (isListening) {
-      wasListening.current = true;
-      if (transcript) {
-        setInput(transcript);
-        pendingTranscript.current = transcript;
-      }
-      return;
-    }
-
-    if (!wasListening.current) return;
-    wasListening.current = false;
-    const spoken = (pendingTranscript.current || transcript).trim();
-    pendingTranscript.current = "";
-    if (spoken) void sendMessage(spoken);
-  }, [isListening, transcript]);
-
   async function persistMessages(
     userId: string,
     entries: Array<{
@@ -304,7 +292,7 @@ export default function HomePage() {
       const next = await upsertUserMemories(createClient(), user.id, memories, incoming);
       setMemories(next);
     } catch {
-      /* memory save is best-effort */
+      console.warn("User memories unavailable; continuing without them.");
     }
   }
 
@@ -338,11 +326,14 @@ export default function HomePage() {
 
   async function sendMessage(rawText: string) {
     const text = rawText.trim();
-    if (!text || isLoading || !chatUnlocked || !user) return;
+    if (!text || sendingRef.current || isLoading || !chatUnlocked || !user) return;
 
+    sendingRef.current = true;
     stopListening();
+    stopSpeaking();
     setMenuOpen(false);
     setInput("");
+    setSpokenReply("");
 
     const userMessage: Message = {
       id: createId(),
@@ -374,6 +365,9 @@ export default function HomePage() {
           .concat(aiMessage),
       );
       setSuggestions(data.suggestedAnswers ?? []);
+      setSpokenReply(data.aiResponse);
+      setIsLoading(false);
+      sendingRef.current = false;
       if (autoSpeak) speak(data.aiResponse);
 
       void persistMemories(data.newMemories);
@@ -391,9 +385,14 @@ export default function HomePage() {
     } catch {
       flash(`Couldn't reach ${character.name}. Please try again.`);
     } finally {
+      sendingRef.current = false;
       setIsLoading(false);
     }
   }
+
+  sendSpokenRef.current = (text) => {
+    void sendMessage(text);
+  };
 
   async function handleAnotherQuestion() {
     if (isLoading || !chatUnlocked || !user) return;
@@ -409,6 +408,7 @@ export default function HomePage() {
       };
       setMessages((current) => [...current, aiMessage]);
       setSuggestions(data.suggestedAnswers ?? []);
+      setSpokenReply(data.aiResponse);
       if (autoSpeak) speak(data.aiResponse);
       void persistMemories(data.newMemories);
       try {
@@ -430,10 +430,13 @@ export default function HomePage() {
       stopListening();
       return;
     }
+    if (isLoading || sendingRef.current) return;
     if (!speechSupported.stt) {
       flash(SPEECH_UNAVAILABLE_MESSAGE);
       return;
     }
+    stopSpeaking();
+    setSpokenReply("");
     const lastUserText = [...messages].reverse().find((message) => message.sender === "user")?.text ?? "";
     try {
       const started = await startListening(
@@ -554,12 +557,13 @@ export default function HomePage() {
         };
         setMessages([opener]);
         setSuggestions(data.suggestedAnswers ?? []);
+        setSpokenReply(data.aiResponse);
+        if (autoSpeak) speak(data.aiResponse);
         const supabase = createClient();
         await startFreshChat(supabase, user.id);
         await persistMessages(user.id, [
           { id: opener.id, sender: "ai", text: opener.text, translation: opener.translation },
         ]);
-        if (autoSpeak) speak(data.aiResponse);
       } catch {
         /* keep the regular welcome if the memory greeting fails */
       }
@@ -724,6 +728,8 @@ export default function HomePage() {
           thinking={isLoading}
           speaking={isSpeaking}
           listening={isListening}
+          transcript={transcript}
+          aiCaption={spokenReply}
           autoSpeak={autoSpeak}
           disabled={isLoading || !chatUnlocked}
           onToggleMic={() => void handleToggleMic()}

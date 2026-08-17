@@ -113,10 +113,20 @@ async function ensureMicrophoneAccess() {
   }
 }
 
+function resumeSpeechSynthesis() {
+  if (typeof window === "undefined" || !("speechSynthesis" in window)) return;
+  try {
+    window.speechSynthesis.resume();
+  } catch {
+    /* Chrome can pause the synth after async work */
+  }
+}
+
 export function useSpeech(options?: {
   character?: Character | null;
   rateMultiplier?: number;
   preferredVoiceUri?: string | null;
+  onFinalTranscript?: (text: string) => void;
 }) {
   const [isListening, setIsListening] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
@@ -132,18 +142,29 @@ export function useSpeech(options?: {
   const characterRef = useRef<Character | null>(options?.character ?? null);
   const rateMultiplierRef = useRef(options?.rateMultiplier ?? 1);
   const preferredVoiceUriRef = useRef(options?.preferredVoiceUri ?? "");
+  const onFinalTranscriptRef = useRef(options?.onFinalTranscript);
   const shouldListenRef = useRef(false);
   const startingRef = useRef(false);
+  const finalizedRef = useRef(true);
   const startWatchdogRef = useRef<number | null>(null);
+  const silenceTimerRef = useRef<number | null>(null);
 
   characterRef.current = options?.character ?? null;
   rateMultiplierRef.current = options?.rateMultiplier ?? 1;
   preferredVoiceUriRef.current = options?.preferredVoiceUri ?? "";
+  onFinalTranscriptRef.current = options?.onFinalTranscript;
 
   const clearStartWatchdog = useCallback(() => {
     if (startWatchdogRef.current != null) {
       window.clearTimeout(startWatchdogRef.current);
       startWatchdogRef.current = null;
+    }
+  }, []);
+
+  const clearSilenceTimer = useCallback(() => {
+    if (silenceTimerRef.current != null) {
+      window.clearTimeout(silenceTimerRef.current);
+      silenceTimerRef.current = null;
     }
   }, []);
 
@@ -159,10 +180,11 @@ export function useSpeech(options?: {
     shouldListenRef.current = false;
     startingRef.current = false;
     clearStartWatchdog();
+    clearSilenceTimer();
     streamsRef.current["en-US"].running = false;
     streamsRef.current["he-IL"].running = false;
     setIsListening(false);
-  }, [clearStartWatchdog]);
+  }, [clearSilenceTimer, clearStartWatchdog]);
 
   const stopRecognizer = useCallback(() => {
     const recognition = recognizerRef.current;
@@ -197,6 +219,25 @@ export function useSpeech(options?: {
     recognizerRef.current = null;
   }, []);
 
+  const finalizeListeningRef = useRef<() => void>(() => {});
+
+  const finalizeListening = useCallback(() => {
+    if (finalizedRef.current) {
+      stopRecognizer();
+      resetListeningState();
+      return;
+    }
+    finalizedRef.current = true;
+    shouldListenRef.current = false;
+    publishTranscript();
+    const text = pickBestTranscript(streamsRef.current).trim();
+    stopRecognizer();
+    resetListeningState();
+    if (text) onFinalTranscriptRef.current?.(text);
+  }, [publishTranscript, resetListeningState, stopRecognizer]);
+
+  finalizeListeningRef.current = finalizeListening;
+
   const startRecognizer = useCallback(
     (lang: SpeechLang) => {
       const Recognition = getRecognitionConstructor();
@@ -204,12 +245,21 @@ export function useSpeech(options?: {
 
       try {
         const recognition = new Recognition();
-        recognition.continuous = false;
+        const apple = isAppleTouchDevice();
+        recognition.continuous = !apple;
         recognition.interimResults = true;
         recognition.maxAlternatives = 1;
-        recognition.lang = isAppleTouchDevice() ? "en-US" : lang;
+        recognition.lang = apple ? "en-US" : lang;
         activeLangRef.current = (recognition.lang as SpeechLang) || "en-US";
         const activeLang = activeLangRef.current;
+
+        const armSilence = () => {
+          if (apple) return;
+          clearSilenceTimer();
+          silenceTimerRef.current = window.setTimeout(() => {
+            finalizeListeningRef.current();
+          }, 1800);
+        };
 
         recognition.onstart = () => {
           try {
@@ -217,7 +267,7 @@ export function useSpeech(options?: {
             streamsRef.current[activeLang].running = true;
             setIsListening(true);
           } catch {
-            resetListeningState();
+            finalizeListeningRef.current();
           }
         };
 
@@ -230,50 +280,23 @@ export function useSpeech(options?: {
               running: true,
             };
             publishTranscript();
+            armSilence();
           } catch {
             /* keep listening; a bad result must not freeze the mic */
           }
         };
 
         recognition.onnomatch = () => {
-          try {
-            streamsRef.current[activeLang].running = false;
-            publishTranscript();
-          } catch {
-            /* ignore */
-          }
-          resetListeningState();
+          finalizeListeningRef.current();
         };
 
-        recognition.onerror = (event) => {
-          try {
-            streamsRef.current[activeLang].running = false;
-            const fatal =
-              event.error === "not-allowed" ||
-              event.error === "service-not-allowed" ||
-              event.error === "audio-capture" ||
-              event.error === "network";
-            if (fatal || event.error === "aborted" || event.error === "no-speech") {
-              shouldListenRef.current = false;
-            }
-            publishTranscript();
-          } catch {
-            shouldListenRef.current = false;
-          }
-          resetListeningState();
+        recognition.onerror = () => {
+          finalizeListeningRef.current();
         };
 
         recognition.onend = () => {
-          try {
-            const stillCurrent = recognizerRef.current === recognition;
-            streamsRef.current[activeLang].running = false;
-            publishTranscript();
-            if (!stillCurrent) return;
-            recognizerRef.current = null;
-          } catch {
-            recognizerRef.current = null;
-          }
-          resetListeningState();
+          if (recognizerRef.current !== recognition && recognizerRef.current) return;
+          finalizeListeningRef.current();
         };
 
         recognizerRef.current = recognition;
@@ -291,7 +314,7 @@ export function useSpeech(options?: {
         return false;
       }
     },
-    [clearStartWatchdog, publishTranscript, resetListeningState],
+    [clearSilenceTimer, clearStartWatchdog, publishTranscript],
   );
 
   useEffect(() => {
@@ -353,6 +376,7 @@ export function useSpeech(options?: {
     if (!text.trim() || typeof window === "undefined" || !("speechSynthesis" in window)) return;
 
     try {
+      resumeSpeechSynthesis();
       window.speechSynthesis.cancel();
       const character = characterRef.current;
       const voices = voicesRef.current.length > 0 ? voicesRef.current : window.speechSynthesis.getVoices();
@@ -366,11 +390,16 @@ export function useSpeech(options?: {
       utterance.pitch = character?.voice.pitch ?? 1;
       if (voice) utterance.voice = voice;
 
-      utterance.onstart = () => setIsSpeaking(true);
+      setIsSpeaking(true);
+      utterance.onstart = () => {
+        setIsSpeaking(true);
+        resumeSpeechSynthesis();
+      };
       utterance.onend = () => setIsSpeaking(false);
       utterance.onerror = () => setIsSpeaking(false);
 
       window.speechSynthesis.speak(utterance);
+      resumeSpeechSynthesis();
     } catch {
       setIsSpeaking(false);
     }
@@ -383,11 +412,8 @@ export function useSpeech(options?: {
   }, []);
 
   const stopListening = useCallback(() => {
-    shouldListenRef.current = false;
-    publishTranscript();
-    stopRecognizer();
-    resetListeningState();
-  }, [publishTranscript, resetListeningState, stopRecognizer]);
+    finalizeListening();
+  }, [finalizeListening]);
 
   const startListening = useCallback(
     async (preferredLang?: SpeechLang) => {
@@ -399,7 +425,9 @@ export function useSpeech(options?: {
         }
         if (startingRef.current || shouldListenRef.current) return isListening;
 
+        resumeSpeechSynthesis();
         startingRef.current = true;
+        finalizedRef.current = true;
         shouldListenRef.current = false;
         stopRecognizer();
 
@@ -411,17 +439,20 @@ export function useSpeech(options?: {
 
         const micOk = await ensureMicrophoneAccess();
         if (!micOk) {
+          startingRef.current = false;
           resetListeningState();
           return false;
         }
 
         await new Promise((resolve) => window.setTimeout(resolve, 80));
 
+        finalizedRef.current = false;
         shouldListenRef.current = true;
         setIsListening(true);
 
         const started = startRecognizer(lang);
         if (!started) {
+          finalizedRef.current = true;
           resetListeningState();
           return false;
         }
@@ -429,14 +460,14 @@ export function useSpeech(options?: {
         clearStartWatchdog();
         startWatchdogRef.current = window.setTimeout(() => {
           if (!streamsRef.current[activeLangRef.current].running) {
-            stopRecognizer();
-            resetListeningState();
+            finalizeListeningRef.current();
           }
         }, 5000);
 
         startingRef.current = false;
         return true;
       } catch {
+        finalizedRef.current = true;
         stopRecognizer();
         resetListeningState();
         return false;

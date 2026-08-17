@@ -577,30 +577,22 @@ export async function loadUserMemories(supabase: AppSupabaseClient, userId: stri
   try {
     const { data, error } = await supabase
       .from("user_memories")
-      .select("id, user_id, fact, kind, event_on, created_at, last_mentioned_at")
-      .eq("user_id", userId)
-      .order("last_mentioned_at", { ascending: false })
-      .limit(20);
-
-    if (!error) {
-      return ((data ?? []) as UserMemoryRow[]).map(rowToMemory);
-    }
-
-    console.error("User Memories Load Error:", error);
-
-    const fallback = await supabase
-      .from("user_memories")
       .select("id, user_id, fact, kind, event_on, created_at")
       .eq("user_id", userId)
-      .order("created_at", { ascending: false })
       .limit(20);
 
-    if (fallback.error) {
-      console.error("User Memories Load Error:", fallback.error);
+    if (error) {
+      console.warn("User memories unavailable; continuing without them.");
       return [];
     }
 
-    return (fallback.data ?? []).map((row) =>
+    const rows = [...(data ?? [])].sort((a, b) => {
+      const aTime = Date.parse(String(a.created_at ?? "")) || 0;
+      const bTime = Date.parse(String(b.created_at ?? "")) || 0;
+      return bTime - aTime;
+    });
+
+    return rows.map((row) =>
       rowToMemory({
         id: row.id,
         user_id: row.user_id,
@@ -611,8 +603,8 @@ export async function loadUserMemories(supabase: AppSupabaseClient, userId: stri
         last_mentioned_at: row.created_at,
       }),
     );
-  } catch (error) {
-    console.error("User Memories Load Error:", error);
+  } catch {
+    console.warn("User memories unavailable; continuing without them.");
     return [];
   }
 }
@@ -624,42 +616,52 @@ export async function upsertUserMemories(
   incoming: NewMemory[],
 ): Promise<UserMemory[]> {
   if (incoming.length === 0) return existing;
-  const now = new Date().toISOString();
-  const next = [...existing];
 
-  for (const memory of incoming) {
-    const match = next.find((item) => item.fact.toLowerCase() === memory.fact.toLowerCase());
-    if (match) {
-      const { error } = await supabase
-        .from("user_memories")
-        .update({ last_mentioned_at: now, kind: memory.kind, event_on: memory.eventOn ?? match.eventOn ?? null })
-        .eq("id", match.id)
-        .eq("user_id", userId);
-      if (error) console.error("User Memories Update Error:", error);
-      continue;
+  try {
+    const now = new Date().toISOString();
+    const next = [...existing];
+
+    for (const memory of incoming) {
+      const match = next.find((item) => item.fact.toLowerCase() === memory.fact.toLowerCase());
+      if (match) {
+        const { error } = await supabase
+          .from("user_memories")
+          .update({ kind: memory.kind, event_on: memory.eventOn ?? match.eventOn ?? null })
+          .eq("id", match.id)
+          .eq("user_id", userId);
+        if (error) console.warn("User memories unavailable; continuing without them.");
+        continue;
+      }
+
+      const row = {
+        id:
+          typeof crypto !== "undefined" && "randomUUID" in crypto
+            ? crypto.randomUUID()
+            : `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+        user_id: userId,
+        fact: memory.fact,
+        kind: memory.kind,
+        event_on: memory.eventOn ?? null,
+        created_at: now,
+      };
+      const { error } = await supabase.from("user_memories").insert(row);
+      if (error) {
+        console.warn("User memories unavailable; continuing without them.");
+        continue;
+      }
+      next.unshift(
+        rowToMemory({
+          ...row,
+          last_mentioned_at: now,
+        } as UserMemoryRow),
+      );
     }
 
-    const row = {
-      id:
-        typeof crypto !== "undefined" && "randomUUID" in crypto
-          ? crypto.randomUUID()
-          : `${Date.now()}-${Math.random().toString(16).slice(2)}`,
-      user_id: userId,
-      fact: memory.fact,
-      kind: memory.kind,
-      event_on: memory.eventOn ?? null,
-      created_at: now,
-      last_mentioned_at: now,
-    };
-    const { error } = await supabase.from("user_memories").insert(row);
-    if (error) {
-      console.error("User Memories Save Error:", error);
-      continue;
-    }
-    next.unshift(rowToMemory(row as UserMemoryRow));
+    return next.slice(0, 20);
+  } catch {
+    console.warn("User memories unavailable; continuing without them.");
+    return existing;
   }
-
-  return next.slice(0, 20);
 }
 
 export async function clearChatHistory(supabase: AppSupabaseClient, userId: string) {

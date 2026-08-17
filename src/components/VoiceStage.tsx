@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { motion } from "framer-motion";
+import { AnimatePresence, motion } from "framer-motion";
 import { Mic, Volume2, VolumeX } from "lucide-react";
 import { VoiceWave, type VoiceWaveMode } from "@/components/VoiceWave";
 import type { Character } from "@/lib/characters";
@@ -13,6 +13,8 @@ interface VoiceStageProps {
   thinking?: boolean;
   speaking?: boolean;
   listening?: boolean;
+  transcript?: string;
+  aiCaption?: string;
   autoSpeak: boolean;
   disabled?: boolean;
   onToggleMic: () => void;
@@ -26,6 +28,8 @@ export function VoiceStage({
   thinking = false,
   speaking = false,
   listening = false,
+  transcript = "",
+  aiCaption = "",
   autoSpeak,
   disabled,
   onToggleMic,
@@ -37,6 +41,16 @@ export function VoiceStage({
   const [portraitFailed, setPortraitFailed] = useState(false);
   const mode: VoiceWaveMode = speaking ? "speaking" : listening ? "listening" : thinking ? "thinking" : "idle";
   const live = thinking || speaking || listening;
+  const trimmedTranscript = transcript.trim();
+  const subtitle = listening
+    ? trimmedTranscript
+      ? `Listening: ${trimmedTranscript}`
+      : "Listening…"
+    : speaking && aiCaption.trim()
+      ? aiCaption.trim()
+      : thinking
+        ? `${tutorName} is thinking...`
+        : aiCaption.trim();
 
   useEffect(() => {
     setPortraitSrc(portrait);
@@ -97,9 +111,29 @@ export function VoiceStage({
         className="relative z-20 mt-auto px-6 pb-[max(1rem,env(safe-area-inset-bottom))]"
         onPointerDown={(event) => event.stopPropagation()}
       >
-        <p className="mb-2 text-center text-[12px] font-medium tracking-[0.18em] text-white/55 uppercase">
-          Speaking with {tutorName}
-        </p>
+        {!subtitle ? (
+          <p className="mb-2 text-center text-[12px] font-medium tracking-[0.18em] text-white/55 uppercase">
+            Speaking with {tutorName}
+          </p>
+        ) : null}
+
+        <div className="mb-3 flex min-h-[3.5rem] items-end justify-center">
+          <AnimatePresence mode="wait">
+            {subtitle ? (
+              <motion.p
+                key={listening ? "listen" : thinking ? "think" : "speak"}
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -6 }}
+                transition={{ duration: 0.2 }}
+                className="voice-subtitle max-w-[22rem] text-center text-[15px] font-medium leading-snug text-white"
+              >
+                {subtitle}
+              </motion.p>
+            ) : null}
+          </AnimatePresence>
+        </div>
+
         <div className={cn("relative mx-[-0.5rem]", live && "wave-glow")}>
           <VoiceWave mode={mode} color={character.accentColor} />
         </div>

@@ -40,9 +40,9 @@ export function VoiceWave({ mode, color = "#3DFF8A" }: VoiceWaveProps) {
       const { width: w, height: h } = canvas.getBoundingClientRect();
       const current = modeRef.current;
       const target =
-        current === "speaking" ? 0.95 : current === "listening" ? 0.8 : current === "thinking" ? 0.46 : 0.15;
+        current === "speaking" ? 0.95 : current === "listening" ? 0.8 : current === "thinking" ? 0.72 : 0.15;
       amplitude += (target - amplitude) * 0.07;
-      time += current === "idle" ? 0.016 : current === "thinking" ? 0.03 : 0.054;
+      time += current === "idle" ? 0.016 : current === "thinking" ? 0.048 : 0.054;
 
       ctx.clearRect(0, 0, w, h);
 

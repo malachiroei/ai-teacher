@@ -183,6 +183,14 @@ body {
   filter: drop-shadow(0 0 18px color-mix(in srgb, var(--accent) 55%, transparent));
 }
 
+.voice-subtitle {
+  text-shadow: 0 2px 18px rgba(0, 0, 0, 0.55);
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
 .glass-bubble {
   background: rgba(255, 255, 255, 0.58);
   backdrop-filter: blur(18px);
