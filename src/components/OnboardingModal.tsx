@@ -64,7 +64,7 @@ export function OnboardingModal({ saving, error, onComplete }: OnboardingModalPr
   }
 
   return (
-    <div className="absolute inset-0 z-[60] flex flex-col bg-white px-5 pt-10 pb-6">
+    <div className="ambient-shell absolute inset-0 z-[60] flex flex-col px-5 pt-10 pb-6">
       <div className="mb-6 flex items-center gap-2">
         {step > 0 ? (
           <button

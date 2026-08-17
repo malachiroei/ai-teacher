@@ -17,6 +17,7 @@ export interface Character {
   tag: string;
   shortDescription: string;
   avatarUrl: string;
+  portraitUrl?: string;
   accentColor: string;
   voice: CharacterVoice;
   greetingTemplate: string;
@@ -25,28 +26,22 @@ export interface Character {
   systemPrompt: string;
 }
 
-export const DEFAULT_CHARACTER_ID: CharacterId = "emma";
+export const DEFAULT_CHARACTER_ID: CharacterId = "max";
 
-function cuteAvatar(style: "lorelei" | "adventurer" | "bottts", seed: string, backgroundColor: string) {
-  const params = new URLSearchParams({
-    seed,
-    backgroundColor,
-    backgroundType: "gradientLinear",
-    radius: "50",
-    scale: "90",
-  });
-  return `https://api.dicebear.com/7.x/${style}/svg?${params.toString()}`;
+function portrait(id: CharacterId) {
+  return `/characters/${id}.png`;
 }
 
 export const CHARACTERS: Character[] = [
   {
     id: "emma",
     name: "Emma",
-    title: "Friendly Tutor",
-    tag: "FRIENDLY TUTOR",
+    title: "Friendly Cyber Tutor",
+    tag: "CYBER TUTOR",
     shortDescription: "Patient, supportive, and clear — great for everyday English.",
-    avatarUrl: cuteAvatar("lorelei", "Emma", "b6e3f4,c0aede,ffd5dc"),
-    accentColor: "#7c6af0",
+    avatarUrl: portrait("emma"),
+    portraitUrl: portrait("emma"),
+    accentColor: "#8B7CFF",
     voice: {
       gender: "female",
       pitch: 1.08,
@@ -67,11 +62,12 @@ Stay age-appropriate. Keep helping with grammar and Hebrew translations as requi
   {
     id: "leo",
     name: "Leo",
-    title: "The Gamer",
-    tag: "GAMER",
+    title: "Cyber Gamer",
+    tag: "NEO-TOKYO",
     shortDescription: "Energetic gaming buddy who loves Roblox, Minecraft, and Fortnite.",
-    avatarUrl: cuteAvatar("adventurer", "Leo", "c0aede,d1d4f9"),
-    accentColor: "#22c55e",
+    avatarUrl: portrait("leo"),
+    portraitUrl: portrait("leo"),
+    accentColor: "#22F0C0",
     voice: {
       gender: "male",
       pitch: 0.95,
@@ -94,11 +90,12 @@ Stay age-appropriate. No violence details, no toxic "git gud" roasting.`,
   {
     id: "mia",
     name: "Mia",
-    title: "Pop & Trends",
-    tag: "POP & TRENDS",
+    title: "Holographic Pop Artist",
+    tag: "POP ARTIST",
     shortDescription: "Chatty about music, dance, social media, and fashion.",
-    avatarUrl: cuteAvatar("lorelei", "Mia", "ffd5dc,ffdfbf"),
-    accentColor: "#ec4899",
+    avatarUrl: portrait("mia"),
+    portraitUrl: portrait("mia"),
+    accentColor: "#FF3DAA",
     voice: {
       gender: "female",
       pitch: 1.14,
@@ -121,11 +118,12 @@ Stay age-appropriate. No dating advice, no adult social-media drama.`,
   {
     id: "max",
     name: "Captain Max",
-    title: "The Explorer",
+    title: "Sci-Fi Space Explorer",
     tag: "EXPLORER",
     shortDescription: "Adventurous guide for sci-fi, space, and mysteries.",
-    avatarUrl: cuteAvatar("adventurer", "Max", "b6e3f4,d1d4f9"),
-    accentColor: "#0ea5e9",
+    avatarUrl: portrait("max"),
+    portraitUrl: portrait("max"),
+    accentColor: "#3DFF8A",
     voice: {
       gender: "male",
       pitch: 0.86,
@@ -148,11 +146,12 @@ Stay age-appropriate. Wonder and excitement, not fear or grim sci-fi horror.`,
   {
     id: "alex",
     name: "Alex",
-    title: "The Athlete",
-    tag: "SPORTS PRO",
+    title: "Futuristic Cyber Athlete",
+    tag: "CYBER ATHLETE",
     shortDescription: "Lives for basketball, soccer, tennis, workouts, and team sports.",
-    avatarUrl: cuteAvatar("adventurer", "Alex", "ffdfbf,ffd5dc"),
-    accentColor: "#f59e0b",
+    avatarUrl: portrait("alex"),
+    portraitUrl: portrait("alex"),
+    accentColor: "#FF9A1F",
     voice: {
       gender: "male",
       pitch: 0.92,
@@ -175,11 +174,12 @@ Stay age-appropriate. No body-shaming, no extreme training pressure.`,
   {
     id: "luna",
     name: "Luna",
-    title: "Anime & Manga Fan",
-    tag: "ANIME FAN",
+    title: "Cyberpunk Anime Girl",
+    tag: "ANIME PUNK",
     shortDescription: "Obsessed with anime, manga drawing, cosplay, and Japanese culture.",
-    avatarUrl: cuteAvatar("lorelei", "Luna", "c0aede,b6e3f4"),
-    accentColor: "#8b5cf6",
+    avatarUrl: portrait("luna"),
+    portraitUrl: portrait("luna"),
+    accentColor: "#B24DFF",
     voice: {
       gender: "female",
       pitch: 1.15,
@@ -202,11 +202,12 @@ Stay age-appropriate. No adult anime, no violent gore, no dating/romance advice.
   {
     id: "nova",
     name: "Dr. Nova",
-    title: "Tech & Science Guru",
-    tag: "TECH GEEK",
+    title: "Advanced AI Companion",
+    tag: "ANDROID",
     shortDescription: "Curious about robots, coding, space facts, and cool science experiments.",
-    avatarUrl: cuteAvatar("bottts", "Nova", "b6e3f4,c0aede"),
-    accentColor: "#14b8a6",
+    avatarUrl: portrait("nova"),
+    portraitUrl: portrait("nova"),
+    accentColor: "#2EE6D6",
     voice: {
       gender: "male",
       pitch: 0.9,
@@ -229,11 +230,12 @@ Stay age-appropriate. Wonder and discovery, not scary experiments or unsafe DIY.
   {
     id: "zoey",
     name: "Zoey",
-    title: "Animal Lover",
-    tag: "ANIMAL CARE",
+    title: "Eco-Tech Wildlife Guardian",
+    tag: "ECO-TECH",
     shortDescription: "Talks about pets, dogs, wildlife, veterinary rescue, and nature.",
-    avatarUrl: cuteAvatar("lorelei", "Zoey", "d1d4f9,ffd5dc"),
-    accentColor: "#10b981",
+    avatarUrl: portrait("zoey"),
+    portraitUrl: portrait("zoey"),
+    accentColor: "#5CFFC0",
     voice: {
       gender: "female",
       pitch: 1.02,

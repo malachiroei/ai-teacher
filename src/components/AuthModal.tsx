@@ -46,7 +46,7 @@ export function AuthModal({ onAuthenticated }: AuthModalProps) {
   }
 
   return (
-    <div className="absolute inset-0 z-[60] flex flex-col bg-white px-6 pt-12 pb-8">
+    <div className="ambient-shell absolute inset-0 z-[60] flex flex-col px-6 pt-12 pb-8">
       <div className="mb-8 text-center">
         <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-[#2f6bff] text-2xl font-bold text-white shadow-lg shadow-blue-200">
           E

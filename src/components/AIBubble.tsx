@@ -1,6 +1,6 @@
 "use client";
 
-import { CharacterAvatar } from "@/components/CharacterAvatar";
+import { motion } from "framer-motion";
 import { MixedBidiText } from "@/components/MixedBidiText";
 import { Globe, Volume2 } from "lucide-react";
 import type { Character } from "@/lib/characters";
@@ -23,41 +23,46 @@ export function AIBubble({
   onToggleTranslation,
 }: AIBubbleProps) {
   return (
-    <div className="msg-enter flex max-w-[90%] items-end gap-2">
-      <CharacterAvatar character={character} className="mb-9 h-8 w-8" />
-      <div className="flex min-w-0 flex-1 flex-col items-start gap-1.5">
-        <div className="relative rounded-2xl rounded-tl-md bg-slate-100 px-3.5 py-2.5 text-[15px] leading-relaxed text-slate-800">
-          {message.text}
-        </div>
-        <div className="flex items-center gap-1.5 pl-0.5">
-          <button
-            type="button"
-            onClick={onReplay}
-            suppressHydrationWarning
-            aria-label="Replay audio"
-            className="flex h-8 w-8 items-center justify-center rounded-full bg-white text-slate-500 shadow-sm ring-1 ring-slate-200/80 transition hover:text-[#2f6bff]"
-          >
-            <Volume2 className="h-3.5 w-3.5" />
-          </button>
-          <button
-            type="button"
-            onClick={onToggleTranslation}
-            suppressHydrationWarning
-            aria-label="Show translation"
-            className={cn(
-              "flex h-8 w-8 items-center justify-center rounded-full bg-white shadow-sm ring-1 ring-slate-200/80 transition",
-              showTranslation ? "text-[#2f6bff]" : "text-slate-500 hover:text-[#2f6bff]",
-            )}
-          >
-            <Globe className="h-3.5 w-3.5" />
-          </button>
-        </div>
-        {showTranslation && message.translation ? (
-          <p dir="rtl" className="max-w-full px-1 text-right text-[13px] leading-relaxed text-slate-500 [unicode-bidi:isolate]">
-            <MixedBidiText text={message.translation} />
-          </p>
-        ) : null}
+    <motion.div
+      initial={{ opacity: 0, y: 10, scale: 0.98 }}
+      animate={{ opacity: 1, y: 0, scale: 1 }}
+      transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }}
+      className="flex max-w-[88%] flex-col items-start gap-1.5"
+    >
+      <div
+        className="glass-bubble rounded-[1.35rem] rounded-tl-lg px-4 py-2.5 text-[15px] leading-relaxed text-slate-800"
+        style={{ boxShadow: `0 8px 28px ${character.accentColor}14` }}
+      >
+        {message.text}
       </div>
-    </div>
+      <div className="flex items-center gap-1.5 pl-0.5">
+        <button
+          type="button"
+          onClick={onReplay}
+          suppressHydrationWarning
+          aria-label="Replay audio"
+          className="flex h-8 w-8 items-center justify-center rounded-full border border-white/70 bg-white/50 text-slate-500 shadow-sm backdrop-blur-md transition hover:text-[var(--accent)]"
+        >
+          <Volume2 className="h-3.5 w-3.5" />
+        </button>
+        <button
+          type="button"
+          onClick={onToggleTranslation}
+          suppressHydrationWarning
+          aria-label="Show translation"
+          className={cn(
+            "flex h-8 w-8 items-center justify-center rounded-full border border-white/70 bg-white/50 shadow-sm backdrop-blur-md transition",
+            showTranslation ? "text-[var(--accent)]" : "text-slate-500 hover:text-[var(--accent)]",
+          )}
+        >
+          <Globe className="h-3.5 w-3.5" />
+        </button>
+      </div>
+      {showTranslation && message.translation ? (
+        <p dir="rtl" className="max-w-full px-1 text-right text-[13px] leading-relaxed text-slate-500 [unicode-bidi:isolate]">
+          <MixedBidiText text={message.translation} />
+        </p>
+      ) : null}
+    </motion.div>
   );
 }

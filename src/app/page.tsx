@@ -2,21 +2,17 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { User } from "@supabase/supabase-js";
-import { AIBubble } from "@/components/AIBubble";
 import { AuthModal } from "@/components/AuthModal";
 import { CharacterSelectorModal } from "@/components/CharacterSelectorModal";
-import { ChatHeader } from "@/components/ChatHeader";
+import { ChatTopBar } from "@/components/ChatTopBar";
 import { PreviousChatsModal } from "@/components/PreviousChatsModal";
 import { GoalCelebrationModal } from "@/components/GoalCelebrationModal";
-import { InputBar } from "@/components/InputBar";
 import { LoadingScreen } from "@/components/LoadingScreen";
 import { OnboardingModal } from "@/components/OnboardingModal";
-import { QuickActions } from "@/components/QuickActions";
 import { SettingsModal } from "@/components/SettingsModal";
-import { SuggestedAnswers } from "@/components/SuggestedAnswers";
-import { TypingIndicator } from "@/components/TypingIndicator";
-import { UserBubble } from "@/components/UserBubble";
+import { VoiceStage } from "@/components/VoiceStage";
 import { useSpeech, SPEECH_UNAVAILABLE_MESSAGE } from "@/hooks/useSpeech";
+import { useVisualViewport } from "@/hooks/useVisualViewport";
 import {
   archiveCurrentChat,
   describeProfileSaveError,
@@ -53,6 +49,7 @@ import { createClient } from "@/lib/supabase/client";
 import type { Profile, ProfileInput } from "@/lib/supabase/types";
 import type { ChatApiResponse, GrammarFeedback, Message } from "@/types/chat";
 import type { SettingsSavePayload } from "@/components/SettingsModal";
+import { withTimeout } from "@/lib/utils";
 
 const INITIAL_SUGGESTIONS = [
   "I'm doing great, thanks!",
@@ -72,6 +69,7 @@ export default function HomePage() {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [authReady, setAuthReady] = useState(false);
   const [historyReady, setHistoryReady] = useState(false);
+  const [profileChecked, setProfileChecked] = useState(false);
   const [savingProfile, setSavingProfile] = useState(false);
   const [profileError, setProfileError] = useState("");
 
@@ -82,7 +80,6 @@ export default function HomePage() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [openTranslations, setOpenTranslations] = useState<Record<string, boolean>>({});
   const [suggestions, setSuggestions] = useState<string[]>(INITIAL_SUGGESTIONS);
-  const [showSuggestions, setShowSuggestions] = useState(false);
   const [characterPickerOpen, setCharacterPickerOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsFocusVoice, setSettingsFocusVoice] = useState(false);
@@ -96,11 +93,11 @@ export default function HomePage() {
   const [settingsError, setSettingsError] = useState("");
   const [notice, setNotice] = useState("");
 
-  const scrollerRef = useRef<HTMLDivElement>(null);
   const pendingTranscript = useRef("");
   const wasListening = useRef(false);
   const dailyOpenRef = useRef("");
-  const needsOnboarding = Boolean(user && authReady && !isProfileComplete(profile));
+  const viewport = useVisualViewport();
+  const needsOnboarding = Boolean(user && profileChecked && !isProfileComplete(profile));
   const chatUnlocked = Boolean(user && isProfileComplete(profile));
   const character = withTutorDisplayName(getCharacter(profile?.selected_character), profile);
   const practiceSettings = practiceSettingsFromProfile(profile);
@@ -175,66 +172,91 @@ export default function HomePage() {
     setUser(nextUser);
     setProfile(null);
     setHistoryReady(false);
+    setProfileChecked(false);
     setMessages([]);
     setMemories([]);
     dailyOpenRef.current = "";
     setProfileError("");
+    setAuthReady(true);
 
     if (!nextUser) {
-      setAuthReady(true);
+      setProfileChecked(true);
+      setHistoryReady(true);
       return;
     }
 
     try {
       const supabase = createClient();
-      const nextProfile = await fetchProfile(supabase, nextUser.id);
+      const nextProfile = await withTimeout(fetchProfile(supabase, nextUser.id), 2000, null);
       setProfile(nextProfile);
+      setProfileChecked(true);
+
       if (isProfileComplete(nextProfile)) {
         try {
-          const [history, nextMemories] = await Promise.all([
-            loadChatHistory(supabase, nextUser.id),
-            loadUserMemories(supabase, nextUser.id),
-          ]);
-          setMemories(nextMemories);
+          const history = await withTimeout(loadChatHistory(supabase, nextUser.id), 2000, [] as Message[]);
           setMessages(history.length > 0 ? history : [buildWelcomeMessage(nextProfile)]);
         } catch {
           setMessages([buildWelcomeMessage(nextProfile)]);
           flash("Couldn't load your chat history.");
         }
-        setHistoryReady(true);
+        void loadUserMemories(supabase, nextUser.id)
+          .then((nextMemories) => setMemories(nextMemories))
+          .catch(() => setMemories([]));
       }
     } catch {
       flash("Couldn't load your profile.");
+      setProfileChecked(true);
     } finally {
+      setHistoryReady(true);
       setAuthReady(true);
     }
   }, [flash]);
 
   useEffect(() => {
-    const supabase = createClient();
+    let cancelled = false;
     let handledInitial = false;
+    const watchdog = window.setTimeout(() => {
+      if (!cancelled) setAuthReady(true);
+    }, 1500);
 
-    void supabase.auth.getSession().then(({ data }) => {
-      if (handledInitial) return;
+    function start(nextUser: User | null) {
+      if (handledInitial || cancelled) return;
       handledInitial = true;
-      void bootstrapUser(data.session?.user ?? null);
-    });
+      void bootstrapUser(nextUser);
+    }
 
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange((event, session) => {
-      if (event === "TOKEN_REFRESHED") return;
-      if (event === "INITIAL_SESSION" && handledInitial) return;
-      handledInitial = true;
-      void bootstrapUser(session?.user ?? null);
-    });
+    try {
+      const supabase = createClient();
+      void supabase.auth
+        .getSession()
+        .then(({ data }) => start(data.session?.user ?? null))
+        .catch(() => {
+          if (!handledInitial && !cancelled) setAuthReady(true);
+        });
 
-    return () => subscription.unsubscribe();
+      const {
+        data: { subscription },
+      } = supabase.auth.onAuthStateChange((event, session) => {
+        if (event === "TOKEN_REFRESHED") return;
+        if (event === "INITIAL_SESSION" && handledInitial) return;
+        if (cancelled) return;
+        handledInitial = true;
+        void bootstrapUser(session?.user ?? null);
+      });
+
+      return () => {
+        cancelled = true;
+        window.clearTimeout(watchdog);
+        subscription.unsubscribe();
+      };
+    } catch {
+      start(null);
+      return () => {
+        cancelled = true;
+        window.clearTimeout(watchdog);
+      };
+    }
   }, [bootstrapUser]);
-
-  useEffect(() => {
-    scrollerRef.current?.scrollTo({ top: scrollerRef.current.scrollHeight, behavior: "smooth" });
-  }, [messages, isLoading, showSuggestions]);
 
   useEffect(() => {
     if (isListening) {
@@ -320,7 +342,6 @@ export default function HomePage() {
 
     stopListening();
     setMenuOpen(false);
-    setShowSuggestions(false);
     setInput("");
 
     const userMessage: Message = {
@@ -376,7 +397,6 @@ export default function HomePage() {
 
   async function handleAnotherQuestion() {
     if (isLoading || !chatUnlocked || !user) return;
-    setShowSuggestions(false);
     setIsLoading(true);
     try {
       const data = await requestReply({ action: "change_topic", history: messages });
@@ -429,7 +449,6 @@ export default function HomePage() {
     if (!user) return;
     stopSpeaking();
     setMenuOpen(false);
-    setShowSuggestions(false);
     setOpenTranslations({});
     const snapshot = messages;
     const welcome = buildWelcomeMessage(nextProfile);
@@ -496,7 +515,6 @@ export default function HomePage() {
       setProfile({ ...profile, selected_character: nextCharacter.id });
       setMessages(restored.length > 0 ? restored : [buildWelcomeMessage(profile)]);
       setOpenTranslations({});
-      setShowSuggestions(false);
       setHistoryOpen(false);
       void saveSelectedCharacter(supabase, user.id, nextCharacter.id);
     } catch {
@@ -651,10 +669,18 @@ export default function HomePage() {
   }
 
   return (
-    <main className="h-dvh bg-[radial-gradient(circle_at_top,_#dbe7ff,_#e8edf5_42%)]">
-      <div className="relative mx-auto flex h-dvh max-h-dvh max-w-md flex-col overflow-hidden bg-white shadow-xl">
+    <main className="h-dvh overflow-hidden bg-[#050805]">
+      <div
+        className="relative mx-auto flex max-w-md flex-col overflow-hidden bg-[#050805]"
+        data-chat-layout="voice-being"
+        style={{
+          ["--accent" as string]: character.accentColor,
+          height: viewport.height ? `${viewport.height}px` : "100dvh",
+          transform: viewport.offsetTop ? `translateY(${viewport.offsetTop}px)` : undefined,
+        }}
+      >
         {!authReady ? <LoadingScreen label="Getting things ready…" /> : null}
-        {authReady && !user ? (
+        {authReady && !user && profileChecked ? (
           <AuthModal
             onAuthenticated={() => {
               void createClient()
@@ -671,11 +697,8 @@ export default function HomePage() {
           />
         ) : null}
 
-        {chatUnlocked && !historyReady ? <LoadingScreen label="Loading your chat…" /> : null}
-
-        <ChatHeader
+        <ChatTopBar
           character={character}
-          tutorName={character.name}
           autoSpeak={autoSpeak}
           onToggleSpeak={() => {
             setAutoSpeak((value) => {
@@ -686,7 +709,6 @@ export default function HomePage() {
           onOpenCharacters={openCharacterPicker}
           onOpenVoiceSettings={() => openSettings(true)}
           onOpenHistory={openHistory}
-          onSaveTutorName={handleSaveTutorName}
           menuOpen={menuOpen}
           onToggleMenu={() => setMenuOpen((value) => !value)}
           onClearChat={handleClearChat}
@@ -696,51 +718,29 @@ export default function HomePage() {
           dailyGoalMinutes={practiceSettings.daily_goal_minutes}
         />
 
-        <div ref={scrollerRef} className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-4 py-4">
-          {messages.map((message) =>
-            message.sender === "ai" ? (
-              <AIBubble
-                key={message.id}
-                message={message}
-                character={character}
-                showTranslation={Boolean(openTranslations[message.id])}
-                onReplay={() => speak(message.text)}
-                onToggleTranslation={() =>
-                  setOpenTranslations((current) => ({
-                    ...current,
-                    [message.id]: !current[message.id],
-                  }))
-                }
-              />
-            ) : (
-              <UserBubble key={message.id} message={message} />
-            ),
-          )}
-          {isLoading ? <TypingIndicator character={character} /> : null}
-        </div>
+        <VoiceStage
+          character={character}
+          tutorName={character.name}
+          thinking={isLoading}
+          speaking={isSpeaking}
+          listening={isListening}
+          autoSpeak={autoSpeak}
+          disabled={isLoading || !chatUnlocked}
+          onToggleMic={() => void handleToggleMic()}
+          onToggleSpeak={() => {
+            setAutoSpeak((value) => {
+              if (value) stopSpeaking();
+              return !value;
+            });
+          }}
+          onOpenCharacters={openCharacterPicker}
+        />
 
         {notice ? (
-          <p className="shrink-0 px-4 pb-1 text-center text-xs text-amber-700">{notice}</p>
+          <p className="pointer-events-none absolute inset-x-0 bottom-40 z-40 px-6 text-center text-xs font-medium text-amber-100/90">
+            {notice}
+          </p>
         ) : null}
-
-        {showSuggestions ? (
-          <SuggestedAnswers suggestions={suggestions} onSelect={(text) => void sendMessage(text)} />
-        ) : null}
-
-        <QuickActions
-          disabled={isLoading || !chatUnlocked}
-          onAnotherQuestion={() => void handleAnotherQuestion()}
-          onSuggestAnswer={() => setShowSuggestions((value) => !value)}
-        />
-
-        <InputBar
-          value={input}
-          onChange={setInput}
-          onSubmit={() => void sendMessage(input)}
-          isRecording={isListening}
-          onToggleMic={handleToggleMic}
-          disabled={isLoading || !chatUnlocked}
-        />
 
         {characterPickerOpen ? (
           <CharacterSelectorModal

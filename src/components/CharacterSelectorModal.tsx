@@ -1,5 +1,6 @@
 "use client";
 
+import { motion } from "framer-motion";
 import { Check, X } from "lucide-react";
 import { CharacterAvatar } from "@/components/CharacterAvatar";
 import { CHARACTERS, type Character, type CharacterId } from "@/lib/characters";
@@ -22,25 +23,37 @@ export function CharacterSelectorModal({ selectedId, nicknames, onSelect, onClos
   }
 
   return (
-    <div className="absolute inset-0 z-[60] flex items-end justify-center bg-slate-900/40 p-3 sm:items-center">
-      <button type="button" className="absolute inset-0" aria-label="Close character picker" onClick={onClose} />
-      <div className="relative flex max-h-[90%] w-full max-w-md flex-col overflow-hidden rounded-3xl bg-white shadow-2xl">
-        <div className="flex items-center justify-between px-4 py-3">
+    <div className="absolute inset-0 z-[60] flex items-end justify-center p-3 sm:items-center">
+      <motion.button
+        type="button"
+        className="absolute inset-0 bg-black/55"
+        aria-label="Close character picker"
+        onClick={onClose}
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+      />
+      <motion.div
+        initial={{ y: 28, opacity: 0 }}
+        animate={{ y: 0, opacity: 1 }}
+        transition={{ type: "spring", damping: 28, stiffness: 340 }}
+        className="relative flex max-h-[92%] w-full max-w-md flex-col overflow-hidden rounded-3xl border border-white/12 bg-[#0c1410]/95 shadow-2xl backdrop-blur-xl"
+      >
+        <div className="flex items-center justify-between px-4 py-3.5">
           <div>
-            <h2 className="text-base font-semibold text-slate-900">Choose your tutor</h2>
-            <p className="text-xs text-slate-500">Pick a character to practice English with</p>
+            <h2 className="text-[16px] font-semibold tracking-tight text-white">Choose your tutor</h2>
+            <p className="mt-0.5 text-[12px] text-white/50">Pick a character to practice English with</p>
           </div>
           <button
             type="button"
             onClick={onClose}
             aria-label="Close"
-            className="flex h-8 w-8 items-center justify-center rounded-full text-slate-500 hover:bg-slate-100"
+            className="flex h-8 w-8 items-center justify-center rounded-full text-white/50 hover:bg-white/10"
           >
             <X className="h-4 w-4" />
           </button>
         </div>
 
-        <div className="grid grid-cols-2 gap-2 overflow-y-auto px-3 pb-4 sm:gap-2.5 sm:px-4 sm:pb-5">
+        <div className="grid grid-cols-2 gap-3 overflow-y-auto px-3 pb-5 sm:gap-3.5 sm:px-4">
           {CHARACTERS.map((character) => (
             <CharacterCard
               key={character.id}
@@ -51,7 +64,7 @@ export function CharacterSelectorModal({ selectedId, nicknames, onSelect, onClos
             />
           ))}
         </div>
-      </div>
+      </motion.div>
     </div>
   );
 }
@@ -72,30 +85,30 @@ function CharacterCard({
       type="button"
       onClick={onSelect}
       className={cn(
-        "relative flex min-h-[148px] flex-col items-center rounded-2xl border px-2.5 py-3 text-center transition sm:min-h-[160px] sm:px-3",
-        selected ? "border-transparent bg-slate-50 shadow-sm" : "border-slate-200 bg-white hover:bg-slate-50",
+        "relative flex min-h-[236px] flex-col items-center overflow-visible rounded-2xl border px-3 py-4 text-center transition",
+        selected ? "border-transparent bg-white/8" : "border-white/10 bg-white/[0.03] hover:bg-white/[0.06]",
       )}
       style={selected ? { boxShadow: `inset 0 0 0 2px ${character.accentColor}` } : undefined}
     >
       {selected ? (
         <span
-          className="absolute top-2 right-2 flex h-5 w-5 items-center justify-center rounded-full text-white"
+          className="absolute top-2.5 right-2.5 flex h-5 w-5 items-center justify-center rounded-full text-white"
           style={{ backgroundColor: character.accentColor }}
         >
           <Check className="h-3 w-3" strokeWidth={3} />
         </span>
       ) : null}
-      <CharacterAvatar character={character} className="h-14 w-14 sm:h-16 sm:w-16" />
-      <p className="mt-2 w-full truncate text-[13px] font-semibold leading-tight text-slate-900 sm:text-[14px]">
+      <CharacterAvatar character={character} className="h-20 w-20 shrink-0" eager />
+      <p className="mt-3 w-full text-[15px] font-semibold leading-snug tracking-tight text-white">
         {displayName}
       </p>
       <span
-        className="mt-1 max-w-full truncate rounded-full px-1.5 py-0.5 text-[9px] font-semibold tracking-wide sm:text-[10px]"
-        style={{ backgroundColor: `${character.accentColor}18`, color: character.accentColor }}
+        className="mt-2 inline-flex max-w-full rounded-full px-2 py-0.5 text-[10px] font-semibold tracking-[0.14em] uppercase"
+        style={{ backgroundColor: `${character.accentColor}22`, color: character.accentColor }}
       >
         {character.tag}
       </span>
-      <p className="mt-1.5 line-clamp-2 text-[11px] leading-snug text-slate-500 sm:text-[12px]">
+      <p className="mt-2.5 w-full text-[12px] leading-relaxed text-white/60">
         {character.shortDescription}
       </p>
     </button>

@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { motion } from "framer-motion";
 import { Bell, BellOff, Loader2, Volume2, X } from "lucide-react";
 import {
   DAILY_GOAL_OPTIONS,
@@ -103,9 +104,21 @@ export function SettingsModal({
   }
 
   return (
-    <div className="absolute inset-0 z-[60] flex items-end justify-center bg-slate-900/40 p-3 sm:items-center">
-      <button type="button" className="absolute inset-0" aria-label="Close settings" onClick={onClose} />
-      <div className="relative flex max-h-[90%] w-full max-w-md flex-col overflow-hidden rounded-3xl bg-white shadow-2xl">
+    <div className="absolute inset-0 z-[60] flex items-end justify-center p-3 sm:items-center">
+      <motion.button
+        type="button"
+        className="absolute inset-0 bg-slate-900/40"
+        aria-label="Close settings"
+        onClick={onClose}
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+      />
+      <motion.div
+        initial={{ y: 28, opacity: 0 }}
+        animate={{ y: 0, opacity: 1 }}
+        transition={{ type: "spring", damping: 28, stiffness: 340 }}
+        className="relative flex max-h-[90%] w-full max-w-md flex-col overflow-hidden rounded-3xl border border-white/70 bg-white/92 shadow-2xl backdrop-blur-xl"
+      >
         <div className="flex items-center justify-between px-4 py-3">
           <div>
             <h2 className="text-base font-semibold text-slate-900">Practice settings</h2>
@@ -290,7 +303,7 @@ export function SettingsModal({
             {saving ? <Loader2 className="h-5 w-5 animate-spin" /> : "Save settings"}
           </button>
         </div>
-      </div>
+      </motion.div>
     </div>
   );
 }

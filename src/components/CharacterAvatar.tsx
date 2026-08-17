@@ -9,15 +9,25 @@ interface CharacterAvatarProps {
   className?: string;
   online?: boolean;
   eager?: boolean;
+  framed?: boolean;
 }
 
-export function CharacterAvatar({ character, className, online = false, eager = false }: CharacterAvatarProps) {
+export function CharacterAvatar({
+  character,
+  className,
+  online = false,
+  eager = false,
+  framed = true,
+}: CharacterAvatarProps) {
   const [failed, setFailed] = useState(false);
 
   return (
     <div className={cn("relative shrink-0", className)}>
       <div
-        className="h-full w-full overflow-hidden rounded-full shadow-sm ring-2 ring-white"
+        className={cn(
+          "h-full w-full overflow-hidden rounded-full",
+          framed && "shadow-sm ring-2 ring-white/80",
+        )}
         style={{
           background: `linear-gradient(145deg, ${character.accentColor}2b, ${character.accentColor}55)`,
         }}
@@ -34,7 +44,7 @@ export function CharacterAvatar({ character, className, online = false, eager = 
           <img
             src={character.avatarUrl}
             alt={character.name}
-            className="h-full w-full rounded-full object-cover"
+            className="block h-full w-full rounded-full object-cover object-top"
             loading={eager ? "eager" : "lazy"}
             decoding="async"
             onError={() => setFailed(true)}

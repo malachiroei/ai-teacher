@@ -87,20 +87,18 @@ function readResult(event: {
 async function ensureMicrophoneAccess() {
   if (typeof navigator === "undefined") return false;
   try {
-    if (!navigator.mediaDevices?.getUserMedia) return true;
-    const stream = await new Promise<MediaStream>((resolve, reject) => {
-      const timer = window.setTimeout(() => reject(new Error("microphone-timeout")), 8000);
-      navigator.mediaDevices
-        .getUserMedia({ audio: true })
-        .then((next) => {
-          window.clearTimeout(timer);
-          resolve(next);
-        })
-        .catch((error) => {
-          window.clearTimeout(timer);
-          reject(error);
-        });
-    });
+    const permission = navigator.permissions;
+    if (permission?.query) {
+      try {
+        const status = await permission.query({ name: "microphone" as PermissionName });
+        if (status.state === "granted") return true;
+        if (status.state === "denied") return false;
+      } catch {
+        /* Safari may reject microphone permission queries */
+      }
+    }
+    if (!navigator.mediaDevices?.getUserMedia) return Boolean(getRecognitionConstructor());
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
     for (const track of stream.getTracks()) {
       try {
         track.stop();
@@ -108,6 +106,7 @@ async function ensureMicrophoneAccess() {
         /* already ended */
       }
     }
+    await new Promise((resolve) => window.setTimeout(resolve, 180));
     return true;
   } catch {
     return false;
@@ -321,16 +320,34 @@ export function useSpeech(options?: {
     };
 
     loadVoices();
-    window.speechSynthesis.addEventListener("voiceschanged", loadVoices);
+    try {
+      if (typeof window.speechSynthesis.addEventListener === "function") {
+        window.speechSynthesis.addEventListener("voiceschanged", loadVoices);
+      } else {
+        window.speechSynthesis.onvoiceschanged = loadVoices;
+      }
+    } catch {
+      /* some WebViews expose TTS without event support */
+    }
 
     return () => {
-      window.speechSynthesis.removeEventListener("voiceschanged", loadVoices);
-      window.speechSynthesis.cancel();
+      try {
+        if (typeof window.speechSynthesis.removeEventListener === "function") {
+          window.speechSynthesis.removeEventListener("voiceschanged", loadVoices);
+        } else {
+          window.speechSynthesis.onvoiceschanged = null;
+        }
+        window.speechSynthesis.cancel();
+      } catch {
+        /* ignore */
+      }
       shouldListenRef.current = false;
       stopRecognizer();
       resetListeningState();
     };
-  }, [resetListeningState, stopRecognizer]);
+    // Voice setup must not re-bind on callback identity changes or it kills the mic.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const speak = useCallback((text: string, preview?: { rateMultiplier?: number; voiceUri?: string | null }) => {
     if (!text.trim() || typeof window === "undefined" || !("speechSynthesis" in window)) return;

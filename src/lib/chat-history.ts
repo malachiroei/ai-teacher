@@ -6,6 +6,8 @@ import type { ChatMessageRow, ChatSessionRow, Profile, ProfileInput, UserMemoryR
 import type { GrammarFeedback, Message } from "@/types/chat";
 import type { NewMemory, UserMemory } from "@/lib/memory";
 
+type AppSupabaseClient = SupabaseClient;
+
 export function parseInterests(value: unknown): string[] {
   if (Array.isArray(value)) {
     return value.map((item) => String(item).trim()).filter(Boolean);
@@ -93,7 +95,7 @@ function normalizeProfile(row: Partial<Profile> & Record<string, unknown>, fallb
   };
 }
 
-export async function fetchProfile(supabase: SupabaseClient, userId: string) {
+export async function fetchProfile(supabase: AppSupabaseClient, userId: string) {
   const { data, error } = await supabase.from("profiles").select("*").eq("id", userId).maybeSingle();
   if (error) {
     console.error("Supabase Profile Fetch Error:", error);
@@ -104,7 +106,7 @@ export async function fetchProfile(supabase: SupabaseClient, userId: string) {
 }
 
 export async function saveProfile(
-  supabase: SupabaseClient,
+  supabase: AppSupabaseClient,
   userId: string,
   onboardingData: ProfileInput,
 ): Promise<SaveProfileResult> {
@@ -175,7 +177,7 @@ export async function saveProfile(
 }
 
 export async function saveSelectedCharacter(
-  supabase: SupabaseClient,
+  supabase: AppSupabaseClient,
   userId: string,
   characterId: string,
 ): Promise<SaveProfileResult> {
@@ -205,7 +207,7 @@ export async function saveSelectedCharacter(
 }
 
 export async function savePracticeSettings(
-  supabase: SupabaseClient,
+  supabase: AppSupabaseClient,
   userId: string,
   settings: {
     daily_goal_minutes: number;
@@ -270,7 +272,7 @@ function omitKeys(payload: Record<string, unknown>, keys: string[]) {
 }
 
 export async function saveTutorNickname(
-  supabase: SupabaseClient,
+  supabase: AppSupabaseClient,
   userId: string,
   characterId: string,
   nickname: string,
@@ -316,7 +318,7 @@ export async function saveTutorNickname(
 }
 
 export async function savePracticeProgress(
-  supabase: SupabaseClient,
+  supabase: AppSupabaseClient,
   userId: string,
   progress: { practice_date: string; practice_seconds: number },
 ) {
@@ -347,7 +349,7 @@ export function rowToMessage(row: ChatMessageRow): Message {
   };
 }
 
-export async function loadChatHistory(supabase: SupabaseClient, userId: string): Promise<Message[]> {
+export async function loadChatHistory(supabase: AppSupabaseClient, userId: string): Promise<Message[]> {
   const { data, error } = await supabase
     .from("chat_messages")
     .select("*")
@@ -359,7 +361,7 @@ export async function loadChatHistory(supabase: SupabaseClient, userId: string):
 }
 
 export async function saveMessage(
-  supabase: SupabaseClient,
+  supabase: AppSupabaseClient,
   userId: string,
   message: {
     id?: string;
@@ -399,7 +401,7 @@ export async function saveMessage(
 }
 
 export async function insertChatMessage(
-  supabase: SupabaseClient,
+  supabase: AppSupabaseClient,
   userId: string,
   message: {
     id?: string;
@@ -476,7 +478,7 @@ export function shouldArchiveMessages(messages: Message[]) {
 }
 
 export async function archiveCurrentChat(
-  supabase: SupabaseClient,
+  supabase: AppSupabaseClient,
   userId: string,
   input: { messages: Message[]; characterId?: string | null; tutorName?: string },
 ) {
@@ -509,12 +511,12 @@ export async function archiveCurrentChat(
   return { success: true as const, archived: true };
 }
 
-export async function startFreshChat(supabase: SupabaseClient, userId: string) {
+export async function startFreshChat(supabase: AppSupabaseClient, userId: string) {
   const { error } = await supabase.from("chat_messages").delete().eq("user_id", userId);
   if (error) throw error;
 }
 
-export async function listChatSessions(supabase: SupabaseClient, userId: string): Promise<ArchivedChatSession[]> {
+export async function listChatSessions(supabase: AppSupabaseClient, userId: string): Promise<ArchivedChatSession[]> {
   const { data, error } = await supabase
     .from("chat_sessions")
     .select("*")
@@ -530,7 +532,7 @@ export async function listChatSessions(supabase: SupabaseClient, userId: string)
 }
 
 export async function restoreChatSession(
-  supabase: SupabaseClient,
+  supabase: AppSupabaseClient,
   userId: string,
   session: ArchivedChatSession,
   current: { messages: Message[]; characterId?: string | null; tutorName?: string },
@@ -569,23 +571,54 @@ function rowToMemory(row: UserMemoryRow): UserMemory {
   };
 }
 
-export async function loadUserMemories(supabase: SupabaseClient, userId: string): Promise<UserMemory[]> {
-  const { data, error } = await supabase
-    .from("user_memories")
-    .select("*")
-    .eq("user_id", userId)
-    .order("last_mentioned_at", { ascending: false })
-    .limit(20);
+export async function loadUserMemories(supabase: AppSupabaseClient, userId: string): Promise<UserMemory[]> {
+  if (!userId) return [];
 
-  if (error) {
+  try {
+    const { data, error } = await supabase
+      .from("user_memories")
+      .select("id, user_id, fact, kind, event_on, created_at, last_mentioned_at")
+      .eq("user_id", userId)
+      .order("last_mentioned_at", { ascending: false })
+      .limit(20);
+
+    if (!error) {
+      return ((data ?? []) as UserMemoryRow[]).map(rowToMemory);
+    }
+
+    console.error("User Memories Load Error:", error);
+
+    const fallback = await supabase
+      .from("user_memories")
+      .select("id, user_id, fact, kind, event_on, created_at")
+      .eq("user_id", userId)
+      .order("created_at", { ascending: false })
+      .limit(20);
+
+    if (fallback.error) {
+      console.error("User Memories Load Error:", fallback.error);
+      return [];
+    }
+
+    return (fallback.data ?? []).map((row) =>
+      rowToMemory({
+        id: row.id,
+        user_id: row.user_id,
+        fact: row.fact,
+        kind: row.kind,
+        event_on: row.event_on,
+        created_at: row.created_at,
+        last_mentioned_at: row.created_at,
+      }),
+    );
+  } catch (error) {
     console.error("User Memories Load Error:", error);
     return [];
   }
-  return ((data ?? []) as UserMemoryRow[]).map(rowToMemory);
 }
 
 export async function upsertUserMemories(
-  supabase: SupabaseClient,
+  supabase: AppSupabaseClient,
   userId: string,
   existing: UserMemory[],
   incoming: NewMemory[],
@@ -629,6 +662,6 @@ export async function upsertUserMemories(
   return next.slice(0, 20);
 }
 
-export async function clearChatHistory(supabase: SupabaseClient, userId: string) {
+export async function clearChatHistory(supabase: AppSupabaseClient, userId: string) {
   await startFreshChat(supabase, userId);
 }
