@@ -4,6 +4,7 @@ import { BuddyAIMark } from "@/components/BuddyAIMark";
 import { Menu } from "lucide-react";
 import { SideDrawer } from "@/components/SideDrawer";
 import type { Character } from "@/lib/characters";
+import { progressInLevel } from "@/lib/progression";
 
 interface ChatTopBarProps {
   character: Character;
@@ -19,6 +20,8 @@ interface ChatTopBarProps {
   onSignOut?: () => void;
   practicedMinutes: number;
   dailyGoalMinutes: number;
+  xp: number;
+  level: number;
 }
 
 export function ChatTopBar({
@@ -35,23 +38,40 @@ export function ChatTopBar({
   onSignOut,
   practicedMinutes,
   dailyGoalMinutes,
+  xp,
+  level,
 }: ChatTopBarProps) {
   const goal = Math.max(1, dailyGoalMinutes);
   const done = Math.min(practicedMinutes, goal);
   const reached = practicedMinutes >= goal;
+  const progress = progressInLevel(xp);
+  const title = progress.current.title;
+  const emoji = progress.current.emoji;
 
   return (
     <>
       <div className="absolute inset-x-0 top-0 z-50 flex items-center justify-between px-3 pt-[max(0.45rem,env(safe-area-inset-top))]">
-        <div className="flex items-center gap-2">
-          <BuddyAIMark className="h-7 w-7 rounded-[0.65rem] shadow-[0_0_16px_rgba(61,255,208,0.22)]" />
+        <div className="flex min-w-0 items-center gap-2">
+          <BuddyAIMark className="h-7 w-7 shrink-0 rounded-[0.65rem] shadow-[0_0_16px_rgba(61,255,208,0.22)]" />
           <button
             type="button"
             onClick={onOpenSettings}
-            aria-label={`Daily goal ${done} of ${goal} minutes`}
-            className="rounded-full px-1.5 py-0.5 text-[10px] font-medium tracking-wide text-white/40 transition hover:text-white/70"
+            aria-label={`Level ${level} ${title}, ${xp} XP. Daily goal ${done} of ${goal} minutes`}
+            className="min-w-0 rounded-2xl px-1.5 py-0.5 text-left transition hover:bg-white/8"
           >
-            {reached ? "🎉" : "🔥"} {done}/{goal} min
+            <p className="truncate text-[10px] font-semibold tracking-wide text-white/80">
+              {emoji} Lv.{progress.current.level} {title}
+              <span className="ml-1 font-medium text-white/45">({xp} XP)</span>
+            </p>
+            <div className="mt-0.5 h-1 w-[7.5rem] overflow-hidden rounded-full bg-white/12">
+              <div
+                className="h-full rounded-full bg-gradient-to-r from-amber-300 to-emerald-300 transition-[width] duration-500"
+                style={{ width: `${progress.percent}%` }}
+              />
+            </div>
+            <p className="mt-0.5 text-[9px] font-medium text-white/35">
+              {reached ? "🎉" : "🔥"} {done}/{goal} min
+            </p>
           </button>
         </div>
         <button
@@ -59,7 +79,7 @@ export function ChatTopBar({
           aria-label="Open menu"
           suppressHydrationWarning
           onClick={onToggleMenu}
-          className="flex h-8 w-8 items-center justify-center rounded-full text-white/45 transition hover:bg-white/10 hover:text-white/80"
+          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-white/45 transition hover:bg-white/10 hover:text-white/80"
         >
           <Menu className="h-4 w-4" />
         </button>
@@ -71,6 +91,11 @@ export function ChatTopBar({
         autoSpeak={autoSpeak}
         practicedMinutes={practicedMinutes}
         dailyGoalMinutes={dailyGoalMinutes}
+        xp={xp}
+        level={level}
+        levelTitle={title}
+        levelEmoji={emoji}
+        levelPercent={progress.percent}
         onClose={() => {
           if (menuOpen) onToggleMenu();
         }}

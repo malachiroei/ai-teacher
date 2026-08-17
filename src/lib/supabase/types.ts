@@ -25,6 +25,9 @@ export interface Profile {
   preferred_voice?: string | null;
   practice_date?: string | null;
   practice_seconds?: number | null;
+  placement_completed?: boolean | null;
+  xp?: number | null;
+  level?: number | null;
   created_at?: string;
   updated_at?: string;
 }
@@ -47,6 +50,9 @@ export interface ProfileInput {
   parent_whatsapp?: string | null;
   voice_speed?: number | null;
   preferred_voice?: string | null;
+  placement_completed?: boolean | null;
+  xp?: number | null;
+  level?: number | null;
 }
 
 export interface ChatMessageRow {

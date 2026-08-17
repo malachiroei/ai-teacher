@@ -83,6 +83,21 @@ export function parseFavoriteAnimal(text: string): string | null {
   return null;
 }
 
+export function parseFavoriteThing(text: string): string | null {
+  const animal = parseFavoriteAnimal(text);
+  if (animal) return animal;
+  const cleaned = text.replace(/[.!?]/g, " ").replace(/\s+/g, " ").trim();
+  const named = cleaned.match(
+    /(?:i like|i love|my favorite is|favorite is|אוהב|אוהבת)\s+(.{2,40})$/i,
+  );
+  if (named?.[1]) return named[1].trim();
+  const words = cleaned.split(/\s+/).filter(Boolean);
+  if (words.length > 0 && words.length <= 6 && !/^(yes|no|ok|okay|um+|uh+)$/i.test(cleaned)) {
+    return cleaned;
+  }
+  return null;
+}
+
 function tomorrowDate() {
   const date = new Date();
   date.setDate(date.getDate() + 1);
@@ -113,8 +128,8 @@ export function extractFactsFromUtterance(
     if (age) add(`Age is ${age}`, "personal");
   }
   if (extras?.placementTurn === 3) {
-    const animal = parseFavoriteAnimal(spoken);
-    if (animal) add(`Likes ${animal}`, "preference");
+    const thing = parseFavoriteThing(spoken);
+    if (thing) add(`Likes ${thing}`, "preference");
   }
 
   const age = parseSpokenAge(spoken);
@@ -162,7 +177,7 @@ export function extractFactsFromUtterance(
 export function formatMemoriesForPrompt(memories: UserMemory[]) {
   if (memories.length === 0) return "";
   const lines = memories
-    .slice(0, 20)
+    .slice(0, 40)
     .map((memory) => {
       const when = memory.eventOn ? ` (date: ${memory.eventOn})` : "";
       return `- [${memory.kind}] ${memory.fact}${when}`;
@@ -173,5 +188,5 @@ ${lines}
 
 If this is the first chat of a new day, greet them like a best friend who missed them and follow up on a plan, pet, hobby, or how they feel.
 Examples: "Hey! Did you go to the swimming pool today? 🏊" / "How is your puppy feeling? 🐶"
-Do not invent memories that are not listed. Do not ask their name again if it is already here.`;
+Do not invent memories that are not listed. Do not ask their name, age, or a generic favorite-color quiz if those facts are already here.`;
 }

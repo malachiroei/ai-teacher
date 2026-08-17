@@ -32,16 +32,28 @@ export function placementUserTurns(messages: Pick<Message, "sender">[]) {
   return messages.filter((message) => message.sender === "user").length;
 }
 
-export function isPlacementActive(messages: Pick<Message, "sender" | "text">[]) {
-  const firstAi = messages.find((message) => message.sender === "ai");
-  if (!firstAi || !isPlacementOpener(firstAi.text)) return false;
-  return placementUserTurns(messages) < PLACEMENT_STEPS;
+export function placementAnswerTurns(messages: Pick<Message, "sender" | "text">[]) {
+  return messages.filter((message) => message.sender === "user" && !isSimpleGreeting(message.text)).length;
 }
 
-export function isKidsPlacementSession(messages: Pick<Message, "sender" | "text">[]) {
+export function isPlacementActive(
+  messages: Pick<Message, "sender" | "text">[],
+  completed = false,
+) {
+  if (completed) return false;
   const firstAi = messages.find((message) => message.sender === "ai");
   if (!firstAi || !isPlacementOpener(firstAi.text)) return false;
-  return placementUserTurns(messages) <= PLACEMENT_STEPS;
+  return placementAnswerTurns(messages) < PLACEMENT_STEPS;
+}
+
+export function isKidsPlacementSession(
+  messages: Pick<Message, "sender" | "text">[],
+  completed = false,
+) {
+  if (completed) return false;
+  const firstAi = messages.find((message) => message.sender === "ai");
+  if (!firstAi || !isPlacementOpener(firstAi.text)) return false;
+  return placementAnswerTurns(messages) <= PLACEMENT_STEPS;
 }
 
 export const KIDS_PLACEMENT_STORAGE_KEY = "kids_placement_complete";
@@ -53,10 +65,15 @@ export function kidsPlacementStorageKey(userId: string) {
 export function hasFinishedKidsPlacement(messages: Pick<Message, "sender" | "text">[]) {
   const firstAi = messages.find((message) => message.sender === "ai");
   if (!firstAi || !isPlacementOpener(firstAi.text)) return false;
-  return placementUserTurns(messages) >= PLACEMENT_STEPS;
+  return placementAnswerTurns(messages) >= PLACEMENT_STEPS;
 }
 
-export function hasCompletedKidsPlacement(userId?: string | null, messages: Pick<Message, "sender" | "text">[] = []) {
+export function hasCompletedKidsPlacement(
+  userId?: string | null,
+  messages: Pick<Message, "sender" | "text">[] = [],
+  profile?: { placement_completed?: boolean | null } | null,
+) {
+  if (profile?.placement_completed) return true;
   if (hasFinishedKidsPlacement(messages)) return true;
   if (!userId || typeof window === "undefined") return false;
   try {
@@ -84,11 +101,12 @@ export function clearKidsPlacementComplete(userId?: string | null) {
   }
 }
 
-export function placementStepIndex(messages: Pick<Message, "sender" | "text">[]) {
+export function placementStepIndex(messages: Pick<Message, "sender" | "text">[], completed = false) {
+  if (completed) return PLACEMENT_STEPS;
   if (!isPlacementActive(messages) && !messages.some((message) => message.sender === "ai" && isPlacementOpener(message.text))) {
     return -1;
   }
-  return Math.min(placementUserTurns(messages), PLACEMENT_STEPS);
+  return Math.min(placementAnswerTurns(messages), PLACEMENT_STEPS);
 }
 
 export function buildPlacementOpener(tutorName: string, _gender?: Gender | string | null): Message {
@@ -141,6 +159,38 @@ export function placementFollowUp(
         : `מעולה, ${name}! בוא נדבר ונשחק באנגלית.`
       : "מעולה! בואו נדבר ונשחק באנגלית.",
     suggestions: ["I like pizza!", "Let's play a game!", "I like blue."],
+  };
+}
+
+export function buildFriendshipOpener(
+  tutorName: string,
+  childName: string,
+  favorite?: string,
+  gender?: Gender | string | null,
+): Message {
+  const name = childName.trim() || "friend";
+  const girl = asGender(gender) === "girl";
+  const thing = favorite?.trim();
+  if (thing) {
+    return {
+      id: createId(),
+      sender: "ai",
+      text: `Hey ${name}! I still remember you like ${thing}. What did you do today?`,
+      timestamp: Date.now(),
+      translation: girl
+        ? `היי ${name}! אני זוכרת שאת אוהבת ${thing}. מה עשית היום?`
+        : `היי ${name}! אני זוכר שאתה אוהב ${thing}. מה עשית היום?`,
+    };
+  }
+
+  return {
+    id: createId(),
+    sender: "ai",
+    text: `Hey ${name}! Great to see you! What did you do today?`,
+    timestamp: Date.now(),
+    translation: girl
+      ? `היי ${name}! איזה כיף לראות אותך! מה עשית היום?`
+      : `היי ${name}! איזה כיף לראות אותך! מה עשית היום?`,
   };
 }
 

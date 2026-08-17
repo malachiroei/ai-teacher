@@ -130,3 +130,6 @@ alter table public.profiles add column if not exists name_pronunciation text def
 alter table public.profiles add column if not exists custom_tutor_name text default '';
 alter table public.profiles add column if not exists tutor_nicknames text default '{}';
 alter table public.profiles add column if not exists preferred_voice text default '';
+alter table public.profiles add column if not exists placement_completed boolean default false;
+alter table public.profiles add column if not exists xp integer default 0;
+alter table public.profiles add column if not exists level integer default 1;

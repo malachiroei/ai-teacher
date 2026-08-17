@@ -9,10 +9,11 @@ import {
   extractFactsFromUtterance,
   mapMemoryCategory,
   normalizeFactText,
-  parseFavoriteAnimal,
+  parseFavoriteThing,
   parseSpokenAge,
 } from "@/lib/memory";
 import { guessSpokenName } from "@/lib/placement";
+import { normalizeProgression } from "@/lib/progression";
 
 type AppSupabaseClient = SupabaseClient;
 
@@ -71,6 +72,11 @@ function toInterestsText(value: unknown) {
 
 function normalizeProfile(row: Partial<Profile> & Record<string, unknown>, fallback: ProfileInput, id: string): Profile {
   const nickname = String(row.nickname || row.full_name || fallback.nickname || fallback.name || "").trim();
+  const progression = normalizeProgression({
+    xp: Number(row.xp ?? fallback.xp) || 0,
+    level: Number(row.level ?? fallback.level) || 1,
+    placement_completed: Boolean(row.placement_completed ?? fallback.placement_completed),
+  });
   return {
     id,
     nickname,
@@ -98,6 +104,9 @@ function normalizeProfile(row: Partial<Profile> & Record<string, unknown>, fallb
     preferred_voice: String(row.preferred_voice ?? fallback.preferred_voice ?? "").trim(),
     practice_date: (row.practice_date as string | null | undefined) ?? null,
     practice_seconds: Number(row.practice_seconds) || 0,
+    placement_completed: progression.placement_completed,
+    xp: progression.xp,
+    level: progression.level,
     created_at: row.created_at as string | undefined,
     updated_at: row.updated_at as string | undefined,
   };
@@ -269,6 +278,44 @@ export async function savePracticeSettings(
     return { success: false, error: describeProfileSaveError(lastError) };
   } catch (error) {
     console.error("Supabase Practice Settings Error:", error);
+    return { success: false, error: describeProfileSaveError(error) };
+  }
+}
+
+export async function saveProgression(
+  supabase: AppSupabaseClient,
+  userId: string,
+  patch: { xp?: number; level?: number; placement_completed?: boolean },
+): Promise<SaveProfileResult> {
+  try {
+    const body: Record<string, unknown> = {
+      updated_at: new Date().toISOString(),
+    };
+    if (typeof patch.xp === "number") body.xp = Math.max(0, patch.xp);
+    if (typeof patch.level === "number") body.level = Math.min(4, Math.max(1, patch.level));
+    if (typeof patch.placement_completed === "boolean") body.placement_completed = patch.placement_completed;
+
+    const attempts = [
+      body,
+      omitKeys(body, ["placement_completed"]),
+      omitKeys(body, ["xp", "level"]),
+      omitKeys(body, ["xp", "level", "placement_completed"]),
+    ].filter((attempt) => Object.keys(attempt).length > 1);
+
+    let lastError: unknown;
+    for (const attempt of attempts) {
+      const { data, error } = await supabase.from("profiles").update(attempt).eq("id", userId).select("*").maybeSingle();
+      if (!error) {
+        return {
+          success: true,
+          profile: normalizeProfile((data ?? attempt) as Profile & Record<string, unknown>, attempt, userId),
+        };
+      }
+      lastError = error;
+      if (!missingColumn(error, ["xp", "level", "placement_completed"])) break;
+    }
+    return { success: false, error: describeProfileSaveError(lastError) };
+  } catch (error) {
     return { success: false, error: describeProfileSaveError(error) };
   }
 }
@@ -727,9 +774,9 @@ export async function rememberKidTurn(
     }
   }
   if (extras?.placementTurn === 3) {
-    const animal = parseFavoriteAnimal(spokenText);
-    if (animal) {
-      profile = await patchKidProfile(supabase, userId, profile, { interests: [animal] });
+    const thing = parseFavoriteThing(spokenText);
+    if (thing) {
+      profile = await patchKidProfile(supabase, userId, profile, { interests: [thing] });
     }
   }
 
@@ -768,7 +815,7 @@ export async function loadUserMemories(supabase: AppSupabaseClient, userId: stri
       .from("user_memories")
       .select("id, fact, kind, event_on, created_at")
       .eq("user_id", userId)
-      .limit(20);
+      .limit(40);
 
     if (error) {
       memoriesUnavailable = true;

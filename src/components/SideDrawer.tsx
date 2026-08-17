@@ -12,6 +12,11 @@ interface SideDrawerProps {
   autoSpeak: boolean;
   practicedMinutes: number;
   dailyGoalMinutes: number;
+  xp: number;
+  level: number;
+  levelTitle: string;
+  levelEmoji: string;
+  levelPercent: number;
   onClose: () => void;
   onToggleSpeak: () => void;
   onOpenCharacters: () => void;
@@ -28,6 +33,11 @@ export function SideDrawer({
   autoSpeak,
   practicedMinutes,
   dailyGoalMinutes,
+  xp,
+  level,
+  levelTitle,
+  levelEmoji,
+  levelPercent,
   onClose,
   onToggleSpeak,
   onOpenCharacters,
@@ -80,16 +90,30 @@ export function SideDrawer({
             <button
               type="button"
               onClick={onOpenSettings}
-              aria-label={`Daily goal ${done} of ${goal} minutes`}
+              aria-label={`Level ${level} ${levelTitle}, ${xp} XP`}
               className="mx-4 mb-3 rounded-2xl border border-white/10 bg-white/5 p-3 text-left"
             >
               <div className="mb-2 flex items-center justify-between">
+                <span className="text-[12px] font-semibold text-white/50">
+                  {levelEmoji} Lv.{level} {levelTitle}
+                </span>
+                <span className="text-[12px] font-semibold text-white/80">{xp} XP</span>
+              </div>
+              <div className="h-1.5 overflow-hidden rounded-full bg-white/10">
+                <motion.div
+                  className="h-full rounded-full bg-gradient-to-r from-amber-300 to-emerald-300"
+                  initial={false}
+                  animate={{ width: `${levelPercent}%` }}
+                  transition={{ duration: 0.45, ease: "easeOut" }}
+                />
+              </div>
+              <div className="mt-3 flex items-center justify-between">
                 <span className="text-[12px] font-semibold text-white/50">Today’s practice</span>
                 <span className="text-[12px] font-semibold text-white/80">
                   {done}/{goal} min {reached ? "🎉" : ""}
                 </span>
               </div>
-              <div className="h-1.5 overflow-hidden rounded-full bg-white/10">
+              <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-white/10">
                 <motion.div
                   className="h-full rounded-full"
                   initial={false}
@@ -110,7 +134,7 @@ export function SideDrawer({
                 onClick={onToggleSpeak}
               />
               <DrawerItem icon={History} label="Previous chats" onClick={onOpenHistory} />
-              <DrawerItem icon={Sparkles} label="Start Fresh / Assessment" onClick={onClearChat} />
+              <DrawerItem icon={Sparkles} label="New chat" onClick={onClearChat} />
             </nav>
 
             {onSignOut ? (

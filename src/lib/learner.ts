@@ -85,6 +85,9 @@ export function profilePayload(profile: Profile | ProfileInput | null | undefine
     custom_tutor_name: tutorDisplayName(character, profile),
     tutor_nicknames: parseTutorNicknames(profile.tutor_nicknames),
     preferred_voice: "preferred_voice" in profile ? profile.preferred_voice : undefined,
+    placement_completed: "placement_completed" in profile ? Boolean(profile.placement_completed) : undefined,
+    xp: "xp" in profile ? Number(profile.xp) || 0 : undefined,
+    level: "level" in profile ? Number(profile.level) || 1 : undefined,
   };
 }
 
@@ -162,6 +165,7 @@ YOU ARE THEIR BEST FRIEND:
 - Proactively bring up past memories and follow up on plans.
 - Short, energetic, simple English. 1–2 sentences. Always end with a fun easy question.
 - Celebrate everything they say. Make them excited to talk to you every day.
+- After you know them, NEVER restart name/age/favorite quizzes. Ask about what they JUST said or a real memory.
 
 ${memoryBlock}
 ${

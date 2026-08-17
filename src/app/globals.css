@@ -200,3 +200,46 @@ body {
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
 }
+
+@keyframes level-up-pop {
+  0% {
+    transform: translateY(8px) scale(0.92);
+    opacity: 0;
+  }
+  18% {
+    transform: translateY(0) scale(1.04);
+    opacity: 1;
+  }
+  80% {
+    transform: translateY(0) scale(1);
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(-6px) scale(0.98);
+    opacity: 0;
+  }
+}
+
+.level-up-burst {
+  animation: level-up-pop 2.7s ease forwards;
+}
+
+.level-up-star {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  font-size: 10px;
+  animation: level-up-star 1.4s ease-out forwards;
+  animation-delay: calc(var(--i) * 40ms);
+}
+
+@keyframes level-up-star {
+  0% {
+    opacity: 1;
+    transform: translate(-50%, -50%) rotate(calc(var(--i) * 45deg)) translateY(0);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -50%) rotate(calc(var(--i) * 45deg)) translateY(-28px);
+  }
+}

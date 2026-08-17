@@ -8,6 +8,7 @@ import { ChatTopBar } from "@/components/ChatTopBar";
 import { PreviousChatsModal } from "@/components/PreviousChatsModal";
 import { DocumentTitle } from "@/components/DocumentTitle";
 import { GoalCelebrationModal } from "@/components/GoalCelebrationModal";
+import { LevelUpBurst } from "@/components/LevelUpBurst";
 import { LoadingScreen } from "@/components/LoadingScreen";
 import { OnboardingModal } from "@/components/OnboardingModal";
 import { SettingsModal } from "@/components/SettingsModal";
@@ -27,6 +28,7 @@ import {
   rememberKidTurn,
   saveProfile,
   savePracticeSettings,
+  saveProgression,
   saveSelectedCharacter,
   saveTutorNickname,
   seedProfileMemories,
@@ -39,17 +41,26 @@ import { preferredSpeechLangFromText } from "@/lib/language";
 import { parseTutorNicknames, profilePayload, withTutorDisplayName } from "@/lib/learner";
 import { consumeChatStream, speakableSentences } from "@/lib/chat-stream";
 import {
+  buildFriendshipOpener,
   buildPlacementOpener,
-  clearKidsPlacementComplete,
   hasCompletedKidsPlacement,
   isKidsPlacementSession,
   isPlacementActive,
   isPlacementOpener,
   markKidsPlacementComplete,
-  placementUserTurns,
+  placementAnswerTurns,
   PLACEMENT_SUGGESTIONS,
 } from "@/lib/placement";
 import type { UserMemory } from "@/lib/memory";
+import {
+  applyXp,
+  levelCheer,
+  levelFromXp,
+  readProgressionLocal,
+  writeProgressionLocal,
+  type LevelInfo,
+  xpForUtterance,
+} from "@/lib/progression";
 import {
   buildParentWhatsAppMessage,
   countUserMessagesToday,
@@ -82,6 +93,36 @@ function createId() {
 function placementMessage(nextProfile?: Profile | null) {
   const tutor = withTutorDisplayName(getCharacter(nextProfile?.selected_character), nextProfile);
   return buildPlacementOpener(tutor.name, nextProfile?.gender);
+}
+
+function friendshipMessage(nextProfile?: Profile | null) {
+  const tutor = withTutorDisplayName(getCharacter(nextProfile?.selected_character), nextProfile);
+  return buildFriendshipOpener(
+    tutor.name,
+    nextProfile?.nickname ?? "",
+    nextProfile?.interests?.[0],
+    nextProfile?.gender,
+  );
+}
+
+function mergeLocalProgression(userId: string, nextProfile: Profile): Profile {
+  const local = readProgressionLocal(userId);
+  const xp = Math.max(Number(nextProfile.xp) || 0, local.xp);
+  const completed =
+    Boolean(nextProfile.placement_completed) || local.placement_completed || hasCompletedKidsPlacement(userId);
+  if (completed) markKidsPlacementComplete(userId);
+  const merged: Profile = {
+    ...nextProfile,
+    xp,
+    level: Math.max(Number(nextProfile.level) || 1, local.level, levelFromXp(xp).level),
+    placement_completed: completed,
+  };
+  writeProgressionLocal(userId, {
+    xp: merged.xp ?? 0,
+    level: merged.level ?? 1,
+    placement_completed: Boolean(merged.placement_completed),
+  });
+  return merged;
 }
 
 export default function HomePage() {
@@ -118,6 +159,7 @@ export default function HomePage() {
   const [savingSettings, setSavingSettings] = useState(false);
   const [settingsError, setSettingsError] = useState("");
   const [notice, setNotice] = useState("");
+  const [levelUp, setLevelUp] = useState<LevelInfo | null>(null);
 
   const sendingRef = useRef(false);
   const sendSpokenRef = useRef<(text: string) => void>(() => {});
@@ -245,27 +287,37 @@ export default function HomePage() {
     try {
       const supabase = createClient();
       const nextProfile = await withTimeout(fetchProfile(supabase, nextUser.id), 2000, null);
-      setProfile(nextProfile);
+      const mergedProfile = nextProfile ? mergeLocalProgression(nextUser.id, nextProfile) : null;
+      setProfile(mergedProfile);
       setProfileChecked(true);
 
-      if (isProfileComplete(nextProfile)) {
+      if (isProfileComplete(mergedProfile)) {
         try {
           const [history, nextMemories] = await Promise.all([
             withTimeout(loadChatHistory(supabase, nextUser.id), 2000, [] as Message[]),
             withTimeout(loadUserMemories(supabase, nextUser.id), 2000, [] as UserMemory[]),
           ]);
           setMemories(nextMemories);
-          if (hasCompletedKidsPlacement(nextUser.id, history) && history.length > 0) {
+          const placementDone = hasCompletedKidsPlacement(nextUser.id, history, mergedProfile);
+          if (placementDone && history.length > 0) {
             setMessages(history);
-          } else if (hasCompletedKidsPlacement(nextUser.id, history) && nextMemories.length > 0) {
+          } else if (placementDone) {
             setMessages([]);
           } else {
             spokenOpenerRef.current = "";
             forcePlacementRef.current = true;
-            setMessages([placementMessage(nextProfile)]);
+            setMessages([placementMessage(mergedProfile)]);
+          }
+          if (placementDone && !mergedProfile.placement_completed) {
+            void saveProgression(supabase, nextUser.id, {
+              placement_completed: true,
+              xp: Number(mergedProfile.xp) || 0,
+              level: Number(mergedProfile.level) || 1,
+            });
+            setProfile({ ...mergedProfile, placement_completed: true });
           }
         } catch {
-          setMessages([placementMessage(nextProfile)]);
+          setMessages([placementMessage(mergedProfile)]);
           flash("Couldn't load your chat history.");
         }
       }
@@ -347,15 +399,31 @@ export default function HomePage() {
     return ok;
   }
 
-  async function persistMemories(incoming?: ChatApiResponse["newMemories"], spokenText = "", history: Message[] = messages) {
+  async function persistMemories(
+    incoming?: ChatApiResponse["newMemories"],
+    spokenText = "",
+    history: Message[] = messages,
+    placementTurn?: number,
+  ) {
     if (!user) return;
     try {
       const result = await rememberKidTurn(createClient(), user.id, memories, spokenText, incoming ?? [], {
         profile,
-        placementTurn: isKidsPlacementSession(history) ? placementUserTurns(history) : undefined,
+        placementTurn:
+          placementTurn ??
+          (isKidsPlacementSession(history, Boolean(profile?.placement_completed))
+            ? placementAnswerTurns(history)
+            : undefined),
       });
       setMemories(result.memories);
-      if (result.profile) setProfile(result.profile);
+      if (result.profile) {
+        setProfile((current) => ({
+          ...result.profile!,
+          xp: Math.max(Number(current?.xp) || 0, Number(result.profile?.xp) || 0),
+          level: Math.max(Number(current?.level) || 1, Number(result.profile?.level) || 1),
+          placement_completed: Boolean(current?.placement_completed || result.profile?.placement_completed),
+        }));
+      }
     } catch {
       /* memories are optional; never interrupt speech */
     }
@@ -366,12 +434,15 @@ export default function HomePage() {
       userMessage?: string;
       action?: "chat" | "change_topic" | "daily_open";
       history: Message[];
+      activeProfile?: Profile | null;
     },
     live?: {
       onCaption?: (text: string, translation: string) => void;
       onSentence?: (text: string) => void;
     },
   ): Promise<ChatApiResponse> {
+    const activeProfile = payload.activeProfile ?? profile;
+    const placementDone = hasCompletedKidsPlacement(user?.id, payload.history, activeProfile);
     const response = await fetch("/api/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -382,10 +453,11 @@ export default function HomePage() {
           role: sender === "ai" ? "assistant" : "user",
           content: text,
         })),
-        profile: profilePayload(profile),
+        profile: profilePayload(activeProfile),
         characterId: character.id,
         memories,
-        placement: isPlacementActive(payload.history),
+        placement: isPlacementActive(payload.history, placementDone),
+        placementCompleted: placementDone,
         isFirstSessionToday: !payload.history.some(
           (message) => message.sender === "user" && message.timestamp >= startOfLocalDay(),
         ),
@@ -435,8 +507,59 @@ export default function HomePage() {
     setIsLoading(true);
     let streamedSpeech = false;
 
+    const placementDoneBefore = hasCompletedKidsPlacement(user.id, messages, profile);
+    const placementTurn = isKidsPlacementSession(history, placementDoneBefore)
+      ? placementAnswerTurns(history)
+      : undefined;
+    let activeProfile = profile;
+    if (!placementDoneBefore && placementAnswerTurns(history) >= 3 && isKidsPlacementSession(history, false)) {
+      markKidsPlacementComplete(user.id);
+      forcePlacementRef.current = false;
+      activeProfile = profile
+        ? { ...profile, placement_completed: true }
+        : profile;
+      if (activeProfile) {
+        setProfile(activeProfile);
+        writeProgressionLocal(user.id, {
+          placement_completed: true,
+          xp: Number(activeProfile.xp) || 0,
+          level: Number(activeProfile.level) || 1,
+        });
+        void saveProgression(createClient(), user.id, {
+          placement_completed: true,
+          xp: Number(activeProfile.xp) || 0,
+          level: Number(activeProfile.level) || 1,
+        });
+      }
+    }
+
+    if (activeProfile) {
+      const gained = xpForUtterance(text);
+      const progressed = applyXp(Number(activeProfile.xp) || 0, gained);
+      activeProfile = {
+        ...activeProfile,
+        xp: progressed.xp,
+        level: progressed.level,
+      };
+      setProfile(activeProfile);
+      writeProgressionLocal(user.id, {
+        xp: progressed.xp,
+        level: progressed.level,
+        placement_completed: Boolean(activeProfile.placement_completed),
+      });
+      void saveProgression(createClient(), user.id, {
+        xp: progressed.xp,
+        level: progressed.level,
+        placement_completed: Boolean(activeProfile.placement_completed),
+      });
+      if (progressed.leveledUp) {
+        setLevelUp(progressed.info);
+        if (autoSpeak) enqueueSpeak(levelCheer(progressed.info));
+      }
+    }
+
     try {
-      const data = await requestReply({ userMessage: text, history }, {
+      const data = await requestReply({ userMessage: text, history, activeProfile }, {
         onCaption: (caption, translation) => {
           setSpokenReply(caption);
           setSpokenTranslation(translation);
@@ -472,12 +595,8 @@ export default function HomePage() {
       if (autoSpeak && !streamedSpeech) {
         speak(data.aiResponse);
       }
-      if (placementUserTurns(history) >= 3 && isKidsPlacementSession(history)) {
-        markKidsPlacementComplete(user.id);
-        forcePlacementRef.current = false;
-      }
 
-      void persistMemories(data.newMemories, text, history);
+      void persistMemories(data.newMemories, text, history, placementTurn);
 
       const saved = await persistMessages(user.id, [
           { id: userMessage.id, sender: "user", text, grammarFeedback: grammar },
@@ -575,16 +694,16 @@ export default function HomePage() {
     stopSpeaking();
     setMenuOpen(false);
     setOpenTranslations({});
-    clearKidsPlacementComplete(user.id);
-    forcePlacementRef.current = true;
+    const placementDone = hasCompletedKidsPlacement(user.id, messages, nextProfile);
+    forcePlacementRef.current = !placementDone;
     dailyGreetedRef.current = `${user.id}:${new Date().toDateString()}`;
     const snapshot = messages;
-    const opener = placementMessage(nextProfile);
+    const opener = placementDone ? friendshipMessage(nextProfile) : placementMessage(nextProfile);
     spokenOpenerRef.current = opener.id;
     setMessages([opener]);
     setSpokenReply(opener.text);
     setSpokenTranslation(opener.translation ?? "");
-    setSuggestions([...PLACEMENT_SUGGESTIONS[0]]);
+    setSuggestions(placementDone ? ["I played a game!", "It was fun!", "I like that!"] : [...PLACEMENT_SUGGESTIONS[0]]);
     unlockSpeech();
     if (autoSpeak) {
       speak(opener.text);
@@ -664,7 +783,7 @@ export default function HomePage() {
       setSelectedTutorId(nextCharacter.id);
       writeStoredTutorId(nextCharacter.id);
       setProfile({ ...profile, selected_character: nextCharacter.id });
-      setMessages(restored.length > 0 ? restored : [placementMessage(profile)]);
+      setMessages(restored.length > 0 ? restored : hasCompletedKidsPlacement(user.id, [], profile) ? [friendshipMessage(profile)] : [placementMessage(profile)]);
       setOpenTranslations({});
       setHistoryOpen(false);
       void saveSelectedCharacter(supabase, user.id, nextCharacter.id);
@@ -689,7 +808,7 @@ export default function HomePage() {
   useEffect(() => {
     if (!chatUnlocked || !historyReady || !user || isLoading || awaitingGreeting) return;
     if (forcePlacementRef.current) return;
-    if (!hasCompletedKidsPlacement(user.id, messages) || isPlacementActive(messages)) return;
+    if (!hasCompletedKidsPlacement(user.id, messages, profile) || isPlacementActive(messages, Boolean(profile?.placement_completed))) return;
     const dayKey = `${user.id}:${new Date().toDateString()}`;
     if (dailyGreetedRef.current === dayKey) return;
 
@@ -704,7 +823,7 @@ export default function HomePage() {
     const unansweredPlacement =
       messages.length <= 1 &&
       Boolean(messages[0] && isPlacementOpener(messages[0].text)) &&
-      placementUserTurns(messages) === 0;
+      placementAnswerTurns(messages) === 0;
     if (unansweredPlacement) return;
     if (memories.length === 0) return;
 
@@ -736,7 +855,11 @@ export default function HomePage() {
           { id: opener.id, sender: "ai", text: opener.text, translation: opener.translation },
         ]);
       } catch {
-        if (messages.length === 0) setMessages([placementMessage(profile)]);
+        if (messages.length === 0) {
+          setMessages([
+            hasCompletedKidsPlacement(user.id, [], profile) ? friendshipMessage(profile) : placementMessage(profile),
+          ]);
+        }
       } finally {
         setAwaitingGreeting(false);
       }
@@ -770,7 +893,6 @@ export default function HomePage() {
       setProfile(result.profile);
       setHistoryReady(true);
       forcePlacementRef.current = true;
-      clearKidsPlacementComplete(user.id);
       const opener = placementMessage(result.profile);
       spokenOpenerRef.current = opener.id;
       setMessages([opener]);
@@ -908,6 +1030,8 @@ export default function HomePage() {
           onSignOut={() => void handleSignOut()}
           practicedMinutes={practicedMinutes}
           dailyGoalMinutes={practiceSettings.daily_goal_minutes}
+          xp={Number(profile?.xp) || 0}
+          level={Number(profile?.level) || 1}
         />
 
         <VoiceStage
@@ -991,6 +1115,8 @@ export default function HomePage() {
             onClose={() => setHistoryOpen(false)}
           />
         ) : null}
+
+        {levelUp ? <LevelUpBurst info={levelUp} onDone={() => setLevelUp(null)} /> : null}
 
         {celebrationOpen && userMessageCountToday >= 2 ? (
           <GoalCelebrationModal

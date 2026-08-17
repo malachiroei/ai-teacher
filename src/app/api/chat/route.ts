@@ -13,9 +13,9 @@ import {
   stripUnsolicitedScaffold,
 } from "@/lib/language";
 import { buildLearnerContext } from "@/lib/learner";
-import { normalizeNewMemories, type UserMemory } from "@/lib/memory";
+import { normalizeNewMemories, parseFavoriteThing, type UserMemory } from "@/lib/memory";
 import { polishHebrewTranslation } from "@/lib/hebrew";
-import { guessSpokenName, isPlacementActive, placementFollowUp, placementUserTurns } from "@/lib/placement";
+import { guessSpokenName, isPlacementActive, placementAnswerTurns, placementFollowUp } from "@/lib/placement";
 import {
   encodeSse,
   extractJsonStringField,
@@ -50,6 +50,7 @@ interface ChatRequestBody {
   memories?: UserMemory[];
   isFirstSessionToday?: boolean;
   placement?: boolean;
+  placementCompleted?: boolean;
 }
 
 const BASE_TUTOR_RULES = `You are the child's caring, enthusiastic BEST FRIEND and companion for ages 6–13 (Hebrew at home, learning English).
@@ -76,16 +77,23 @@ GREETINGS (hi, hey, hello, שלום, היי, הי):
 
 MEMORY RULES:
 - You remember every detail they have ever told you (pets, hobbies, favorite games, family, school plans, friends, mood).
-- Use the COMPLETE KID PROFILE and BEST-FRIEND MEMORY BANK in the prompt. These are real facts.
+- Use the COMPLETE KID PROFILE, BEST-FRIEND MEMORY BANK, and the FULL SESSION TRANSCRIPT. These are real facts.
 - Proactively bring up past memories and follow up on plans.
 - Do not invent facts. Do not ask their name if the profile already has it.
 
-PLACEMENT ASSESSMENT (only if the session is still in the 3-step intro):
+PLACEMENT ASSESSMENT (only while PLACEMENT MODE is ON — exactly 3 answers):
 Ask ONE super-simple question per turn. Never skip ahead. A bare hi/שלום is NOT their name — greet warmly and ask their name again.
 - Step 1: greet and ask their name.
 - Step 2: after a real name, ask their age.
-- Step 3: after an age, ask their favorite thing (a game, an animal, or a food).
-Then continue as their best friend. Save what you learned.
+- Step 3: after an age, ask ONE favorite thing (a game, an animal, or a food).
+The moment they answer step 3, placement is OVER forever. Cheer about THAT favorite thing and start a real friendship chat. Never restart this quiz.
+
+AFTER PLACEMENT (this is the default):
+- Ban generic setup loops: never ask "What is your name?", "How old are you?", or "What is your favorite color?" again.
+- Ask dynamic, curious, playful questions based on what they JUST said or a real memory.
+  Examples: "Oh, you love pink? Is your room pink too, or do you have pink toys? 🦄"
+  "What did you build today in Minecraft? 🏰"
+- Keep 1 short warm sentence + 1 fun beginner question. Never repeat the same question twice in a row.
 
 IF THE CHILD SPEAKS HEBREW:
 - Not an error. Reply warmly in simple English. Put the Hebrew meaning only in translation.
@@ -415,11 +423,13 @@ function maybeGreetingReply(
   history: ChatTurn[],
   profile?: ProfileInput | null,
   placement?: boolean,
+  placementCompleted = false,
 ): ChatApiResponse | null {
   if (action !== "chat") return null;
   if (!isSimpleGreeting(userMessage)) return null;
-  const inPlacement = Boolean(placement || isPlacementActive(history));
-  return naturalGreetingReply(profile, inPlacement || !String(profile?.nickname ?? "").trim());
+  const knownName = String(profile?.nickname ?? "").trim();
+  const inPlacement = Boolean(placement || isPlacementActive(history, placementCompleted)) && !placementCompleted && !knownName;
+  return naturalGreetingReply(profile, inPlacement);
 }
 
 function hebrewLessonReply(userMessage: string, allowScaffold: boolean): ChatApiResponse {
@@ -610,14 +620,14 @@ function mockEnglishReply(
   }
 
   return {
-    aiResponse: "Awesome! Let's talk more. What is your favorite color?",
-    translation: "מעולה! בואו נדבר עוד. מה הצבע האהוב עליך?",
+    aiResponse: "Cool! Tell me more about that. What happened next?",
+    translation: "מגניב! ספר לי עוד על זה. מה קרה אחר כך?",
     grammarAnalysis: {
       hasError: false,
       explanation: "תשובה קצרה זה בסדר גמור.",
       correctedText: userMessage.trim(),
     },
-    suggestedAnswers: ["I like blue.", "I like red.", "My favorite is green."],
+    suggestedAnswers: ["I played a game.", "I like that too.", "It was fun!"],
   };
 }
 
@@ -627,20 +637,27 @@ function mockPlacementReply(
   profile?: ProfileInput | null,
 ): ChatApiResponse {
   const greeting = isSimpleGreeting(userMessage);
-  const turns = Math.max(0, placementUserTurns(history) - (greeting ? 1 : 0));
+  const turns = Math.max(0, placementAnswerTurns(history) - (greeting ? 1 : 0));
   if (greeting || turns <= 0) {
     return naturalGreetingReply(profile, true);
   }
 
   const name = guessSpokenName(userMessage) || String(profile?.nickname ?? "").trim();
   const next = placementFollowUp(turns, name, profile?.gender);
-  const text = turns >= 3 ? `Awesome! I love that too! What color do you like?` : next.text;
+  const thing = parseFavoriteThing(userMessage) || "that";
+  const text =
+    turns >= 3
+      ? `Awesome! ${thing} is so cool! What do you like about it?`
+      : next.text;
 
   return {
     aiResponse: text,
-    translation: next.translation,
+    translation:
+      turns >= 3
+        ? `איזה כיף! ${thing} זה מגניב! מה אתה אוהב בזה?`
+        : next.translation,
     grammarAnalysis: emptyGrammar(userMessage.trim()),
-    suggestedAnswers: next.suggestions,
+    suggestedAnswers: turns >= 3 ? ["It is fun!", "I play it a lot.", "I love it!"] : next.suggestions,
     newMemories:
       turns === 1 && name
         ? [{ fact: `Name is ${name}`, kind: "personal" as const, eventOn: null }]
@@ -676,15 +693,16 @@ function mockReply(
   profile?: ProfileInput | null,
   placement?: boolean,
   memories: UserMemory[] = [],
+  placementCompleted = false,
 ): ChatApiResponse {
   if (action === "daily_open") {
     return mockDailyGreeting(profile, memories);
   }
 
-  const greeting = maybeGreetingReply(userMessage, action, history, profile, placement);
+  const greeting = maybeGreetingReply(userMessage, action, history, profile, placement, placementCompleted);
   if (greeting) return greeting;
 
-  if (placement || isPlacementActive(history)) {
+  if (!placementCompleted && (placement || isPlacementActive(history, placementCompleted))) {
     return mockPlacementReply(userMessage, history, profile);
   }
 
@@ -821,13 +839,21 @@ function eventsForCompleteReply(reply: ChatApiResponse): ChatStreamEvent[] {
   return events;
 }
 
+function formatSessionHistory(history: ChatTurn[]) {
+  if (history.length === 0) return "";
+  const lines = history
+    .map((message) => `${message.sender === "user" ? "Child" : "You"}: ${message.text}`)
+    .join("\n");
+  return `FULL SESSION TRANSCRIPT (never forget these lines; never restart the intro quiz):\n${lines}`;
+}
+
 async function streamGemini(
   history: ChatTurn[],
   userMessage: string,
   action: ChatAction,
   profile: ProfileInput | null | undefined,
   characterId: string | null | undefined,
-  extras: { memories?: UserMemory[]; isFirstSessionToday?: boolean; placement?: boolean } | undefined,
+  extras: { memories?: UserMemory[]; isFirstSessionToday?: boolean; placement?: boolean; placementCompleted?: boolean } | undefined,
   onEvent: (event: ChatStreamEvent) => void,
 ): Promise<ChatApiResponse> {
   trustSystemCertificates();
@@ -836,10 +862,11 @@ async function streamGemini(
   if (!apiKey) throw new Error("Missing GEMINI_API_KEY");
 
   const detected = userMessage ? detectUserLanguage(userMessage) : "en";
-  const placement = Boolean(extras?.placement || isPlacementActive(history));
-  const userTurns = placementUserTurns(history);
+  const placementCompleted = Boolean(extras?.placementCompleted || profile?.placement_completed);
+  const placement = !placementCompleted && Boolean(extras?.placement || isPlacementActive(history, placementCompleted));
+  const userTurns = placementAnswerTurns(history);
   const allowScaffold = shouldOfferSayHint(userMessage);
-  const greeting = maybeGreetingReply(userMessage, action, history, profile, placement);
+  const greeting = maybeGreetingReply(userMessage, action, history, profile, placement, placementCompleted);
   if (greeting) {
     const payload = polishReply(greeting, profile, userMessage);
     for (const event of eventsForCompleteReply(payload)) onEvent(event);
@@ -850,14 +877,16 @@ async function streamGemini(
     action === "daily_open" || extras?.isFirstSessionToday
       ? "FIRST MESSAGE TODAY. Memories exist. Greet them by name like a best friend. Follow up on their latest plan, pet, game, or day. 1-2 short sentences, then a fun question. Do NOT ask their name again. Do NOT restart placement."
       : placement
-        ? `PLACEMENT MODE is ON. Child turns so far: ${userTurns}. Ask only the next missing step (name, then age, then favorite thing). One short question. If they only said hi/hello/שלום/היי, that is NOT their name — greet warmly and ask their name again.`
+        ? `PLACEMENT MODE is ON. Real answers so far: ${userTurns} of 3 (name, age, favorite thing). Ask only the next missing step. One short question. If they only said hi/hello/שלום/היי, that is NOT their name — greet warmly and ask their name again.`
         : action === "change_topic"
-          ? "The child asked for a new topic. Pick animals, colors, food, games, or sports. Keep it A1."
+          ? "The child asked for a new topic. Follow a memory or what they last said. Keep it A1. Do NOT ask name, age, or favorite color."
           : allowScaffold
             ? 'The child asked how to say something, or is stuck. You may give one "You can say: …" hint, then one simple question. English in aiResponse, Hebrew only in translation.'
-            : detected === "he"
-              ? "The child used Hebrew. Reply warmly in simple English. Hebrew meaning only in translation. Do NOT say You can say / בואי ננסה."
-              : "The child used English. Stay on their topic. One-word answers are great. If a memory fits, mention it.";
+            : `PLACEMENT IS COMPLETE. Never ask name, age, or "what is your favorite color?". Reply to what they JUST said. Use memories. Ask one specific curious question.${
+                detected === "he"
+                  ? " The child used Hebrew. Reply warmly in simple English. Hebrew meaning only in translation. Do NOT say You can say / בואי ננסה."
+                  : " The child used English. One-word answers are great."
+              }`;
 
   const learnerContext = buildLearnerContext(profile, {
     memories: extras?.memories,
@@ -868,6 +897,7 @@ async function streamGemini(
     BASE_TUTOR_RULES,
     character.systemPrompt,
     learnerContext,
+    formatSessionHistory(history),
     languageHint,
     'The "translation" field must be natural spoken Hebrew, fully gendered for this learner, with topic nouns in Hebrew. No slash forms like אוהב/ת.',
     "Keep the FULL conversation history. Never drop earlier turns or memories.",
@@ -994,18 +1024,21 @@ export async function POST(request: Request) {
     const characterId = body.characterId ?? profile?.selected_character ?? null;
     const memories = Array.isArray(body.memories) ? body.memories : [];
     const isFirstSessionToday = Boolean(body.isFirstSessionToday);
+    const placementCompleted = Boolean(body.placementCompleted || profile?.placement_completed);
     const placement =
-      action !== "daily_open" && (Boolean(body.placement) || isPlacementActive(history));
+      !placementCompleted &&
+      action !== "daily_open" &&
+      (Boolean(body.placement) || isPlacementActive(history, placementCompleted));
 
     if (action === "chat" && !userMessage) {
       return NextResponse.json({ error: "userMessage is required" }, { status: 400 });
     }
 
-    const extras = { memories, isFirstSessionToday, placement };
+    const extras = { memories, isFirstSessionToday, placement, placementCompleted };
     const apiKey = process.env.GEMINI_API_KEY?.trim();
 
     return sseResponse(async (send) => {
-      const greeting = maybeGreetingReply(userMessage, action, history, profile, placement);
+      const greeting = maybeGreetingReply(userMessage, action, history, profile, placement, placementCompleted);
       if (greeting) {
         for (const event of eventsForCompleteReply(polishReply(greeting, profile, userMessage))) send(event);
         return;
@@ -1022,7 +1055,11 @@ export async function POST(request: Request) {
         console.warn("GEMINI_API_KEY is missing from the environment. Using mock replies.");
       }
 
-      const payload = polishReply(mockReply(userMessage, action, history, profile, placement, memories), profile, userMessage);
+      const payload = polishReply(
+        mockReply(userMessage, action, history, profile, placement, memories, placementCompleted),
+        profile,
+        userMessage,
+      );
       for (const event of eventsForCompleteReply(payload)) send(event);
     });
   } catch (error) {
