@@ -41,6 +41,23 @@ function hasSpeakableLetters(text: string) {
   return /[\p{L}\p{N}]/u.test(text);
 }
 
+export function pullEarlySpeakableChunk(text: string, alreadyConsumed: number, minWords = 3) {
+  const pending = text.slice(alreadyConsumed);
+  if (!pending.trim()) return { chunk: "", consumed: alreadyConsumed };
+
+  const punctuationIndex = pending.search(/[.!?…]/);
+  const windowText = punctuationIndex >= 0 ? pending.slice(0, punctuationIndex) : pending;
+  const words = [...windowText.matchAll(/[\p{L}\p{N}'’]+/gu)];
+  if (words.length < minWords) return { chunk: "", consumed: alreadyConsumed };
+
+  const boundary = words[Math.min(words.length, minWords) - 1];
+  const end = (boundary.index ?? 0) + boundary[0].length;
+  const chunk = collapseRepeatedSpeech(windowText.slice(0, end));
+  if (!chunk || !hasSpeakableLetters(chunk)) return { chunk: "", consumed: alreadyConsumed };
+
+  return { chunk, consumed: alreadyConsumed + end };
+}
+
 export function pullSpeakableChunks(text: string, alreadyConsumed: number) {
   const pending = text.slice(alreadyConsumed);
   const chunks: string[] = [];

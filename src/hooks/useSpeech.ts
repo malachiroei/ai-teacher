@@ -108,6 +108,7 @@ function readResultChunk(event: {
 }
 
 let unlockContext: AudioContext | null = null;
+let speechUnlocked = false;
 
 function resumeSpeechSynthesis() {
   if (typeof window === "undefined" || !("speechSynthesis" in window)) return;
@@ -151,12 +152,17 @@ export function unlockSpeechSynthesis() {
   if (typeof window === "undefined") return;
   try {
     if (!("speechSynthesis" in window)) return;
+    if (speechUnlocked) {
+      resumeSpeechSynthesis();
+      return;
+    }
     resumeSpeechSynthesis();
     const warm = new SpeechSynthesisUtterance("");
     warm.volume = 0;
     warm.rate = 1;
     warm.pitch = 1;
     window.speechSynthesis.speak(warm);
+    speechUnlocked = true;
     resumeSpeechSynthesis();
   } catch {
     resumeSpeechSynthesis();
@@ -166,6 +172,42 @@ export function unlockSpeechSynthesis() {
 function unlockPlaybackAudio() {
   if (isMobileDevice()) return;
   unlockAudioContext();
+}
+
+function pickStreamingVoice(voices: SpeechSynthesisVoice[], character?: Character | null, preferredUri?: string | null) {
+  const preferred = findVoiceByUri(voices, preferredUri);
+  if (preferred) return preferred;
+
+  const englishVoices = listEnglishVoices(voices);
+  const pool = englishVoices.length > 0 ? englishVoices : voices;
+  if (pool.length === 0) return null;
+
+  const isFemale = character?.voice.gender === "female";
+  const rankedNames = isFemale
+    ? ["Samantha", "Google US English", "Victoria", "Karen", "Daniel"]
+    : ["Daniel", "Google US English", "Alex", "Fred", "Samantha"];
+
+  const scored = pool.map((voice) => {
+    const name = `${voice.name} ${voice.voiceURI}`.toLowerCase();
+    let score = 0;
+
+    rankedNames.forEach((candidate, index) => {
+      if (name.includes(candidate.toLowerCase())) score += 30 - index * 4;
+    });
+
+    for (const candidate of character?.voice.preferredNames ?? []) {
+      if (name.includes(candidate.toLowerCase())) score += 18;
+    }
+
+    if (voice.default) score += 8;
+    if (voice.localService) score += 6;
+    if (voice.lang.toLowerCase().startsWith("en-us")) score += 10;
+    else if (voice.lang.toLowerCase().startsWith("en")) score += 4;
+
+    return { voice, score };
+  });
+
+  return scored.sort((a, b) => b.score - a.score)[0]?.voice ?? pickCharacterVoice(pool, character);
 }
 
 export function useSpeech(options?: {
@@ -470,8 +512,7 @@ export function useSpeech(options?: {
       resumeSpeechSynthesis();
       const character = characterRef.current;
       const voices = voicesRef.current.length > 0 ? voicesRef.current : window.speechSynthesis.getVoices();
-      const preferred = findVoiceByUri(voices, preview?.voiceUri ?? preferredVoiceUriRef.current);
-      const voice = preferred ?? pickCharacterVoice(voices, character);
+      const voice = pickStreamingVoice(voices, character, preview?.voiceUri ?? preferredVoiceUriRef.current);
       const speed = preview?.rateMultiplier ?? rateMultiplierRef.current ?? 1;
       const baseRate = character?.voice.rate ?? 0.95;
       const utterance = new SpeechSynthesisUtterance(next);

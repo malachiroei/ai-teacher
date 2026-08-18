@@ -19,6 +19,7 @@ import { guessSpokenName, isPlacementActive, placementAnswerTurns, placementFoll
 import {
   encodeSse,
   extractJsonStringField,
+  pullEarlySpeakableChunk,
   pullSpeakableChunks,
   speakableSentences,
   type ChatStreamEvent,
@@ -58,7 +59,7 @@ Stay in CHARACTER, but these BEST-FRIEND rules always win.
 Peer-like Disney/Pixar vibe. Never a strict teacher. Never a quiz machine.
 
 LANGUAGE RULES (every reply):
-- aiResponse is English only: 1 short friendly sentence + 1 simple question. Never more.
+- aiResponse is English only: exactly 1 punchy kid-friendly sentence, usually ending with a simple question.
 - translation is a clean, natural Hebrew version of that same reply, on its own. Never mix Hebrew into aiResponse.
 - A1 / beginner words. Short. Clear. Energetic. Do not repeat the same phrase twice.
 - Celebrate what they said, then ask the next easy question.
@@ -93,7 +94,7 @@ AFTER PLACEMENT (this is the default):
 - Ask dynamic, curious, playful questions based on what they JUST said or a real memory.
   Examples: "Oh, you love pink? Is your room pink too, or do you have pink toys? 🦄"
   "What did you build today in Minecraft? 🏰"
-- Keep 1 short warm sentence + 1 fun beginner question. Never repeat the same question twice in a row.
+- Keep exactly 1 short warm sentence with 1 fun beginner question inside it. Never repeat the same question twice in a row.
 
 IF THE CHILD SPEAKS HEBREW:
 - Not an error. Reply warmly in simple English. Put the Hebrew meaning only in translation.
@@ -103,8 +104,8 @@ FIRST MESSAGE OF A NEW DAY:
 If memories exist, greet them instantly. Reference their latest memory or ask about their day. Do not wait for them to start.
 
 Return STRICT compact JSON only:
-{"aiResponse":"1 short English sentence + 1 simple question","translation":"Natural Hebrew of that reply"}
-No other fields. Keep aiResponse under 20 words so speech can start immediately.
+{"aiResponse":"1 short English sentence with a simple question","translation":"Natural Hebrew of that reply"}
+No other fields. Keep aiResponse under 14 words so speech can start immediately.
 
 HEBREW TRANSLATION RULES (strict):
 - Speak like people in Israel. No word-for-word translation.
@@ -813,13 +814,23 @@ function progressFromPartial(
   const raw = extractJsonStringField(accumulated, "aiResponse");
   const translation = extractJsonStringField(accumulated, "translation");
   let nextCaption = lastCaption;
+  let nextSpokenText = spokenText;
   const caption = collapseRepeatedSpeech(allowScaffold ? raw : stripUnsolicitedScaffold(raw));
   if (caption && caption !== lastCaption) {
     events.push({ type: "caption", text: caption, translation });
     nextCaption = caption;
   }
+  if (spoken === 0) {
+    const early = pullEarlySpeakableChunk(raw, spoken, 3);
+    let earlyText = collapseRepeatedSpeech(englishSpeechLine(early.chunk));
+    if (!allowScaffold) earlyText = collapseRepeatedSpeech(stripUnsolicitedScaffold(earlyText));
+    if (earlyText && !isRedundantSpeechChunk(earlyText, nextSpokenText)) {
+      nextSpokenText = earlyText;
+      events.push({ type: "sentence", text: earlyText });
+      spoken = early.consumed;
+    }
+  }
   const pulled = pullSpeakableChunks(raw, spoken);
-  let nextSpokenText = spokenText;
   for (const chunk of pulled.chunks) {
     let clean = collapseRepeatedSpeech(englishSpeechLine(chunk));
     if (!allowScaffold) clean = collapseRepeatedSpeech(stripUnsolicitedScaffold(clean));
@@ -939,8 +950,8 @@ async function streamGemini(
 
   const ai = new GoogleGenAI({ apiKey });
   const config = {
-    temperature: 0.7,
-    maxOutputTokens: 120,
+    temperature: 0.45,
+    maxOutputTokens: 80,
     responseMimeType: "application/json",
     systemInstruction: system,
     responseSchema: {

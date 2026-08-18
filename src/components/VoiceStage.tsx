@@ -73,6 +73,7 @@ export function VoiceStage({
   }
   const mode: VoiceWaveMode = speaking ? "speaking" : thinking ? "thinking" : listening ? "listening" : "idle";
   const live = speaking || listening || thinking;
+  const presenceClass = speaking ? "avatar-presence-speaking" : thinking ? "avatar-presence-thinking" : "avatar-presence-idle";
   const trimmedTranscript = transcript.trim();
   const statusCaption = thinking && !aiCaption.trim()
     ? `${tutorName} is thinking...`
@@ -107,7 +108,14 @@ export function VoiceStage({
         aria-label={`Change tutor. Current: ${tutorName}`}
         onClick={onOpenCharacters}
       >
-        <div className={cn("living-being absolute inset-[-10%_0_8%]", speaking && "living-being-talk", thinking && "living-being-think")}>
+        <div
+          className={cn(
+            "living-being absolute inset-[-10%_0_8%]",
+            presenceClass,
+            speaking && "living-being-talk",
+            thinking && "living-being-think",
+          )}
+        >
           {portraitFailed ? (
             <div
               className="h-full w-full"
@@ -125,6 +133,51 @@ export function VoiceStage({
             />
           )}
         </div>
+        <div
+          className={cn(
+            "avatar-aura-cyan pointer-events-none absolute inset-[4%_12%_24%]",
+            speaking ? "avatar-aura-speaking" : "avatar-aura-idle",
+          )}
+          style={{
+            background: `radial-gradient(circle at 50% 28%, ${character.accentColor}88 0%, ${character.accentColor}10 50%, transparent 78%)`,
+          }}
+        />
+        <div
+          className={cn(
+            "avatar-aura-gold pointer-events-none absolute inset-[8%_16%_28%]",
+            speaking ? "avatar-aura-speaking" : "avatar-aura-idle",
+          )}
+        />
+        <div
+          className={cn(
+            "avatar-visor pointer-events-none absolute left-1/2 top-[18%] h-[10%] w-[30%] -translate-x-1/2 rounded-full",
+            speaking && "avatar-visor-speaking",
+          )}
+          style={{
+            background: `linear-gradient(90deg, transparent 0%, ${character.accentColor}cc 18%, #8cf4ff 50%, ${character.accentColor}cc 82%, transparent 100%)`,
+          }}
+        />
+        <div className="avatar-neural-lines pointer-events-none absolute inset-x-[22%] top-[20%] h-[18%]">
+          <span style={{ ["--line-delay" as string]: "0s", ["--line-color" as string]: character.accentColor }} />
+          <span style={{ ["--line-delay" as string]: "0.18s", ["--line-color" as string]: "#7df9ff" }} />
+          <span style={{ ["--line-delay" as string]: "0.36s", ["--line-color" as string]: "#ffd76a" }} />
+        </div>
+        {speaking ? (
+          <>
+            <div
+              className="avatar-ripple avatar-ripple-1 pointer-events-none absolute left-1/2 top-[22%] h-[34%] w-[34%] -translate-x-1/2 rounded-full"
+              style={{ borderColor: `${character.accentColor}aa` }}
+            />
+            <div
+              className="avatar-ripple avatar-ripple-2 pointer-events-none absolute left-1/2 top-[20%] h-[40%] w-[40%] -translate-x-1/2 rounded-full"
+              style={{ borderColor: "#8cf4ff88" }}
+            />
+            <div
+              className="avatar-ripple avatar-ripple-3 pointer-events-none absolute left-1/2 top-[18%] h-[46%] w-[46%] -translate-x-1/2 rounded-full"
+              style={{ borderColor: "#ffd76a66" }}
+            />
+          </>
+        ) : null}
         <div className="digital-overlay absolute inset-0" />
         <div className="digital-scan absolute inset-0" />
         <motion.div

@@ -679,6 +679,7 @@ export default function HomePage() {
       flash(SPEECH_UNAVAILABLE_MESSAGE);
       return;
     }
+    unlockSpeech();
     stopSpeaking();
     setSpokenReply("");
     setSpokenTranslation("");
