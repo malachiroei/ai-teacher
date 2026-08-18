@@ -133,67 +133,22 @@ export function VoiceStage({
         aria-label={`Change tutor. Current: ${tutorName}`}
         onClick={onOpenCharacters}
       >
-        <div className="avatar-portrait absolute inset-[-10%_0_8%]">
+        <div
+          className={cn(
+            "avatar-portrait absolute inset-[-10%_0_8%]",
+            speaking ? "avatar-portrait-speaking" : "avatar-portrait-idle",
+          )}
+        >
           {portraitSrc && !portraitFailed ? (
             <img
               src={portraitSrc}
               alt=""
-              className="h-full w-full object-cover object-[center_14%] select-none"
+              className="h-full w-full object-cover object-[center_18%] select-none"
               draggable={false}
               suppressHydrationWarning
               onError={() => setPortraitFailed(true)}
             />
           ) : null}
-        </div>
-        <div
-          className={cn(
-            "avatar-holo-aura pointer-events-none absolute inset-[2%_8%_22%]",
-            speaking ? "avatar-holo-aura-speaking" : thinking ? "avatar-holo-aura-think" : "avatar-holo-aura-idle",
-          )}
-          style={{ ["--aura-color" as string]: character.accentColor }}
-        />
-        <div
-          className={cn(
-            "avatar-visor pointer-events-none absolute left-1/2 top-[22.5%] h-[7%] w-[28%] -translate-x-1/2 rounded-full",
-            speaking && "is-speaking",
-          )}
-          style={{ ["--visor-color" as string]: character.accentColor }}
-        />
-        <div
-          className={cn("avatar-eye-glow avatar-eye-left pointer-events-none", speaking && "is-speaking")}
-          style={{ ["--glow-color" as string]: character.accentColor }}
-        />
-        <div
-          className={cn("avatar-eye-glow avatar-eye-right pointer-events-none", speaking && "is-speaking")}
-          style={{ ["--glow-color" as string]: character.accentColor }}
-        />
-        <div className={cn("avatar-cyber-marks pointer-events-none", speaking && "is-speaking")}>
-          <span className="mark mark-temple-l" style={{ ["--line-color" as string]: character.accentColor }} />
-          <span className="mark mark-temple-r" style={{ ["--line-color" as string]: "#7df9ff" }} />
-          <span className="mark mark-cheek-l" style={{ ["--line-color" as string]: "#ffd76a" }} />
-          <span className="mark mark-cheek-r" style={{ ["--line-color" as string]: character.accentColor }} />
-        </div>
-        {speaking ? (
-          <div
-            className="avatar-jaw-pulse pointer-events-none"
-            style={{ ["--jaw-color" as string]: character.accentColor }}
-          />
-        ) : null}
-        <div className="digital-overlay absolute inset-0" />
-        <div className="digital-scan absolute inset-0" />
-        <div
-          className={cn(
-            "pointer-events-none absolute inset-x-0 top-[6%] h-[46%]",
-            thinking && "avatar-think-wash",
-          )}
-        >
-          <div
-            className="mx-auto h-full w-[78%] rounded-full blur-3xl"
-            style={{
-              background: `radial-gradient(circle, ${character.accentColor}66 0%, ${character.accentColor}14 42%, transparent 70%)`,
-              opacity: thinking ? 0.9 : live ? 0.45 : 0.22,
-            }}
-          />
         </div>
         <div className="pointer-events-none absolute inset-x-0 bottom-0 h-[46%] bg-gradient-to-t from-[#050805] via-[#050805]/88 to-transparent" />
       </button>

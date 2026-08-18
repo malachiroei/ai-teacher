@@ -131,11 +131,44 @@ body {
 
 .avatar-portrait {
   transform: none;
-  will-change: auto;
+  will-change: transform, filter;
   background-color: #050805;
   background-size: cover;
-  background-position: center 14%;
+  background-position: center 18%;
   background-repeat: no-repeat;
+  transform-origin: 50% 28%;
+}
+
+.avatar-portrait-idle {
+  animation: avatar-breathe 5.6s ease-in-out infinite;
+}
+
+.avatar-portrait-speaking {
+  animation: avatar-speak-live 1.05s ease-in-out infinite;
+}
+
+@keyframes avatar-breathe {
+  0%,
+  100% {
+    transform: scale(1);
+    filter: brightness(1);
+  }
+  50% {
+    transform: scale(1.015);
+    filter: brightness(1.03);
+  }
+}
+
+@keyframes avatar-speak-live {
+  0%,
+  100% {
+    transform: scale(1);
+    filter: brightness(1.02);
+  }
+  50% {
+    transform: scale(1.012);
+    filter: brightness(1.07);
+  }
 }
 
 html[data-tutor="emma"] .avatar-portrait { background-image: url("/characters/emma.png"); }

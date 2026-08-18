@@ -59,12 +59,16 @@ Stay in CHARACTER, but these BEST-FRIEND rules always win.
 Peer-like Disney/Pixar vibe. Never a strict teacher. Never a quiz machine.
 
 LANGUAGE RULES (every reply):
-- aiResponse is English only: exactly 1 punchy kid-friendly sentence, usually ending with a simple question.
+- The child is answering your questions (often in Hebrew or simple English).
+- You MUST read and react directly to what they just said!
+- Example: If the user says "ללכת לים" (go to the beach), respond about the beach: "I love the beach! Do you like swimming in the sea or making sandcastles? 🏖️"
+- NEVER repeat generic onboarding questions like "What do you like to do?", "What is your name?", or "How old are you?". Always move the conversation forward naturally.
+- aiResponse format: 1-2 friendly English sentences + 1 direct follow-up question about THEIR last words. English only.
 - translation is a clean, natural Hebrew version of that same reply, on its own. Never mix Hebrew into aiResponse.
 - A1 / beginner words. Short. Clear. Energetic. Do not repeat the same phrase twice.
 - Celebrate what they said, then ask the next easy question.
   Example: "Awesome! I love pizza too! 🍕 What pizza do you like?"
-- React to THEIR words. If they say cats, talk about cats.
+- React to THEIR words. If they say cats, talk about cats. If they say the beach, talk about the beach.
 
 GREETINGS (hi, hey, hello, שלום, היי, הי):
 - This is just a hello. NOT a grammar mistake. NOT a chance to teach a phrase.
@@ -94,7 +98,7 @@ AFTER PLACEMENT (this is the default):
 - Ask dynamic, curious, playful questions based on what they JUST said or a real memory.
   Examples: "Oh, you love pink? Is your room pink too, or do you have pink toys? 🦄"
   "What did you build today in Minecraft? 🏰"
-- Keep exactly 1 short warm sentence with 1 fun beginner question inside it. Never repeat the same question twice in a row.
+- Keep 1-2 short warm English sentences with 1 fun beginner question about what they just said. Never repeat the same question twice in a row.
 
 IF THE CHILD SPEAKS HEBREW:
 - Not an error. Reply warmly in simple English. Put the Hebrew meaning only in translation.
@@ -104,8 +108,8 @@ FIRST MESSAGE OF A NEW DAY:
 If memories exist, greet them instantly. Reference their latest memory or ask about their day. Do not wait for them to start.
 
 Return STRICT compact JSON only:
-{"aiResponse":"1 short English sentence with a simple question","translation":"Natural Hebrew of that reply"}
-No other fields. Keep aiResponse under 14 words so speech can start immediately.
+{"aiResponse":"1-2 friendly English sentences + 1 direct follow-up question","translation":"Natural Hebrew of that reply"}
+No other fields. Keep aiResponse under 28 words so speech can start quickly.
 
 HEBREW TRANSLATION RULES (strict):
 - Speak like people in Israel. No word-for-word translation.
@@ -306,6 +310,14 @@ interface HebrewLesson {
 
 const HEBREW_LESSONS: HebrewLesson[] = [
   {
+    test: /לים|הים|לחוף|החוף|לשחות|שחייה|sandcastle|beach/,
+    english: "I love the beach!",
+    ack: "I love the beach!",
+    followUp: "Do you like swimming in the sea or making sandcastles?",
+    translation: "אני אוהב את החוף! אתה אוהב לשחות בים או לבנות ארמונות חול?",
+    suggestions: ["I like swimming.", "I make sandcastles.", "The water is fun!"],
+  },
+  {
     test: /שלום|היי|הי\b|בוקר טוב|ערב טוב/,
     english: "Hello!",
     ack: "Hey there! Great to see you!",
@@ -456,10 +468,10 @@ function hebrewLessonReply(userMessage: string, allowScaffold: boolean): ChatApi
   }
 
   return {
-    aiResponse: "Cool! What do you like to do?",
-    translation: "מגניב! מה אתה אוהב לעשות?",
+    aiResponse: "That sounds fun! Tell me more about that.",
+    translation: "זה נשמע כיף! ספר לי עוד על זה.",
     grammarAnalysis: emptyGrammar(),
-    suggestedAnswers: ["I like pizza.", "I like games.", "I like dogs."],
+    suggestedAnswers: ["I like that.", "It was fun!", "I want to go again."],
   };
 }
 
@@ -858,6 +870,47 @@ function formatSessionHistory(history: ChatTurn[]) {
   return `FULL SESSION TRANSCRIPT (never forget these lines; never restart the intro quiz):\n${lines}`;
 }
 
+function buildGeminiContents(history: ChatTurn[], latestText: string, action: ChatAction) {
+  const turns: Array<{ role: "user" | "model"; parts: Array<{ text: string }> }> = history
+    .map((message) => ({
+      role: (message.sender === "ai" ? "model" : "user") as "user" | "model",
+      parts: [{ text: message.text }],
+    }))
+    .filter((turn) => turn.parts[0]?.text.trim());
+
+  if (
+    action === "chat" &&
+    latestText &&
+    turns[turns.length - 1]?.role === "user" &&
+    turns[turns.length - 1]?.parts[0]?.text.trim() === latestText.trim()
+  ) {
+    turns.pop();
+  }
+
+  if (turns[0]?.role === "model") {
+    turns.unshift({
+      role: "user",
+      parts: [{ text: "Hi! Let's talk." }],
+    });
+  }
+
+  const anchored =
+    action === "chat" && latestText
+      ? `The child just said: "${latestText}"
+This is their answer to your last question (Hebrew or simple English). You MUST react to these exact words and move the conversation forward. Never repeat a generic question.`
+      : latestText;
+
+  if (!(turns[turns.length - 1]?.role === "user" && turns[turns.length - 1]?.parts[0]?.text === anchored)) {
+    turns.push({ role: "user", parts: [{ text: anchored }] });
+  }
+
+  if (turns.length === 0) {
+    turns.push({ role: "user", parts: [{ text: latestText }] });
+  }
+
+  return turns;
+}
+
 async function streamGemini(
   history: ChatTurn[],
   userMessage: string,
@@ -893,7 +946,7 @@ async function streamGemini(
           ? "The child asked for a new topic. Follow a memory or what they last said. Keep it A1. Do NOT ask name, age, or favorite color."
           : allowScaffold
             ? 'The child asked how to say something, or is stuck. You may give one "You can say: …" hint, then one simple question. English in aiResponse, Hebrew only in translation.'
-            : `PLACEMENT IS COMPLETE. Never ask name, age, or "what is your favorite color?". Reply to what they JUST said. Use memories. Ask one specific curious question.${
+            : `PLACEMENT IS COMPLETE. Never ask name, age, or "what is your favorite color?". The child just said: "${userMessage}". Reply to those exact words. Use memories. Ask one specific curious question.${
                 detected === "he"
                   ? " The child used Hebrew. Reply warmly in simple English. Hebrew meaning only in translation. Do NOT say You can say / בואי ננסה."
                   : " The child used English. One-word answers are great."
@@ -927,31 +980,12 @@ async function streamGemini(
         ? "Please start a new easy topic for a young beginner."
         : userMessage;
 
-  const contents: Array<{ role: "user" | "model"; parts: Array<{ text: string }> }> = history.map((message) => ({
-    role: (message.sender === "ai" ? "model" : "user") as "user" | "model",
-    parts: [{ text: message.text }],
-  }));
-
-  if (contents[0]?.role === "model") {
-    contents.unshift({
-      role: "user",
-      parts: [{ text: "(Full conversation starts now. Remember every line. Continue as the tutor.)" }],
-    });
-  }
-
-  const last = contents[contents.length - 1];
-  if (!(last?.role === "user" && last.parts[0]?.text === latestText)) {
-    contents.push({ role: "user", parts: [{ text: latestText }] });
-  }
-
-  if (contents.length === 0) {
-    contents.push({ role: "user", parts: [{ text: latestText }] });
-  }
+  const contents = buildGeminiContents(history, latestText, action);
 
   const ai = new GoogleGenAI({ apiKey });
   const config = {
-    temperature: 0.45,
-    maxOutputTokens: 80,
+    temperature: 0.65,
+    maxOutputTokens: 180,
     responseMimeType: "application/json",
     systemInstruction: system,
     responseSchema: {

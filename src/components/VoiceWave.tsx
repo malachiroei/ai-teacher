@@ -41,7 +41,7 @@ export function VoiceWave({ mode, color = "#3DFF8A" }: VoiceWaveProps) {
       const current = modeRef.current;
       const active = current === "speaking" || current === "listening" || current === "thinking";
       const target =
-        current === "speaking" ? 0.96 : current === "listening" ? 0.84 : current === "thinking" ? 0.28 : 0.022;
+        current === "speaking" ? 1.08 : current === "listening" ? 0.84 : current === "thinking" ? 0.28 : 0.022;
       amplitude += (target - amplitude) * (active ? 0.14 : 0.2);
       time += active ? 0.056 : 0.004;
 

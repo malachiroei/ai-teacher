@@ -284,7 +284,41 @@ function pickStreamingVoice(voices: SpeechSynthesisVoice[], character?: Characte
       gender === "male" ? isVoiceLikelyFemale(preferred) : isVoiceLikelyMale(preferred);
     if (!mismatch) return preferred;
   }
-  return pickCharacterVoice(voices, character);
+
+  if (gender === "male") {
+    const maleNeedles = [
+      "google uk english male",
+      "google us english male",
+      "uk english male",
+      "us english male",
+      "male",
+      "david",
+      "george",
+      "daniel",
+      "alex",
+      "guy",
+      "james",
+      "fred",
+    ];
+    const ranked = listEnglishVoices(voices)
+      .map((voice) => {
+        const blob = `${voice.name} ${voice.voiceURI}`.toLowerCase();
+        if (isVoiceLikelyFemale(voice) && !blob.includes("male")) return { voice, score: -1 };
+        let score = 0;
+        maleNeedles.forEach((needle, index) => {
+          if (blob.includes(needle)) score += 48 - index * 3;
+        });
+        if (isVoiceLikelyMale(voice)) score += 12;
+        return { voice, score };
+      })
+      .filter((item) => item.score > 0)
+      .sort((a, b) => b.score - a.score);
+    if (ranked[0]) return ranked[0].voice;
+  }
+
+  const picked = pickCharacterVoice(voices, character);
+  if (gender === "male" && picked && isVoiceLikelyFemale(picked)) return null;
+  return picked;
 }
 
 export function useSpeech(options?: {
@@ -600,16 +634,16 @@ export function useSpeech(options?: {
       const voices = voicesRef.current.length > 0 ? voicesRef.current : window.speechSynthesis.getVoices();
       const voice = pickStreamingVoice(voices, character, preview?.voiceUri ?? preferredVoiceUriRef.current);
       const speed = preview?.rateMultiplier ?? rateMultiplierRef.current ?? 1;
-      const baseRate = character?.voice.rate ?? 0.95;
       const utterance = new SpeechSynthesisUtterance(next);
       const generation = ttsGenerationRef.current;
       let started = false;
+      const male = character?.voice.gender === "male";
       utterance.lang = "en-US";
-      utterance.rate = Math.min(1.4, Math.max(0.6, baseRate * speed));
-      utterance.pitch = character?.voice.pitch ?? 1;
       utterance.volume = 1;
+      utterance.rate = Math.min(1.4, Math.max(0.6, (male ? 0.95 : character?.voice.rate ?? 0.95) * speed));
+      utterance.pitch = male ? 0.82 : 1.05;
       window.speechSynthesis.resume();
-      if (voice) utterance.voice = voice;
+      if (voice && !(male && isVoiceLikelyFemale(voice))) utterance.voice = voice;
 
       ttsBusyRef.current = true;
       setIsSpeaking(true);
