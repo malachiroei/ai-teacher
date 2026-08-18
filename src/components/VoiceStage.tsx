@@ -1,12 +1,12 @@
 "use client";
 
-import { useEffect, useRef, useState, type MouseEvent, type TouchEvent } from "react";
+import { useLayoutEffect, useRef, useState, type MouseEvent, type TouchEvent } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { Keyboard, Mic, Send, Volume2, VolumeX } from "lucide-react";
 import { MixedBidiText } from "@/components/MixedBidiText";
 import { VoiceWave, type VoiceWaveMode } from "@/components/VoiceWave";
 import { splitCaptionLines } from "@/lib/hebrew";
-import type { Character } from "@/lib/characters";
+import { getCharacter, isCharacterId, SELECTED_TUTOR_STORAGE_KEY, type Character } from "@/lib/characters";
 import { cn } from "@/lib/utils";
 
 interface VoiceStageProps {
@@ -46,13 +46,13 @@ export function VoiceStage({
   onOpenCharacters,
   onSendText,
 }: VoiceStageProps) {
-  const portrait = character.portraitUrl ?? character.avatarUrl;
-  const [portraitSrc, setPortraitSrc] = useState(portrait);
+  const [portraitSrc, setPortraitSrc] = useState<string | null>(null);
   const [portraitFailed, setPortraitFailed] = useState(false);
   const [keyboardOpen, setKeyboardOpen] = useState(false);
   const [draft, setDraft] = useState("");
   const micTouchRef = useRef(false);
   const speakTouchRef = useRef(false);
+  const shownSrcRef = useRef<string | null>(null);
 
   function bindImmediateTap(fromTouch: { current: boolean }, handler: () => void) {
     return {
@@ -73,7 +73,6 @@ export function VoiceStage({
   }
   const mode: VoiceWaveMode = speaking ? "speaking" : thinking ? "thinking" : listening ? "listening" : "idle";
   const live = speaking || listening || thinking;
-  const presenceClass = speaking ? "avatar-presence-speaking" : thinking ? "avatar-presence-thinking" : "avatar-presence-idle";
   const trimmedTranscript = transcript.trim();
   const statusCaption = thinking && !aiCaption.trim()
     ? `${tutorName} is thinking...`
@@ -88,10 +87,36 @@ export function VoiceStage({
   const showAiCaption = (!listening || thinking) && Boolean(captionLines.english);
   const showStatus = Boolean(statusCaption) && !showAiCaption;
 
-  useEffect(() => {
-    setPortraitSrc(portrait);
-    setPortraitFailed(false);
-  }, [portrait]);
+  useLayoutEffect(() => {
+    let storedId: string | null = null;
+    try {
+      storedId = window.localStorage.getItem(SELECTED_TUTOR_STORAGE_KEY);
+    } catch {
+      storedId = null;
+    }
+    const id = isCharacterId(storedId) ? storedId : character.id;
+    const next = getCharacter(id).portraitUrl ?? getCharacter(id).avatarUrl;
+    if (shownSrcRef.current === next) {
+      setPortraitSrc(next);
+      return;
+    }
+    const preloaded = new Image();
+    preloaded.onload = () => {
+      shownSrcRef.current = next;
+      setPortraitSrc(next);
+      setPortraitFailed(false);
+    };
+    preloaded.onerror = () => {
+      shownSrcRef.current = next;
+      setPortraitSrc(next);
+    };
+    preloaded.src = next;
+    if (preloaded.complete && preloaded.naturalWidth > 0) {
+      shownSrcRef.current = next;
+      setPortraitSrc(next);
+      setPortraitFailed(false);
+    }
+  }, [character.id, character.avatarUrl, character.portraitUrl]);
 
   function submitDraft() {
     const text = draft.trim();
@@ -108,90 +133,68 @@ export function VoiceStage({
         aria-label={`Change tutor. Current: ${tutorName}`}
         onClick={onOpenCharacters}
       >
-        <div
-          className={cn(
-            "living-being absolute inset-[-10%_0_8%]",
-            presenceClass,
-            speaking && "living-being-talk",
-            thinking && "living-being-think",
-          )}
-        >
-          {portraitFailed ? (
-            <div
-              className="h-full w-full"
-              style={{
-                background: `radial-gradient(circle at 50% 28%, ${character.accentColor}66, #050805 72%)`,
-              }}
-            />
-          ) : (
+        <div className="avatar-portrait absolute inset-[-10%_0_8%]">
+          {portraitSrc && !portraitFailed ? (
             <img
               src={portraitSrc}
               alt=""
               className="h-full w-full object-cover object-[center_14%] select-none"
               draggable={false}
+              suppressHydrationWarning
               onError={() => setPortraitFailed(true)}
             />
-          )}
+          ) : null}
         </div>
         <div
           className={cn(
-            "avatar-aura-cyan pointer-events-none absolute inset-[4%_12%_24%]",
-            speaking ? "avatar-aura-speaking" : "avatar-aura-idle",
+            "avatar-holo-aura pointer-events-none absolute inset-[2%_8%_22%]",
+            speaking ? "avatar-holo-aura-speaking" : thinking ? "avatar-holo-aura-think" : "avatar-holo-aura-idle",
           )}
-          style={{
-            background: `radial-gradient(circle at 50% 28%, ${character.accentColor}88 0%, ${character.accentColor}10 50%, transparent 78%)`,
-          }}
+          style={{ ["--aura-color" as string]: character.accentColor }}
         />
         <div
           className={cn(
-            "avatar-aura-gold pointer-events-none absolute inset-[8%_16%_28%]",
-            speaking ? "avatar-aura-speaking" : "avatar-aura-idle",
+            "avatar-visor pointer-events-none absolute left-1/2 top-[22.5%] h-[7%] w-[28%] -translate-x-1/2 rounded-full",
+            speaking && "is-speaking",
           )}
+          style={{ ["--visor-color" as string]: character.accentColor }}
         />
         <div
-          className={cn(
-            "avatar-visor pointer-events-none absolute left-1/2 top-[18%] h-[10%] w-[30%] -translate-x-1/2 rounded-full",
-            speaking && "avatar-visor-speaking",
-          )}
-          style={{
-            background: `linear-gradient(90deg, transparent 0%, ${character.accentColor}cc 18%, #8cf4ff 50%, ${character.accentColor}cc 82%, transparent 100%)`,
-          }}
+          className={cn("avatar-eye-glow avatar-eye-left pointer-events-none", speaking && "is-speaking")}
+          style={{ ["--glow-color" as string]: character.accentColor }}
         />
-        <div className="avatar-neural-lines pointer-events-none absolute inset-x-[22%] top-[20%] h-[18%]">
-          <span style={{ ["--line-delay" as string]: "0s", ["--line-color" as string]: character.accentColor }} />
-          <span style={{ ["--line-delay" as string]: "0.18s", ["--line-color" as string]: "#7df9ff" }} />
-          <span style={{ ["--line-delay" as string]: "0.36s", ["--line-color" as string]: "#ffd76a" }} />
+        <div
+          className={cn("avatar-eye-glow avatar-eye-right pointer-events-none", speaking && "is-speaking")}
+          style={{ ["--glow-color" as string]: character.accentColor }}
+        />
+        <div className={cn("avatar-cyber-marks pointer-events-none", speaking && "is-speaking")}>
+          <span className="mark mark-temple-l" style={{ ["--line-color" as string]: character.accentColor }} />
+          <span className="mark mark-temple-r" style={{ ["--line-color" as string]: "#7df9ff" }} />
+          <span className="mark mark-cheek-l" style={{ ["--line-color" as string]: "#ffd76a" }} />
+          <span className="mark mark-cheek-r" style={{ ["--line-color" as string]: character.accentColor }} />
         </div>
         {speaking ? (
-          <>
-            <div
-              className="avatar-ripple avatar-ripple-1 pointer-events-none absolute left-1/2 top-[22%] h-[34%] w-[34%] -translate-x-1/2 rounded-full"
-              style={{ borderColor: `${character.accentColor}aa` }}
-            />
-            <div
-              className="avatar-ripple avatar-ripple-2 pointer-events-none absolute left-1/2 top-[20%] h-[40%] w-[40%] -translate-x-1/2 rounded-full"
-              style={{ borderColor: "#8cf4ff88" }}
-            />
-            <div
-              className="avatar-ripple avatar-ripple-3 pointer-events-none absolute left-1/2 top-[18%] h-[46%] w-[46%] -translate-x-1/2 rounded-full"
-              style={{ borderColor: "#ffd76a66" }}
-            />
-          </>
+          <div
+            className="avatar-jaw-pulse pointer-events-none"
+            style={{ ["--jaw-color" as string]: character.accentColor }}
+          />
         ) : null}
         <div className="digital-overlay absolute inset-0" />
         <div className="digital-scan absolute inset-0" />
-        <motion.div
-          className="pointer-events-none absolute inset-x-0 top-[6%] h-[46%]"
-          animate={{ opacity: thinking ? 1 : live ? 0.55 : 0.28, scale: thinking ? 1.08 : 1 }}
-          transition={{ duration: 0.6, ease: "easeOut" }}
+        <div
+          className={cn(
+            "pointer-events-none absolute inset-x-0 top-[6%] h-[46%]",
+            thinking && "avatar-think-wash",
+          )}
         >
           <div
             className="mx-auto h-full w-[78%] rounded-full blur-3xl"
             style={{
-              background: `radial-gradient(circle, ${character.accentColor}aa 0%, ${character.accentColor}22 42%, transparent 70%)`,
+              background: `radial-gradient(circle, ${character.accentColor}66 0%, ${character.accentColor}14 42%, transparent 70%)`,
+              opacity: thinking ? 0.9 : live ? 0.45 : 0.22,
             }}
           />
-        </motion.div>
+        </div>
         <div className="pointer-events-none absolute inset-x-0 bottom-0 h-[46%] bg-gradient-to-t from-[#050805] via-[#050805]/88 to-transparent" />
       </button>
 

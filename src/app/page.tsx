@@ -35,7 +35,7 @@ import {
   startFreshChat,
   type ArchivedChatSession,
 } from "@/lib/chat-history";
-import { getCharacter, readStoredTutorId, writeStoredTutorId, type CharacterId } from "@/lib/characters";
+import { getCharacter, isCharacterId, readStoredTutorId, writeStoredTutorId, type CharacterId } from "@/lib/characters";
 import { useDailyPractice } from "@/hooks/useDailyPractice";
 import { preferredSpeechLangFromText } from "@/lib/language";
 import { parseTutorNicknames, profilePayload, withTutorDisplayName } from "@/lib/learner";
@@ -128,9 +128,7 @@ function mergeLocalProgression(userId: string, nextProfile: Profile): Profile {
 export default function HomePage() {
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
-  const [selectedTutorId, setSelectedTutorId] = useState<CharacterId>(() =>
-    typeof window === "undefined" ? "emma" : readStoredTutorId(),
-  );
+  const [selectedTutorId, setSelectedTutorId] = useState<CharacterId | null>(null);
   const [voiceSpeed, setVoiceSpeed] = useState<VoiceSpeed>(() =>
     typeof window === "undefined" ? 0.9 : readStoredVoiceSpeed(),
   );
@@ -172,7 +170,11 @@ export default function HomePage() {
   const viewport = useVisualViewport();
   const needsOnboarding = Boolean(user && profileChecked && !isProfileComplete(profile));
   const chatUnlocked = Boolean(user && isProfileComplete(profile));
-  const character = withTutorDisplayName(getCharacter(profile?.selected_character || selectedTutorId), profile);
+  const resolvedTutorId =
+    profile?.selected_character && isCharacterId(profile.selected_character)
+      ? profile.selected_character
+      : selectedTutorId;
+  const character = withTutorDisplayName(getCharacter(resolvedTutorId), profile);
   const practiceSettings = {
     ...practiceSettingsFromProfile(profile),
     voice_speed: voiceSpeed,
@@ -259,7 +261,7 @@ export default function HomePage() {
   }, [profile?.voice_speed]);
 
   useEffect(() => {
-    if (!profile?.selected_character) return;
+    if (!profile?.selected_character || !isCharacterId(profile.selected_character)) return;
     const next = getCharacter(profile.selected_character).id;
     setSelectedTutorId(next);
     writeStoredTutorId(next);

@@ -47,7 +47,7 @@ export const CHARACTERS: Character[] = [
       gender: "female",
       pitch: 1.08,
       rate: 0.95,
-      preferredNames: ["Samantha", "Victoria", "Google US English", "Karen"],
+      preferredNames: ["Samantha", "Victoria", "Google US English Female", "Karen"],
     },
     greetingTemplate:
       "Hi{{nameBit}}! I'm {{tutorName}}, your friendly English tutor.{{topic}} How are you doing today?",
@@ -73,7 +73,7 @@ Stay age-appropriate. Keep helping with grammar and Hebrew translations as requi
       gender: "male",
       pitch: 0.95,
       rate: 1.02,
-      preferredNames: ["Daniel", "Fred", "Google UK English Male", "Alex"],
+      preferredNames: ["Daniel", "Alex", "Google US English Male", "Google UK English Male", "Fred"],
     },
     greetingTemplate:
       "Yo{{nameBit}}! I'm {{tutorName}} — let's level up your English.{{topic}} Ready to jump in?",
@@ -101,7 +101,7 @@ Stay age-appropriate. No violence details, no toxic "git gud" roasting.`,
       gender: "female",
       pitch: 1.14,
       rate: 1.02,
-      preferredNames: ["Samantha", "Tessa", "Karen", "Google US English"],
+      preferredNames: ["Samantha", "Tessa", "Karen", "Google US English Female"],
     },
     greetingTemplate:
       "Hey{{nameBit}}! I'm {{tutorName}}. Let's chat in English about the stuff you actually care about.{{topic}} What's your vibe today?",
@@ -129,7 +129,7 @@ Stay age-appropriate. No dating advice, no adult social-media drama.`,
       gender: "male",
       pitch: 0.86,
       rate: 0.92,
-      preferredNames: ["Daniel", "Alex", "Aaron", "Google UK English Male"],
+      preferredNames: ["Daniel", "Alex", "Google US English Male", "Google UK English Male", "Aaron"],
     },
     greetingTemplate:
       "Greetings{{nameBit}}! {{tutorName}} here.{{topic}} Ready for a new adventure in English?",
@@ -157,7 +157,7 @@ Stay age-appropriate. Wonder and excitement, not fear or grim sci-fi horror.`,
       gender: "male",
       pitch: 0.92,
       rate: 1.0,
-      preferredNames: ["Alex", "Daniel", "Fred", "Tom"],
+      preferredNames: ["Alex", "Daniel", "Google US English Male", "Fred", "Tom"],
     },
     greetingTemplate:
       "Hey{{nameBit}}! I'm {{tutorName}} — let's get your English in game shape.{{topic}} What's your favorite sport right now?",
@@ -185,7 +185,7 @@ Stay age-appropriate. No body-shaming, no extreme training pressure.`,
       gender: "female",
       pitch: 1.15,
       rate: 1.0,
-      preferredNames: ["Moira", "Fiona", "Samantha", "Victoria"],
+      preferredNames: ["Moira", "Fiona", "Samantha", "Google US English Female", "Victoria"],
     },
     greetingTemplate:
       "Hey{{nameBit}}! I'm {{tutorName}}. Anime, manga, and drawing are my world.{{topic}} What are you watching or drawing lately?",
@@ -213,7 +213,7 @@ Stay age-appropriate. No adult anime, no violent gore, no dating/romance advice.
       gender: "male",
       pitch: 0.9,
       rate: 0.94,
-      preferredNames: ["Fred", "Daniel", "Rishi", "Google UK English Male"],
+      preferredNames: ["Daniel", "Alex", "Google US English Male", "Google UK English Male", "Rishi"],
     },
     greetingTemplate:
       "Hello{{nameBit}}! I'm {{tutorName}}. Let's explore tech, science, and wild ideas in English.{{topic}} What are you curious about today?",
@@ -241,7 +241,7 @@ Stay age-appropriate. Wonder and discovery, not scary experiments or unsafe DIY.
       gender: "female",
       pitch: 1.02,
       rate: 0.92,
-      preferredNames: ["Victoria", "Kathy", "Samantha", "Karen"],
+      preferredNames: ["Victoria", "Kathy", "Samantha", "Google US English Female", "Karen"],
     },
     greetingTemplate:
       "Hi{{nameBit}}! I'm {{tutorName}}. I love animals, pets, and the wild outdoors.{{topic}} Do you have a pet, or a favorite animal?",
@@ -284,14 +284,18 @@ export function readStoredTutorId(): CharacterId {
 export function writeStoredTutorId(id?: string | null) {
   if (typeof window === "undefined") return;
   try {
-    window.localStorage.setItem(SELECTED_TUTOR_STORAGE_KEY, getCharacter(id).id);
+    const next = getCharacter(id).id;
+    window.localStorage.setItem(SELECTED_TUTOR_STORAGE_KEY, next);
+    document.documentElement.dataset.tutor = next;
   } catch {
     /* private mode / disabled storage */
   }
 }
 
-const FEMALE_VOICE_HINT = /samantha|victoria|karen|moira|tessa|zira|hazel|fiona|kathy|siri|female|woman|girl/i;
-const MALE_VOICE_HINT = /daniel|alex|fred|david|mark|tom|oliver|aaron|rishi|ravi|male|man|guy|boy/i;
+const FEMALE_VOICE_HINT =
+  /samantha|victoria|karen|moira|tessa|zira|hazel|fiona|kathy|siri|nicky|jenny|aria|zira|female|woman|girl|us english female|uk english female|google us english(?! male)/i;
+const MALE_VOICE_HINT =
+  /daniel|fred|david|mark|\btom\b|oliver|aaron|rishi|ravi|george|thomas|james|tony|echo|onyx|\balex\b|male|man|\bguy\b|\bboy\b|us english male|uk english male|standard-[bcdj]|neural2-[dj]/i;
 const NOVELTY_VOICE_HINT =
   /compact|novelty|whisper|bad news|good news|bells|boing|bubbles|cellos|trinoids|zarvox|deranged|hysterical|superstar|wobble/i;
 
@@ -306,6 +310,38 @@ export function listEnglishVoices(voices: SpeechSynthesisVoice[]) {
   return [...pool].sort((a, b) => a.name.localeCompare(b.name) || a.lang.localeCompare(b.lang));
 }
 
+function voiceBlob(voice: SpeechSynthesisVoice) {
+  return `${voice.name} ${voice.voiceURI}`.toLowerCase();
+}
+
+export function isVoiceLikelyMale(voice: SpeechSynthesisVoice) {
+  const blob = voiceBlob(voice);
+  if (/\bfemale\b|woman|girl|samantha|victoria|karen|moira|tessa|zira/.test(blob) && !MALE_VOICE_HINT.test(blob)) {
+    return false;
+  }
+  return MALE_VOICE_HINT.test(blob);
+}
+
+export function isVoiceLikelyFemale(voice: SpeechSynthesisVoice) {
+  const blob = voiceBlob(voice);
+  if (isVoiceLikelyMale(voice) && !/\bfemale\b|woman|girl|samantha/.test(blob)) return false;
+  return FEMALE_VOICE_HINT.test(blob);
+}
+
+function genderedVoicePool(voices: SpeechSynthesisVoice[], gender: "female" | "male") {
+  const english = listEnglishVoices(voices);
+  const matching =
+    gender === "male" ? english.filter(isVoiceLikelyMale) : english.filter(isVoiceLikelyFemale);
+  if (matching.length > 0) return matching;
+
+  const unknown = english.filter((voice) => !isVoiceLikelyMale(voice) && !isVoiceLikelyFemale(voice));
+  if (unknown.length > 0) return unknown;
+
+  return gender === "male"
+    ? english.filter((voice) => !isVoiceLikelyFemale(voice))
+    : english.filter((voice) => !isVoiceLikelyMale(voice));
+}
+
 export function findVoiceByUri(voices: SpeechSynthesisVoice[], uri?: string | null) {
   const needle = String(uri ?? "").trim();
   if (!needle) return null;
@@ -313,7 +349,7 @@ export function findVoiceByUri(voices: SpeechSynthesisVoice[], uri?: string | nu
 }
 
 function scoreVoice(voice: SpeechSynthesisVoice, character: Character) {
-  const name = `${voice.name} ${voice.voiceURI}`.toLowerCase();
+  const name = voiceBlob(voice);
   const lang = voice.lang.toLowerCase();
   let score = 0;
 
@@ -322,29 +358,26 @@ function scoreVoice(voice: SpeechSynthesisVoice, character: Character) {
   else score += 1;
 
   for (const preferred of character.voice.preferredNames) {
-    if (name.includes(preferred.toLowerCase())) score += 14;
+    if (name.includes(preferred.toLowerCase())) score += 16;
   }
 
-  const female = FEMALE_VOICE_HINT.test(name);
-  const male = MALE_VOICE_HINT.test(name);
-  if (character.voice.gender === "female") {
-    if (female) score += 7;
-    if (male && !female) score -= 9;
+  if (character.voice.gender === "male") {
+    if (isVoiceLikelyMale(voice)) score += 20;
+    if (isVoiceLikelyFemale(voice)) score -= 80;
   } else {
-    if (male) score += 7;
-    if (female && !male) score -= 9;
+    if (isVoiceLikelyFemale(voice)) score += 20;
+    if (isVoiceLikelyMale(voice)) score -= 80;
   }
 
   if (NOVELTY_VOICE_HINT.test(name)) score -= 12;
-  if (voice.localService) score += 1;
+  if (voice.localService) score += 2;
   return score;
 }
 
 export function pickCharacterVoice(voices: SpeechSynthesisVoice[], character?: Character | null) {
-  const english = voices.filter(isEnglishVoice);
-  const pool = english.length > 0 ? english : voices;
-  if (pool.length === 0) return null;
   const persona = character ?? getCharacter();
+  const pool = genderedVoicePool(voices, persona.voice.gender);
+  if (pool.length === 0) return null;
   return [...pool].sort((a, b) => scoreVoice(b, persona) - scoreVoice(a, persona))[0] ?? null;
 }
 

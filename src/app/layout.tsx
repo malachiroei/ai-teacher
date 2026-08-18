@@ -45,8 +45,17 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" className={jakarta.variable} suppressHydrationWarning>
+      <head>
+        <script
+          dangerouslySetInnerHTML={{
+            __html:
+              'try{var t=localStorage.getItem("selected_tutor");if(t){document.documentElement.dataset.tutor=t;var l=document.createElement("link");l.rel="preload";l.as="image";l.href="/characters/"+t+".png";document.head.appendChild(l);}}catch(e){}',
+          }}
+        />
+      </head>
       <body className={`${jakarta.className} antialiased`} suppressHydrationWarning>
         {children}
+        <audio id="ai-voice-player" playsInline preload="auto" hidden />
       </body>
     </html>
   );
