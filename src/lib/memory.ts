@@ -151,9 +151,16 @@ export function extractFactsFromUtterance(
     if (food) add(`Likes ${food}`, "preference");
   }
 
-  if (/\b(soccer|football|basketball|swimming|tennis)\b/i.test(lower)) {
-    const sport = lower.match(/\b(soccer|football|basketball|swimming|tennis)\b/i)?.[1];
-    if (sport) add(`Plays ${sport}`, "event");
+  const gradeEn = spoken.match(/\b(\d+)(?:st|nd|rd|th)?\s*grade\b/i) || spoken.match(/\bgrade\s*(\d+)\b/i);
+  if (gradeEn?.[1]) add(`In grade ${gradeEn[1]}`, "personal");
+  const gradeHe = spoken.match(/כיתה\s*([א-ו1-9])/);
+  if (gradeHe?.[1]) add(`In grade ${gradeHe[1]}`, "personal");
+
+  if (/\b(soccer|football|basketball|swimming|tennis)\b/i.test(lower) || /כדורגל/.test(spoken)) {
+    const sport = /כדורגל/.test(spoken)
+      ? "football"
+      : lower.match(/\b(soccer|football|basketball|swimming|tennis)\b/i)?.[1];
+    if (sport) add(`Plays ${sport}`, "preference");
   }
 
   const friend = spoken.match(/\b(?:my friend|friend)\s+([A-Za-z\u0590-\u05FF]{2,20})/i);
@@ -183,10 +190,10 @@ export function formatMemoriesForPrompt(memories: UserMemory[]) {
       return `- [${memory.kind}] ${memory.fact}${when}`;
     })
     .join("\n");
-  return `BEST-FRIEND MEMORY BANK (remember every detail; bring these up naturally, never quiz):
+  return `User Known Profile & Facts:
 ${lines}
 
+Use these facts naturally in future turns. Never quiz them again for a fact that is already listed.
 If this is the first chat of a new day, greet them like a best friend who missed them and follow up on a plan, pet, hobby, or how they feel.
-Examples: "Hey! Did you go to the swimming pool today? 🏊" / "How is your puppy feeling? 🐶"
-Do not invent memories that are not listed. Do not ask their name, age, or a generic favorite-color quiz if those facts are already here.`;
+Do not invent memories that are not listed.`;
 }

@@ -1,10 +1,11 @@
 "use client";
 
-import { useLayoutEffect, useRef, useState, type MouseEvent, type TouchEvent } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type MouseEvent, type TouchEvent } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { Keyboard, Mic, Send, Volume2, VolumeX } from "lucide-react";
 import { MixedBidiText } from "@/components/MixedBidiText";
 import { VoiceWave, type VoiceWaveMode } from "@/components/VoiceWave";
+import { getSpeechAudioContext } from "@/hooks/useSpeech";
 import { splitCaptionLines } from "@/lib/hebrew";
 import { getCharacter, isCharacterId, SELECTED_TUTOR_STORAGE_KEY, type Character } from "@/lib/characters";
 import { cn } from "@/lib/utils";
@@ -26,6 +27,106 @@ interface VoiceStageProps {
   onCycleVoiceSpeed: () => void;
   onOpenCharacters: () => void;
   onSendText: (text: string) => void;
+}
+
+function useTalkingFace(speaking: boolean) {
+  const mouthRef = useRef<HTMLDivElement>(null);
+  const [blinking, setBlinking] = useState(false);
+
+  useEffect(() => {
+    let waitTimer = 0;
+    let closeTimer = 0;
+    const schedule = () => {
+      waitTimer = window.setTimeout(() => {
+        setBlinking(true);
+        closeTimer = window.setTimeout(() => {
+          setBlinking(false);
+          schedule();
+        }, 150);
+      }, 4000 + Math.random() * 2000);
+    };
+    schedule();
+    return () => {
+      window.clearTimeout(waitTimer);
+      window.clearTimeout(closeTimer);
+    };
+  }, []);
+
+  useEffect(() => {
+    const mouth = mouthRef.current;
+    if (!mouth) return;
+    if (!speaking) {
+      mouth.style.transform = "translate(-50%, 0) scaleY(1)";
+      mouth.style.opacity = "0";
+      return;
+    }
+
+    let raf = 0;
+    let osc: OscillatorNode | null = null;
+    let gain: GainNode | null = null;
+    let analyser: AnalyserNode | null = null;
+    let samples: Uint8Array<ArrayBuffer> | null = null;
+    const started = performance.now();
+
+    try {
+      const ctx = getSpeechAudioContext();
+      if (ctx) {
+        if (ctx.state === "suspended") void ctx.resume();
+        analyser = ctx.createAnalyser();
+        analyser.fftSize = 256;
+        samples = new Uint8Array(new ArrayBuffer(analyser.fftSize));
+        osc = ctx.createOscillator();
+        osc.type = "sine";
+        osc.frequency.value = 10;
+        gain = ctx.createGain();
+        gain.gain.value = 0;
+        osc.connect(analyser);
+        analyser.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start();
+      }
+    } catch {
+      analyser = null;
+    }
+
+    const tick = (now: number) => {
+      const t = (now - started) / 1000;
+      const freq = 8 + 4 * (0.5 + 0.5 * Math.sin(t * 0.85));
+      let amp = 0.5 + 0.5 * Math.sin(t * Math.PI * 2 * freq);
+      const burst = 0.55 + 0.45 * (0.5 + 0.5 * Math.sin(t * 5.1));
+      if (analyser && samples) {
+        analyser.getByteTimeDomainData(samples);
+        let sum = 0;
+        for (let i = 0; i < samples.length; i += 1) {
+          const sample = samples[i] ?? 128;
+          const centered = (sample - 128) / 128;
+          sum += centered * centered;
+        }
+        amp = Math.min(1, Math.sqrt(sum / samples.length) * 3.2);
+      }
+      const open = 1 + amp * burst * 0.6;
+      mouth.style.transform = `translate(-50%, 0) scaleY(${open.toFixed(3)})`;
+      mouth.style.opacity = (0.18 + amp * burst * 0.48).toFixed(3);
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+
+    return () => {
+      cancelAnimationFrame(raf);
+      try {
+        osc?.stop();
+      } catch {
+        /* already stopped */
+      }
+      osc?.disconnect();
+      analyser?.disconnect();
+      gain?.disconnect();
+      mouth.style.transform = "translate(-50%, 0) scaleY(1)";
+      mouth.style.opacity = "0";
+    };
+  }, [speaking]);
+
+  return { mouthRef, blinking };
 }
 
 export function VoiceStage({
@@ -53,6 +154,7 @@ export function VoiceStage({
   const micTouchRef = useRef(false);
   const speakTouchRef = useRef(false);
   const shownSrcRef = useRef<string | null>(null);
+  const { mouthRef, blinking } = useTalkingFace(speaking);
 
   function bindImmediateTap(fromTouch: { current: boolean }, handler: () => void) {
     return {
@@ -149,6 +251,8 @@ export function VoiceStage({
               onError={() => setPortraitFailed(true)}
             />
           ) : null}
+          <div className={cn("avatar-blink", blinking && "is-blink")} aria-hidden />
+          <div ref={mouthRef} className={cn("avatar-mouth", speaking && "is-speaking")} aria-hidden />
         </div>
         <div className="pointer-events-none absolute inset-x-0 bottom-0 h-[46%] bg-gradient-to-t from-[#050805] via-[#050805]/88 to-transparent" />
       </button>

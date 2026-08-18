@@ -18,8 +18,8 @@ export const PLACEMENT_STEPS = 3;
 
 export const PLACEMENT_SUGGESTIONS = [
   ["My name is Tom.", "I'm Maya.", "I like English!"],
-  ["I am eight.", "I'm ten.", "I am nine years old."],
-  ["I like soccer!", "I like dogs!", "I like pizza!"],
+  ["I am in 4th grade.", "I'm in third grade.", "I am nine."],
+  ["I like football!", "I like Roblox!", "I like math!"],
 ] as const;
 
 export function isPlacementOpener(text: string) {
@@ -130,23 +130,25 @@ export function placementFollowUp(
   const girl = asGender(gender) === "girl";
 
   if (userTurnsAfterReply <= 1) {
-    const text = name ? `Nice to meet you, ${name}! How old are you?` : "Nice to meet you! How old are you?";
+    const text = name
+      ? `Nice to meet you, ${name}! What grade are you in at school? 🏫`
+      : "Nice to meet you! What grade are you in at school? 🏫";
     const translation = name
       ? girl
-        ? `נעים להכיר, ${name}! בת כמה את?`
-        : `נעים להכיר, ${name}! בן כמה אתה?`
+        ? `נעים להכיר, ${name}! באיזו כיתה את בבית הספר?`
+        : `נעים להכיר, ${name}! באיזו כיתה אתה בבית הספר?`
       : girl
-        ? "נעים להכיר! בת כמה את?"
-        : "נעים להכיר! בן כמה אתה?";
+        ? "נעים להכיר! באיזו כיתה את בבית הספר?"
+        : "נעים להכיר! באיזו כיתה אתה בבית הספר?";
     return { text, translation, suggestions: [...PLACEMENT_SUGGESTIONS[1]] };
   }
 
   if (userTurnsAfterReply === 2) {
     return {
-      text: "What's your favorite thing? A game, an animal, or a food?",
+      text: "What is your favorite thing to learn or play? 🎮",
       translation: girl
-        ? "מה הדבר האהוב עליך? משחק, חיה, או אוכל?"
-        : "מה הדבר האהוב עליך? משחק, חיה, או אוכל?",
+        ? "מה הדבר האהוב עליך ללמוד או לשחק?"
+        : "מה הדבר האהוב עליך ללמוד או לשחק?",
       suggestions: [...PLACEMENT_SUGGESTIONS[2]],
     };
   }

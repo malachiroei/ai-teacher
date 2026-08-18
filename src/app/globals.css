@@ -150,11 +150,11 @@ body {
 @keyframes avatar-breathe {
   0%,
   100% {
-    transform: scale(1);
+    transform: scale(1) rotate(-0.5deg) translate3d(-0.35%, 0.2%, 0);
     filter: brightness(1);
   }
   50% {
-    transform: scale(1.015);
+    transform: scale(1.015) rotate(0.5deg) translate3d(0.35%, -0.15%, 0);
     filter: brightness(1.03);
   }
 }
@@ -162,13 +162,55 @@ body {
 @keyframes avatar-speak-live {
   0%,
   100% {
-    transform: scale(1);
+    transform: scale(1) rotate(-0.45deg) translate3d(-0.25%, 0.15%, 0);
     filter: brightness(1.02);
   }
   50% {
-    transform: scale(1.012);
+    transform: scale(1.012) rotate(0.45deg) translate3d(0.25%, -0.12%, 0);
     filter: brightness(1.07);
   }
+}
+
+.avatar-blink {
+  pointer-events: none;
+  position: absolute;
+  left: 50%;
+  top: 34%;
+  width: 30%;
+  height: 3.6%;
+  transform: translate(-50%, 0) scaleY(0.12);
+  transform-origin: 50% 50%;
+  border-radius: 50%;
+  background: radial-gradient(ellipse at 50% 50%, rgba(18, 10, 8, 0.55) 0%, rgba(18, 10, 8, 0.12) 70%, transparent 100%);
+  mix-blend-mode: multiply;
+  opacity: 0;
+  transition: transform 90ms ease, opacity 90ms ease;
+}
+
+.avatar-blink.is-blink {
+  transform: translate(-50%, 0) scaleY(1);
+  opacity: 0.72;
+}
+
+.avatar-mouth {
+  pointer-events: none;
+  position: absolute;
+  left: 50%;
+  top: 53.5%;
+  width: 12.5%;
+  height: 6.8%;
+  transform: translate(-50%, 0) scaleY(1);
+  transform-origin: 50% 8%;
+  border-radius: 50%;
+  background: radial-gradient(ellipse at 50% 35%, rgba(32, 12, 14, 0.62) 0%, rgba(22, 8, 10, 0.28) 52%, transparent 78%);
+  mix-blend-mode: multiply;
+  opacity: 0;
+  filter: blur(0.45px);
+  will-change: transform, opacity;
+}
+
+.avatar-mouth.is-speaking {
+  opacity: 0.28;
 }
 
 html[data-tutor="emma"] .avatar-portrait { background-image: url("/characters/emma.png"); }

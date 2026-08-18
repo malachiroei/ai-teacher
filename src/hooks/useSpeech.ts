@@ -171,6 +171,11 @@ function unlockAudioContext() {
   }
 }
 
+export function getSpeechAudioContext() {
+  unlockAudioContext();
+  return unlockContext;
+}
+
 function primeVoicePlayer() {
   const player = ensureVoicePlayer();
   if (!player) return;
