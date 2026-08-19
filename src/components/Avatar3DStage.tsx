@@ -1,10 +1,10 @@
 "use client";
 
 import { Suspense, Component, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
-import { Canvas, useFrame, useThree } from "@react-three/fiber";
+import { Canvas, useFrame } from "@react-three/fiber";
 import { Environment, Html, useGLTF, useProgress } from "@react-three/drei";
 import type { Group } from "three";
-import { MathUtils, Mesh, Vector3 } from "three";
+import { MathUtils, Mesh, Object3D, Vector3 } from "three";
 import type { Character } from "@/lib/characters";
 
 type Avatar3DStageProps = {
@@ -204,31 +204,69 @@ function GLTFTalkingAvatarInner({
   mouthLevelRef?: { current: number };
 }) {
   const { scene } = useGLTF(modelUrl);
-  const { camera } = useThree();
   const groupRef = useRef<Group | null>(null);
   const jawMeshNodeRef = useRef<Mesh | null>(null);
   const jawMeshInitialPosRef = useRef<Vector3 | null>(null);
 
-  const morphMapRef = useRef<
-    | null
-    | Record<
-        string,
-        {
-          mesh: Mesh;
-          index: number;
-        }
-      >
-  >(null);
+  // Multi-mesh morph driving:
+  // - Collect ALL morphTarget meshes
+  // - Precompute mouth+eye morph influence targets to drive every frame
+  const mouthInfluenceEntriesRef = useRef<Array<{ mesh: Mesh; index: number }>>([]);
+  const eyeInfluenceEntriesRef = useRef<Array<{ mesh: Mesh; index: number }>>([]);
+  const hasMouthMorphRef = useRef(false);
+
+  const detectedMorphKeysRef = useRef<Set<string>>(new Set());
+  const loggedMorphKeysRef = useRef(false);
+
+  // Physical fallback (if model has no mouth morphs):
+  const jawOrHeadNodeRef = useRef<Object3D | null>(null);
+  const jawOrHeadInitialRotRef = useRef<{ x: number; y: number; z: number } | null>(null);
 
   useEffect(() => {
     if (!scene) return;
-    const map: Record<string, { mesh: Mesh; index: number }> = {};
+
+    const mouthTargets = new Set(
+      [
+        // From request:
+        "mouthopen",
+        "jawopen",
+        "jaw",
+        "visemeaa",
+        "visemoe",
+        "visemeo",
+        "mouthfunnel",
+        "mouthpucker",
+        "vaa",
+        "blendshapejaw",
+        // Common extras to increase chance of hit:
+        "visemee",
+        "visemei",
+        "visemeu",
+        "mouthpucker",
+        "mouthsmile",
+      ].map((k) => normMorphName(k)),
+    );
+
+    const eyeTargets = new Set(["eyeblinkleft", "eyeblinkright", "eyesclosed"].map((k) => normMorphName(k)));
+
+    const mouthEntries: Array<{ mesh: Mesh; index: number }> = [];
+    const eyeEntries: Array<{ mesh: Mesh; index: number }> = [];
+    const detected = new Set<string>();
+
+    let jawCandidate: Object3D | null = null;
+    let jawInitial: { x: number; y: number; z: number } | null = null;
 
     scene.traverse((obj) => {
+      const nm = (obj as unknown as { name?: string }).name?.toLowerCase() ?? "";
+      if (!jawCandidate && (nm === "head" || nm.includes("head") || nm.includes("jaw") || nm.includes("teeth"))) {
+        jawCandidate = obj as Object3D;
+        jawInitial = { x: obj.rotation.x, y: obj.rotation.y, z: obj.rotation.z };
+      }
+
       if (!(obj instanceof Mesh)) return;
       const mesh = obj as Mesh;
 
-      // Best-effort jaw mesh for cases where the GLB doesn't expose mouth morph targets.
+      // Best-effort jaw mesh for position fallback (some GLBs use a mesh instead of bones).
       if (!jawMeshNodeRef.current && /teeth|jaw|mouth/i.test(mesh.name)) {
         jawMeshNodeRef.current = mesh;
         jawMeshInitialPosRef.current = mesh.position.clone();
@@ -238,101 +276,76 @@ function GLTFTalkingAvatarInner({
       const infl = mesh.morphTargetInfluences;
       if (!dict || !infl) return;
 
-      const entries = Object.entries(dict);
-      for (const [rawName, index] of entries) {
-        const key = normMorphName(rawName);
-        // Map common ARKit-style names.
-        map[key] = { mesh, index };
+      for (const [rawKey, index] of Object.entries(dict)) {
+        detected.add(rawKey);
+        const normalized = normMorphName(rawKey);
+        if (mouthTargets.has(normalized)) mouthEntries.push({ mesh, index });
+        if (eyeTargets.has(normalized)) eyeEntries.push({ mesh, index });
       }
     });
 
-    morphMapRef.current = map;
+    mouthInfluenceEntriesRef.current = mouthEntries;
+    eyeInfluenceEntriesRef.current = eyeEntries;
+    hasMouthMorphRef.current = mouthEntries.length > 0;
+    detectedMorphKeysRef.current = detected;
+    jawOrHeadNodeRef.current = jawCandidate;
+    jawOrHeadInitialRotRef.current = jawInitial;
+
+    if (!loggedMorphKeysRef.current) {
+      loggedMorphKeysRef.current = true;
+      // One-time debug log; useful to verify blendshape naming.
+      console.log("Detected morph targets:", Array.from(detected).sort());
+    }
   }, [scene]);
 
   useFrame(({ clock }) => {
     if (!groupRef.current) return;
-    const map = morphMapRef.current;
-    if (!map) return;
 
-    // Idle breathing is handled elsewhere (morph/jaw). Keep the head rotation stable
-    // to avoid pitch distortions ("chin glitch") from camera lookAt overrides.
     const t = clock.getElapsedTime();
+
+    // Keep the avatar head facing forward (stable portrait) and avoid pitch distortions.
     groupRef.current.rotation.y = MathUtils.lerp(groupRef.current.rotation.y, 0, 0.08);
     groupRef.current.rotation.x = MathUtils.lerp(groupRef.current.rotation.x, 0, 0.08);
 
-    const blinkPeriod = 4; // every ~4 seconds
-    const blinkPhase = (t * 1000) % (blinkPeriod * 1000);
-    const inBlink = blinkPhase < 120; // ~120ms blink
-    const blinkAmt = inBlink ? 1 : 0;
+    const speechWave = isSpeaking ? Math.sin(t * 16) * 0.5 + 0.5 : 0;
 
-    const blinkL = map.eyeblinkleft;
-    const blinkR = map.eyeblinkright;
+    // Eye blinking every ~3.5s.
+    const blinkPeriodSeconds = 3.5;
+    const blinkPhase = t % blinkPeriodSeconds;
+    const blinkAmt = blinkPhase < 0.12 ? 1 : 0;
 
-    if (blinkL) blinkL.mesh.morphTargetInfluences![blinkL.index] = MathUtils.lerp(
-      blinkL.mesh.morphTargetInfluences![blinkL.index],
-      blinkAmt * 1,
-      0.18,
-    );
-    if (blinkR) blinkR.mesh.morphTargetInfluences![blinkR.index] = MathUtils.lerp(
-      blinkR.mesh.morphTargetInfluences![blinkR.index],
-      blinkAmt * 1,
-      0.18,
-    );
+    for (const entry of eyeInfluenceEntriesRef.current) {
+      const arr = entry.mesh.morphTargetInfluences;
+      if (!arr) continue;
+      arr[entry.index] = MathUtils.lerp(arr[entry.index], blinkAmt, 0.3);
+    }
 
-    // Helper to lerp influence by morph key.
-    const lerpMorph = (key: string | null | undefined, value: number) => {
-      if (!key) return;
-      const hit = map[key];
-      if (!hit) return;
-      const arr = hit.mesh.morphTargetInfluences!;
-      arr[hit.index] = MathUtils.lerp(arr[hit.index], value, 0.18);
-    };
-
-    const wave = isSpeaking ? Math.max(0, Math.min(1, Math.sin(t * 14) * 0.7 + 0.3)) : 0;
-
-    // Check if the mesh exposes any of the mouth morph targets we want to drive.
-    const hasAnyMouthMorph = Boolean(
-      map["mouthopen"] ||
-        map["jawopen"] ||
-        map["visemeaa"] ||
-        map["mouthsmile"] ||
-        map["mouthfunnel"],
-    );
-
-    if (isSpeaking) {
-      // Active lip-sync (mouth/jaw targets).
-      lerpMorph("jawopen", wave);
-      lerpMorph("mouthopen", wave);
-      lerpMorph("visemeaa", wave);
-      lerpMorph("mouthsmile", wave);
-      lerpMorph("mouthfunnel", wave);
-
-      // If morph targets are missing, move the jaw/teeth mesh node directly.
-      if (!hasAnyMouthMorph && jawMeshNodeRef.current && jawMeshInitialPosRef.current) {
-        jawMeshNodeRef.current.position.y = MathUtils.lerp(
-          jawMeshNodeRef.current.position.y,
-          jawMeshInitialPosRef.current.y + wave * 0.02,
-          0.25,
-        );
+    // Mouth lip-sync.
+    if (hasMouthMorphRef.current) {
+      for (const entry of mouthInfluenceEntriesRef.current) {
+        const arr = entry.mesh.morphTargetInfluences;
+        if (!arr) continue;
+        const target = isSpeaking ? speechWave : 0;
+        arr[entry.index] = MathUtils.lerp(arr[entry.index], target, 0.3);
       }
     } else {
-      // Idle: close mouth targets and reset jaw mesh.
-      lerpMorph("jawopen", 0);
-      lerpMorph("mouthopen", 0);
-      lerpMorph("visemeaa", 0);
-      lerpMorph("mouthsmile", 0);
-      lerpMorph("mouthfunnel", 0);
-
+      // Physical jaw/head speaking fallback when no mouth morphs exist.
+      const node = jawOrHeadNodeRef.current;
+      const initial = jawOrHeadInitialRotRef.current;
+      if (node && initial) {
+        const targetX = initial.x + (isSpeaking ? speechWave * 0.22 : 0);
+        node.rotation.x = MathUtils.lerp(node.rotation.x, targetX, 0.25);
+      }
+      // Also do a small mesh position nudge if we found a jaw mesh.
       if (jawMeshNodeRef.current && jawMeshInitialPosRef.current) {
-        jawMeshNodeRef.current.position.y = MathUtils.lerp(
-          jawMeshNodeRef.current.position.y,
-          jawMeshInitialPosRef.current.y,
-          0.25,
-        );
+        const targetY = jawMeshInitialPosRef.current.y + (isSpeaking ? speechWave * 0.02 : 0);
+        jawMeshNodeRef.current.position.y = MathUtils.lerp(jawMeshNodeRef.current.position.y, targetY, 0.25);
       }
     }
 
-    if (mouthLevelRef) mouthLevelRef.current = MathUtils.lerp(mouthLevelRef.current, wave, 0.18);
+    if (mouthLevelRef) {
+      mouthLevelRef.current = MathUtils.lerp(mouthLevelRef.current, isSpeaking ? speechWave : 0, 0.18);
+    }
   });
 
   return (

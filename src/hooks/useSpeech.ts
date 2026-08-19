@@ -369,7 +369,6 @@ function kickUtterance(
   if (generation !== generationRef.current) return;
   try {
     resumeAudioGraph();
-    utterance.volume = 1;
     utterance.lang = "en-US";
     if (interrupt && (window.speechSynthesis.speaking || window.speechSynthesis.pending)) {
       window.speechSynthesis.cancel();
@@ -505,6 +504,7 @@ export function useSpeech(options?: {
   const ttsGenerationRef = useRef(0);
   const sendTranscriptRef = useRef<(text?: string) => void>(() => {});
   const audioLevelRef = useRef(0);
+  const volumeRef = useRef(1);
 
   characterRef.current = options?.character ?? null;
   rateMultiplierRef.current = options?.rateMultiplier ?? 1;
@@ -820,7 +820,7 @@ export function useSpeech(options?: {
       let started = false;
       const male = character?.voice.gender === "male";
       utterance.lang = "en-US";
-      utterance.volume = 1;
+      utterance.volume = volumeRef.current;
       utterance.rate = Math.min(1.4, Math.max(0.6, (male ? 0.92 : character?.voice.rate ?? 0.95) * speed));
       utterance.pitch = male ? 0.78 : 1.02;
       window.speechSynthesis.resume();
@@ -858,7 +858,7 @@ export function useSpeech(options?: {
         retry.lang = "en-US";
         retry.rate = utterance.rate;
         retry.pitch = utterance.pitch;
-        retry.volume = 1;
+        retry.volume = volumeRef.current;
         if (voice) retry.voice = voice;
         retry.onstart = utterance.onstart;
         retry.onend = utterance.onend;
@@ -879,6 +879,18 @@ export function useSpeech(options?: {
     setSpeakingText("");
     cancelSpeechSynthesis();
     setIsSpeaking(false);
+  }, []);
+
+  const setVolume = useCallback((next: number) => {
+    const v = Math.max(0, Math.min(1, next));
+    volumeRef.current = v;
+    if (voicePlayer) {
+      try {
+        voicePlayer.volume = v;
+      } catch {
+        /* ignore */
+      }
+    }
   }, []);
 
   const speak = useCallback(
@@ -997,6 +1009,7 @@ export function useSpeech(options?: {
     beginSpeakStream,
     unlockSpeech: unlockSpeechSynthesis,
     stopSpeaking,
+    setVolume,
     startListening,
     stopListening,
     toggleListening,

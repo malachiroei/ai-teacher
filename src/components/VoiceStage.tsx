@@ -2,7 +2,7 @@
 
 import { useRef, useState, type MouseEvent, type TouchEvent } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { Keyboard, Mic, Send, Volume2, VolumeX } from "lucide-react";
+import { Keyboard, Mic, Send, Volume1, Volume2, VolumeX } from "lucide-react";
 import { MixedBidiText } from "@/components/MixedBidiText";
 import { VoiceWave, type VoiceWaveMode } from "@/components/VoiceWave";
 import { Avatar3DStage } from "@/components/Avatar3DStage";
@@ -22,6 +22,7 @@ interface VoiceStageProps {
   speakingText?: string;
   autoSpeak: boolean;
   voiceSpeed: string;
+  onSetVolume: (volume: number) => void;
   audioLevel?: number;
   audioLevelRef?: { current: number };
   disabled?: boolean;
@@ -51,10 +52,12 @@ export function VoiceStage({
   onToggleSpeak,
   onCycleVoiceSpeed,
   onOpenCharacters,
+  onSetVolume,
   onSendText,
 }: VoiceStageProps) {
   const [keyboardOpen, setKeyboardOpen] = useState(false);
   const [draft, setDraft] = useState("");
+  const [volume, setVolume] = useState<number>(1.0);
   const micTouchRef = useRef(false);
   const speakTouchRef = useRef(false);
   // Avatar3DStage updates this ref in real-time (jawOpen proxy) so the waveform
@@ -80,6 +83,7 @@ export function VoiceStage({
   }
   const mode: VoiceWaveMode = speaking ? "speaking" : thinking ? "thinking" : listening ? "listening" : "idle";
   const liveWave = speaking || thinking || (listening && audioLevel >= 0.05);
+  const effectiveVolume = autoSpeak ? volume : 0;
   const trimmedTranscript = transcript.trim();
   const statusCaption = thinking && !aiCaption.trim()
     ? `${tutorName} is thinking...`
@@ -283,8 +287,30 @@ export function VoiceStage({
             )}
             {...bindImmediateTap(speakTouchRef, onToggleSpeak)}
           >
-            {autoSpeak ? <Volume2 className="h-5 w-5" /> : <VolumeX className="h-5 w-5" />}
+            {effectiveVolume === 0 ? (
+              <VolumeX className="h-5 w-5" />
+            ) : effectiveVolume < 0.5 ? (
+              <Volume1 className="h-5 w-5" />
+            ) : (
+              <Volume2 className="h-5 w-5" />
+            )}
           </button>
+          <div className="flex h-12 w-[6.5rem] items-center gap-2 rounded-full bg-white/8 px-3 ring-1 ring-white/12 backdrop-blur-md">
+            <input
+              type="range"
+              min={0}
+              max={1}
+              step={0.01}
+              value={volume}
+              onChange={(e) => {
+                const v = Number(e.target.value);
+                setVolume(v);
+                onSetVolume(v);
+              }}
+              aria-label="Voice volume"
+              className="h-2 w-full cursor-pointer accent-amber-400"
+            />
+          </div>
           <button
             type="button"
             onClick={onCycleVoiceSpeed}

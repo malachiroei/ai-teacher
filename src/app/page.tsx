@@ -183,7 +183,7 @@ export default function HomePage() {
     ...practiceSettingsFromProfile(profile),
     voice_speed: voiceSpeed,
   };
-  const { speak, enqueueSpeak, beginSpeakStream, unlockSpeech, stopSpeaking, startListening, stopListening, isListening, transcript, speechSupported, voices, isSpeaking, audioLevel, audioLevelRef, speakingText } = useSpeech({
+  const { speak, enqueueSpeak, beginSpeakStream, unlockSpeech, stopSpeaking, setVolume, startListening, stopListening, isListening, transcript, speechSupported, voices, isSpeaking, audioLevel, audioLevelRef, speakingText } = useSpeech({
     character,
     rateMultiplier: voiceSpeed,
     preferredVoiceUri: practiceSettings.preferred_voice,
@@ -1156,6 +1156,7 @@ export default function HomePage() {
             writeStoredVoiceSpeed(next);
           }}
           onOpenCharacters={openCharacterPicker}
+          onSetVolume={setVolume}
         />
 
         {notice ? (
