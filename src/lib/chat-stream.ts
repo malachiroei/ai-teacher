@@ -45,7 +45,8 @@ export function pullEarlySpeakableChunk(text: string, alreadyConsumed: number, m
   const pending = text.slice(alreadyConsumed);
   if (!pending.trim()) return { chunk: "", consumed: alreadyConsumed };
 
-  const punctuationIndex = pending.search(/[.!?…]/);
+  // Include comma so we can start TTS sooner on clause boundaries.
+  const punctuationIndex = pending.search(/[.!?,…]/);
   const windowText = punctuationIndex >= 0 ? pending.slice(0, punctuationIndex) : pending;
   const words = [...windowText.matchAll(/[\p{L}\p{N}'’]+/gu)];
   if (words.length < minWords) return { chunk: "", consumed: alreadyConsumed };
@@ -63,7 +64,8 @@ export function pullSpeakableChunks(text: string, alreadyConsumed: number) {
   const chunks: string[] = [];
   let consumed = alreadyConsumed;
 
-  const pattern = /[.!?…](?:["')\]]+)?(?:\s+|$)/g;
+  // Include comma so chunks end as soon as we hit a full clause.
+  const pattern = /[.!?,…](?:["')\]]+)?(?:\s+|$)/g;
   let match: RegExpExecArray | null;
   let last = 0;
 

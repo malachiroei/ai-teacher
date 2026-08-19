@@ -879,17 +879,20 @@ function progressFromPartial(
 ) {
   const events: ChatStreamEvent[] = [];
   const raw = extractJsonStringField(accumulated, "aiResponse");
-  const translation = extractJsonStringField(accumulated, "translation");
+  // Delay translation extraction until we actually need it (caption changed),
+  // so it can't slow down early sentence streaming for TTS.
+  let translation = "";
   let nextCaption = lastCaption;
   let nextSpokenText = spokenText;
   const caption = collapseRepeatedSpeech(allowScaffold ? raw : stripUnsolicitedScaffold(raw));
   if (caption && caption !== lastCaption) {
+    translation = extractJsonStringField(accumulated, "translation");
     events.push({ type: "caption", text: caption, translation });
     nextCaption = caption;
   }
   if (spoken === 0) {
     // Emit an early speakable chunk sooner to reduce perceived TTS latency.
-    const early = pullEarlySpeakableChunk(raw, spoken, 2);
+    const early = pullEarlySpeakableChunk(raw, spoken, 1);
     let earlyText = collapseRepeatedSpeech(englishSpeechLine(early.chunk));
     if (!allowScaffold) earlyText = collapseRepeatedSpeech(stripUnsolicitedScaffold(earlyText));
     if (earlyText && !isRedundantSpeechChunk(earlyText, nextSpokenText)) {
@@ -1250,7 +1253,12 @@ export async function POST(request: Request) {
       body.action === "change_topic" ? "change_topic" : body.action === "daily_open" ? "daily_open" : "chat";
     const userMessage = (body.userMessage ?? "").trim();
     const history = normalizeHistory(body.messages);
-    const stored = await loadStoredLearner(body.profile ?? null, Array.isArray(body.memories) ? body.memories : []);
+    const bodyProfile = body.profile ?? null;
+    const bodyMemories = Array.isArray(body.memories) ? body.memories : [];
+
+    // If the client already provided profile/memories, don't block the first audio chunk
+    // with an extra Supabase roundtrip.
+    const stored = !bodyProfile || bodyMemories.length === 0 ? await loadStoredLearner(bodyProfile, bodyMemories) : { profile: bodyProfile, memories: bodyMemories };
     const profile = stored.profile;
     const characterId = body.characterId ?? profile?.selected_character ?? null;
     const memories = stored.memories;

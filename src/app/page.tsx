@@ -628,17 +628,16 @@ export default function HomePage() {
       }
 
       void persistMemories(data.newMemories, text, history, placementTurn);
-
-      const saved = await persistMessages(user.id, [
-          { id: userMessage.id, sender: "user", text, grammarFeedback: grammar },
-          {
-            id: aiMessage.id,
-            sender: "ai",
-            text: data.aiResponse,
-            translation: data.translation,
-          },
-        ]);
-      if (!saved) flash("Reply sent, but saving the chat failed.");
+      // Fire-and-forget so chat persistence never blocks speech start.
+      void persistMessages(user.id, [
+        { id: userMessage.id, sender: "user", text, grammarFeedback: grammar },
+        {
+          id: aiMessage.id,
+          sender: "ai",
+          text: data.aiResponse,
+          translation: data.translation,
+        },
+      ]);
     } catch {
       flash(`Couldn't reach ${character.name}. Please try again.`);
     } finally {
@@ -681,13 +680,8 @@ export default function HomePage() {
       setSpokenTranslation(data.translation ?? "");
       if (autoSpeak && !streamedSpeech) speak(data.aiResponse);
       void persistMemories(data.newMemories);
-      try {
-        await persistMessages(user.id, [
-          { id: aiMessage.id, sender: "ai", text: data.aiResponse, translation: data.translation },
-        ]);
-      } catch {
-        flash("Couldn't save the new topic.");
-      }
+      // Fire-and-forget so switching topics doesn't delay TTS.
+      void persistMessages(user.id, [{ id: aiMessage.id, sender: "ai", text: data.aiResponse, translation: data.translation }]);
     } catch {
       flash("Couldn't switch topics right now.");
     } finally {
@@ -878,9 +872,8 @@ export default function HomePage() {
         setMessages((current) => [...current, opener]);
         setSpokenReply(data.aiResponse);
         setSpokenTranslation(data.translation ?? "");
-        await persistMessages(user.id, [
-          { id: opener.id, sender: "ai", text: opener.text, translation: opener.translation },
-        ]);
+        // Fire-and-forget so greeting audio isn't blocked by chat persistence.
+        void persistMessages(user.id, [{ id: opener.id, sender: "ai", text: opener.text, translation: opener.translation }]);
       } catch {
         if (messages.length === 0) {
           setMessages([
