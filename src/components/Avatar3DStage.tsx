@@ -1,10 +1,11 @@
 "use client";
 
-import { Suspense, useEffect, useMemo, useRef, useState } from "react";
-import { Canvas, useFrame, useThree } from "@react-three/fiber";
-import { Environment, Html, useGLTF, useProgress } from "@react-three/drei";
+import { Suspense, Component, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { Canvas, useFrame, useLoader, useThree } from "@react-three/fiber";
+import { Environment, Html, useProgress } from "@react-three/drei";
 import type { Group } from "three";
 import { MathUtils, Mesh } from "three";
+import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import type { Character } from "@/lib/characters";
 
 type Avatar3DStageProps = {
@@ -47,6 +48,26 @@ function useVisemeSchedule(spokenText: string | undefined, enabled: boolean) {
       : [{ t: "aa" as const, durationMs: 140 }];
     return { segments, segmentDurMs };
   }, [tokens]);
+}
+
+class AvatarGLTFErrorBoundary extends Component<
+  { children: ReactNode; fallback: ReactNode; onError?: (error: unknown) => void },
+  { hasError: boolean }
+> {
+  state = { hasError: false };
+
+  static getDerivedStateFromError() {
+    return { hasError: true };
+  }
+
+  componentDidCatch(error: unknown) {
+    this.props.onError?.(error);
+  }
+
+  render() {
+    if (this.state.hasError) return this.props.fallback;
+    return this.props.children;
+  }
 }
 
 function FallbackAvatar({
@@ -183,7 +204,15 @@ function GLTFTalkingAvatarInner({
   spokenText?: string;
   mouthLevelRef?: { current: number };
 }) {
-  const { scene } = useGLTF(modelUrl);
+  // Use our own GLTFLoader instance so we can best-effort set crossOrigin.
+  const gltfLoader = useMemo(() => {
+    const loader = new GLTFLoader();
+    (loader as any).setCrossOrigin?.("anonymous");
+    return loader;
+  }, []);
+
+  const gltf = useLoader(gltfLoader, modelUrl);
+  const { scene } = gltf;
   const { camera } = useThree();
   const groupRef = useRef<Group | null>(null);
 
@@ -417,12 +446,14 @@ export function Avatar3DStage({ character, isSpeaking, spokenText, mouthLevelRef
         <Environment preset="city" />
 
         {resolvedModelUrl ? (
-          <GLTFTalkingAvatar
-            modelUrl={resolvedModelUrl}
-            isSpeaking={isSpeaking}
-            spokenText={spokenText}
-            mouthLevelRef={mouthLevelRef}
-          />
+          <AvatarGLTFErrorBoundary
+            key={resolvedModelUrl}
+            fallback={
+              <FallbackAvatar character={character} isSpeaking={isSpeaking} spokenText={spokenText} mouthLevelRef={mouthLevelRef} />
+            }
+          >
+            <GLTFTalkingAvatar modelUrl={resolvedModelUrl} isSpeaking={isSpeaking} spokenText={spokenText} mouthLevelRef={mouthLevelRef} />
+          </AvatarGLTFErrorBoundary>
         ) : (
           <FallbackAvatar character={character} isSpeaking={isSpeaking} spokenText={spokenText} mouthLevelRef={mouthLevelRef} />
         )}
