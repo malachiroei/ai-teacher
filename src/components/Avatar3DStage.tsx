@@ -4,7 +4,7 @@ import { Suspense, Component, type ReactNode, useEffect, useMemo, useRef, useSta
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { Environment, Html, useGLTF, useProgress } from "@react-three/drei";
 import type { Group } from "three";
-import { Box3, MathUtils, Mesh, Object3D, Vector3 } from "three";
+import { MathUtils, Mesh, Vector3 } from "three";
 import type { Character } from "@/lib/characters";
 
 type Avatar3DStageProps = {
@@ -206,12 +206,8 @@ function GLTFTalkingAvatarInner({
   const { scene } = useGLTF(modelUrl);
   const { camera } = useThree();
   const groupRef = useRef<Group | null>(null);
-  const headWorldPosRef = useRef(new Vector3());
   const jawMeshNodeRef = useRef<Mesh | null>(null);
   const jawMeshInitialPosRef = useRef<Vector3 | null>(null);
-  const headTargetRef = useRef<Object3D | null>(null);
-  const headTargetPosRef = useRef(new Vector3());
-  const headFallbackPosRef = useRef(new Vector3());
 
   const morphMapRef = useRef<
     | null
@@ -229,14 +225,6 @@ function GLTFTalkingAvatarInner({
     const map: Record<string, { mesh: Mesh; index: number }> = {};
 
     scene.traverse((obj) => {
-      // Best-effort head targeting (Bone/Node) by name.
-      if (!headTargetRef.current) {
-        const name = (obj as unknown as { name?: string }).name;
-        if (typeof name === "string" && name.toLowerCase().includes("head")) {
-          headTargetRef.current = obj as unknown as Object3D;
-        }
-      }
-
       if (!(obj instanceof Mesh)) return;
       const mesh = obj as Mesh;
 
@@ -259,14 +247,6 @@ function GLTFTalkingAvatarInner({
     });
 
     morphMapRef.current = map;
-
-    // Fallback target: bounding-box top-center.
-    try {
-      const box = new Box3().setFromObject(scene);
-      headFallbackPosRef.current.set((box.min.x + box.max.x) / 2, box.max.y, (box.min.z + box.max.z) / 2);
-    } catch {
-      // ignore
-    }
   }, [scene]);
 
   useFrame(({ clock }) => {
@@ -274,33 +254,11 @@ function GLTFTalkingAvatarInner({
     const map = morphMapRef.current;
     if (!map) return;
 
-    // Gentle idle head tracking (toward camera) + realistic periodic blinks.
+    // Idle breathing is handled elsewhere (morph/jaw). Keep the head rotation stable
+    // to avoid pitch distortions ("chin glitch") from camera lookAt overrides.
     const t = clock.getElapsedTime();
-    const focusPos = headTargetRef.current
-      ? headTargetRef.current.getWorldPosition(headTargetPosRef.current)
-      : headFallbackPosRef.current;
-    camera.lookAt(focusPos.x, focusPos.y + 0.02, focusPos.z);
-
-    if (!isSpeaking) {
-      const headPos = groupRef.current.getWorldPosition(headWorldPosRef.current);
-      const dir = camera.position.clone().sub(headPos).normalize();
-
-      // Convert camera direction vector into small, friendly yaw/pitch.
-      const yaw = Math.atan2(dir.x, dir.z); // left/right
-      const pitch = Math.asin(Math.max(-1, Math.min(1, dir.y))); // up/down
-      const targetYaw = Math.max(-0.55, Math.min(0.55, yaw)) * 0.22;
-      const targetPitch = Math.max(-0.35, Math.min(0.35, pitch)) * -0.18;
-
-      // Add a tiny breathing component so it never feels rigid.
-      const breath = Math.sin(t * 0.6) * 0.004;
-
-      groupRef.current.rotation.y = MathUtils.lerp(groupRef.current.rotation.y, targetYaw + breath, 0.05);
-      groupRef.current.rotation.x = MathUtils.lerp(groupRef.current.rotation.x, targetPitch, 0.05);
-    } else {
-      // Speaking keeps the head mostly stable to avoid jitter.
-      groupRef.current.rotation.y = MathUtils.lerp(groupRef.current.rotation.y, 0, 0.08);
-      groupRef.current.rotation.x = MathUtils.lerp(groupRef.current.rotation.x, 0, 0.08);
-    }
+    groupRef.current.rotation.y = MathUtils.lerp(groupRef.current.rotation.y, 0, 0.08);
+    groupRef.current.rotation.x = MathUtils.lerp(groupRef.current.rotation.x, 0, 0.08);
 
     const blinkPeriod = 4; // every ~4 seconds
     const blinkPhase = (t * 1000) % (blinkPeriod * 1000);
@@ -378,7 +336,7 @@ function GLTFTalkingAvatarInner({
   });
 
   return (
-    <group ref={groupRef} position={[0, -1.65, 0]} scale={2.2}>
+    <group ref={groupRef} position={[0, -1.15, 0]} scale={1.5} rotation={[0, 0, 0]}>
       <primitive object={scene} />
     </group>
   );
@@ -435,7 +393,7 @@ export function Avatar3DStage({ character, isSpeaking, spokenText, mouthLevelRef
     <Canvas
       className="avatar-3d-canvas"
       dpr={[1, 2]}
-      camera={{ position: [0, 0.1, 0.75], fov: 28 }}
+      camera={{ position: [0, 0.45, 0.75], fov: 32 }}
       style={{ width: "100%", height: "100%", pointerEvents: "none" }}
       shadows={false}
       gl={{ antialias: true, alpha: true }}

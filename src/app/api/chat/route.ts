@@ -888,7 +888,8 @@ function progressFromPartial(
     nextCaption = caption;
   }
   if (spoken === 0) {
-    const early = pullEarlySpeakableChunk(raw, spoken, 3);
+    // Emit an early speakable chunk sooner to reduce perceived TTS latency.
+    const early = pullEarlySpeakableChunk(raw, spoken, 2);
     let earlyText = collapseRepeatedSpeech(englishSpeechLine(early.chunk));
     if (!allowScaffold) earlyText = collapseRepeatedSpeech(stripUnsolicitedScaffold(earlyText));
     if (earlyText && !isRedundantSpeechChunk(earlyText, nextSpokenText)) {

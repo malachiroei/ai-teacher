@@ -616,12 +616,15 @@ export async function restoreChatSession(
   return session.messages;
 }
 
-function rowToMemory(row: UserMemoryRow): UserMemory {
+function rowToMemory(
+  row: Pick<UserMemoryRow, "id" | "fact" | "kind" | "created_at"> & {
+    event_on?: UserMemoryRow["event_on"] | null;
+  } & Record<string, unknown>,
+): UserMemory {
   return {
     id: row.id,
     fact: row.fact,
     kind: (row.kind as UserMemory["kind"]) || "personal",
-    eventOn: row.event_on,
     createdAt: Date.parse(String(row.created_at)) || Date.now(),
   };
 }
@@ -658,7 +661,7 @@ export async function saveExtractedFact(
       try {
         const { error } = await supabase
           .from("user_memories")
-          .update({ kind, event_on: eventOn ?? match.eventOn ?? null })
+          .update({ kind })
           .eq("id", match.id)
           .eq("user_id", userId);
         if (error) memoriesUnavailable = true;
@@ -673,14 +676,13 @@ export async function saveExtractedFact(
       user_id: userId,
       fact: clean,
       kind,
-      event_on: eventOn,
       created_at: now,
     };
 
     const { data, error } = await supabase
       .from("user_memories")
       .insert(row as never)
-      .select("id, fact, kind, event_on, created_at")
+      .select("id, fact, kind, created_at")
       .maybeSingle();
 
     if (error) {
@@ -689,15 +691,14 @@ export async function saveExtractedFact(
     }
 
     const saved = (data ?? row) as Record<string, unknown>;
-    return rowToMemory({
+    const memory = rowToMemory({
       id: String(saved.id ?? row.id),
-      user_id: userId,
       fact: String(saved.fact ?? clean),
       kind: String(saved.kind ?? kind),
-      event_on: (saved.event_on as string | null | undefined) ?? eventOn,
       created_at: String(saved.created_at ?? now),
       last_mentioned_at: now,
     });
+    return { ...memory, eventOn };
   } catch {
     memoriesUnavailable = true;
     return null;
@@ -816,7 +817,7 @@ export async function loadUserMemories(supabase: AppSupabaseClient, userId: stri
   try {
     const { data, error } = await supabase
       .from("user_memories")
-      .select("id, fact, kind, event_on, created_at")
+      .select("id, fact, kind, created_at")
       .eq("user_id", userId)
       .limit(40);
 
@@ -837,7 +838,6 @@ export async function loadUserMemories(supabase: AppSupabaseClient, userId: stri
         user_id: userId,
         fact: String(row.fact ?? ""),
         kind: String(row.kind ?? "personal"),
-        event_on: (row.event_on as string | null | undefined) ?? null,
         created_at: String(row.created_at ?? ""),
         last_mentioned_at: String(row.created_at ?? ""),
       }),
