@@ -127,7 +127,6 @@ export function VoiceStage({
             isSpeaking={speaking}
             spokenText={speakingText}
             mouthLevelRef={mouthLevelRef3d}
-            modelUrl={null}
           />
         </div>
         <div className="pointer-events-none absolute inset-x-0 bottom-0 h-[46%] bg-gradient-to-t from-[#050805] via-[#050805]/88 to-transparent" />

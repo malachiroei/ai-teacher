@@ -1,8 +1,8 @@
 "use client";
 
 import { Suspense, useEffect, useMemo, useRef, useState } from "react";
-import { Canvas, useFrame } from "@react-three/fiber";
-import { Environment, useGLTF } from "@react-three/drei";
+import { Canvas, useFrame, useThree } from "@react-three/fiber";
+import { Environment, Html, useGLTF, useProgress } from "@react-three/drei";
 import type { Group } from "three";
 import { MathUtils, Mesh } from "three";
 import type { Character } from "@/lib/characters";
@@ -184,6 +184,7 @@ function GLTFTalkingAvatarInner({
   mouthLevelRef?: { current: number };
 }) {
   const { scene } = useGLTF(modelUrl);
+  const { camera } = useThree();
   const groupRef = useRef<Group | null>(null);
 
   const morphMapRef = useRef<
@@ -233,15 +234,36 @@ function GLTFTalkingAvatarInner({
     const map = morphMapRef.current;
     if (!map) return;
 
-    // Blink (use time-based gating even without viseme text).
+    // Gentle idle head tracking (toward camera) + realistic periodic blinks.
     const t = clock.getElapsedTime();
-    const blinkPeriod = 3.4;
+    if (!isSpeaking) {
+      const headPos = groupRef.current.position;
+      const dir = camera.position.clone().sub(headPos).normalize();
+
+      // Convert camera direction vector into small, friendly yaw/pitch.
+      const yaw = Math.atan2(dir.x, dir.z); // left/right
+      const pitch = Math.asin(Math.max(-1, Math.min(1, dir.y))); // up/down
+      const targetYaw = Math.max(-0.55, Math.min(0.55, yaw)) * 0.22;
+      const targetPitch = Math.max(-0.35, Math.min(0.35, pitch)) * -0.18;
+
+      // Add a tiny breathing component so it never feels rigid.
+      const breath = Math.sin(t * 0.6) * 0.004;
+
+      groupRef.current.rotation.y = MathUtils.lerp(groupRef.current.rotation.y, targetYaw + breath, 0.05);
+      groupRef.current.rotation.x = MathUtils.lerp(groupRef.current.rotation.x, targetPitch, 0.05);
+    } else {
+      // Speaking keeps the head mostly stable to avoid jitter.
+      groupRef.current.rotation.y = MathUtils.lerp(groupRef.current.rotation.y, 0, 0.08);
+      groupRef.current.rotation.x = MathUtils.lerp(groupRef.current.rotation.x, 0, 0.08);
+    }
+
+    const blinkPeriod = 4; // every ~4 seconds
     const blinkPhase = (t * 1000) % (blinkPeriod * 1000);
-    const inBlink = blinkPhase < 120;
+    const inBlink = blinkPhase < 120; // ~120ms blink
     const blinkAmt = inBlink ? 1 : 0;
 
-    const blinkL = map.eyeBlinkLeft ?? map.eyeblinkleft ?? map.eyeblinkleft;
-    const blinkR = map.eyeBlinkRight ?? map.eyeblinkright ?? map.eyeblinkright;
+    const blinkL = map.eyeblinkleft;
+    const blinkR = map.eyeblinkright;
 
     if (blinkL) blinkL.mesh.morphTargetInfluences![blinkL.index] = MathUtils.lerp(
       blinkL.mesh.morphTargetInfluences![blinkL.index],
@@ -298,16 +320,12 @@ function GLTFTalkingAvatarInner({
     lerpMorph("jawopen", jaw);
     lerpMorph("jaw", jaw);
 
-    // Vowels / visemes (best-effort key matching).
+    // Vowels / visemes (keys are normalized via normMorphName()).
     lerpMorph("visemeaa", aa * jaw);
-    lerpMorph("viseme_e", e * jaw);
     lerpMorph("visemee", e * jaw);
     lerpMorph("visemei", i * jaw);
-    lerpMorph("viseme_i", i * jaw);
     lerpMorph("visemeo", o * jaw);
-    lerpMorph("viseme_o", o * jaw);
     lerpMorph("visemeu", u * jaw);
-    lerpMorph("viseme_u", u * jaw);
 
     if (mouthLevelRef) mouthLevelRef.current = MathUtils.lerp(mouthLevelRef.current, jaw, 0.18);
   });
@@ -316,6 +334,74 @@ function GLTFTalkingAvatarInner({
 }
 
 export function Avatar3DStage({ character, isSpeaking, spokenText, mouthLevelRef, modelUrl }: Avatar3DStageProps) {
+  const [resolvedModelUrl, setResolvedModelUrl] = useState<string | null>(null);
+
+  const modelChoice = useMemo(() => {
+    // Local (preferred) avatars in public/models/{characterId}.glb
+    // Remote (fallback) are Ready Player Me examples with ARKit + Oculus visemes.
+    const morphTargets = "ARKit,Oculus+Visemes,mouthOpen,mouthSmile,eyesClosed,eyesLookUp,eyesLookDown";
+    const textureParams = "textureSizeLimit=1024&textureFormat=png";
+
+    const alexUrl = `/models/alex.glb`;
+    const maxUrl = `/models/max.glb`;
+    const emmaUrl = `/models/emma.glb`;
+
+    const remoteAlex = `https://models.readyplayer.me/65a8dba831b23abb4f401bae.glb?morphTargets=${morphTargets}&${textureParams}`;
+    const remoteMax = `https://models.readyplayer.me/661feb3563b4a87a148eb0df.glb?morphTargets=${morphTargets}&${textureParams}`;
+    const remoteEmma = `https://models.readyplayer.me/64bfa15f0e72c63d7c3934a6.glb?morphTargets=${morphTargets}&${textureParams}`;
+
+    if (typeof modelUrl === "string" && modelUrl.trim()) {
+      return { localUrl: modelUrl, remoteUrl: null as string | null };
+    }
+
+    if (character.id === "alex") return { localUrl: alexUrl, remoteUrl: remoteAlex };
+    if (character.id === "max") return { localUrl: maxUrl, remoteUrl: remoteMax };
+    if (character.id === "emma" || character.id === "luna") return { localUrl: emmaUrl, remoteUrl: remoteEmma };
+
+    // For characters without explicit mapping, default to Emma tutor model.
+    return { localUrl: emmaUrl, remoteUrl: remoteEmma };
+  }, [character.id, modelUrl]);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (typeof modelUrl === "string" && modelUrl.trim()) {
+      setResolvedModelUrl(modelUrl.trim());
+      return;
+    }
+
+    // If we have a local model, probe it first so we avoid `useGLTF` 404 crashes.
+    const localUrl = modelChoice.localUrl;
+    const remoteUrl = modelChoice.remoteUrl;
+
+    async function resolve() {
+      try {
+        const res = await fetch(localUrl, { method: "HEAD" });
+        if (cancelled) return;
+        setResolvedModelUrl(res.ok ? localUrl : remoteUrl);
+      } catch {
+        if (cancelled) return;
+        setResolvedModelUrl(remoteUrl);
+      }
+    }
+
+    void resolve();
+    return () => {
+      cancelled = true;
+    };
+  }, [modelChoice.localUrl, modelChoice.remoteUrl, modelUrl]);
+
+  function ModelLoader() {
+    const { progress } = useProgress();
+    return (
+      <Html center>
+        <div className="pointer-events-none flex flex-col items-center gap-2 rounded-2xl border border-cyan-400/20 bg-black/30 px-4 py-3 backdrop-blur-md">
+          <div className="h-8 w-8 rounded-full border border-cyan-400/40 border-t-cyan-300/90 animate-spin" />
+          <div className="text-xs font-semibold text-white/75">{Math.round(progress)}% loaded</div>
+        </div>
+      </Html>
+    );
+  }
+
   return (
     <Canvas
       className="avatar-3d-canvas"
@@ -325,14 +411,18 @@ export function Avatar3DStage({ character, isSpeaking, spokenText, mouthLevelRef
       shadows={false}
       gl={{ antialias: true, alpha: true }}
     >
-      <Suspense fallback={null}>
+      <Suspense fallback={<ModelLoader />}>
         <ambientLight intensity={0.25} />
         <directionalLight intensity={0.65} position={[1.4, 2.1, 1.6]} />
         <Environment preset="city" />
 
-        {/* Render GLB avatar if URL is provided; else fallback procedural avatar */}
-        {modelUrl ? (
-          <GLTFTalkingAvatar modelUrl={modelUrl} isSpeaking={isSpeaking} spokenText={spokenText} mouthLevelRef={mouthLevelRef} />
+        {resolvedModelUrl ? (
+          <GLTFTalkingAvatar
+            modelUrl={resolvedModelUrl}
+            isSpeaking={isSpeaking}
+            spokenText={spokenText}
+            mouthLevelRef={mouthLevelRef}
+          />
         ) : (
           <FallbackAvatar character={character} isSpeaking={isSpeaking} spokenText={spokenText} mouthLevelRef={mouthLevelRef} />
         )}
