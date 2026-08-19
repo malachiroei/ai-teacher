@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useRef, useState, type MouseEvent, type TouchEvent } from "react";
+import { useRef, useState, type MouseEvent, type TouchEvent } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { Keyboard, Mic, Send, Volume2, VolumeX } from "lucide-react";
 import { MixedBidiText } from "@/components/MixedBidiText";
 import { VoiceWave, type VoiceWaveMode } from "@/components/VoiceWave";
+import { Avatar3DStage } from "@/components/Avatar3DStage";
 import { splitCaptionLines } from "@/lib/hebrew";
 import { getCharacter, isCharacterId, SELECTED_TUTOR_STORAGE_KEY, type Character } from "@/lib/characters";
 import { cn } from "@/lib/utils";
@@ -18,6 +19,7 @@ interface VoiceStageProps {
   transcript?: string;
   aiCaption?: string;
   aiTranslation?: string;
+  speakingText?: string;
   autoSpeak: boolean;
   voiceSpeed: string;
   audioLevel?: number;
@@ -30,68 +32,6 @@ interface VoiceStageProps {
   onSendText: (text: string) => void;
 }
 
-function useTalkingFace(speaking: boolean) {
-  const mouthRef = useRef<HTMLDivElement>(null);
-  const levelRef = useRef(0);
-  const [blinking, setBlinking] = useState(false);
-
-  useEffect(() => {
-    let waitTimer = 0;
-    let closeTimer = 0;
-    const schedule = () => {
-      waitTimer = window.setTimeout(() => {
-        setBlinking(true);
-        closeTimer = window.setTimeout(() => {
-          setBlinking(false);
-          schedule();
-        }, 150);
-      }, 4000 + Math.random() * 1000);
-    };
-    schedule();
-    return () => {
-      window.clearTimeout(waitTimer);
-      window.clearTimeout(closeTimer);
-    };
-  }, []);
-
-  // Animate mouth via a pure JS oscillator — no Web Audio nodes that could
-  // interfere with SpeechRecognition's mic capture.
-  useEffect(() => {
-    const mouth = mouthRef.current;
-    if (!mouth) return;
-    if (!speaking) {
-      mouth.style.transform = "translate(-50%, 0) scaleY(1)";
-      mouth.style.opacity = "0";
-      levelRef.current = 0;
-      return;
-    }
-
-    let raf = 0;
-    const started = performance.now();
-
-    const tick = (now: number) => {
-      const t = (now - started) / 1000;
-      const amp = 0.5 + 0.5 * Math.sin(t * Math.PI * 2 * (8 + 4 * Math.sin(t * 0.85)));
-      const burst = 0.55 + 0.45 * Math.sin(t * 5.1);
-      const open = 1 + amp * burst * 0.6;
-      levelRef.current = Math.max(0.18, Math.min(1, amp * burst));
-      mouth.style.transform = `translate(-50%, 0) scaleY(${open.toFixed(3)})`;
-      mouth.style.opacity = (0.18 + amp * burst * 0.48).toFixed(3);
-      raf = requestAnimationFrame(tick);
-    };
-    raf = requestAnimationFrame(tick);
-
-    return () => {
-      cancelAnimationFrame(raf);
-      mouth.style.transform = "translate(-50%, 0) scaleY(1)";
-      mouth.style.opacity = "0";
-      levelRef.current = 0;
-    };
-  }, [speaking]);
-
-  return { mouthRef, blinking, levelRef };
-}
-
 export function VoiceStage({
   character,
   tutorName,
@@ -101,6 +41,7 @@ export function VoiceStage({
   transcript = "",
   aiCaption = "",
   aiTranslation = "",
+  speakingText,
   autoSpeak,
   voiceSpeed,
   audioLevel = 0,
@@ -112,14 +53,13 @@ export function VoiceStage({
   onOpenCharacters,
   onSendText,
 }: VoiceStageProps) {
-  const [portraitSrc, setPortraitSrc] = useState<string | null>(null);
-  const [portraitFailed, setPortraitFailed] = useState(false);
   const [keyboardOpen, setKeyboardOpen] = useState(false);
   const [draft, setDraft] = useState("");
   const micTouchRef = useRef(false);
   const speakTouchRef = useRef(false);
-  const shownSrcRef = useRef<string | null>(null);
-  const { mouthRef, blinking, levelRef } = useTalkingFace(speaking);
+  // Avatar3DStage updates this ref in real-time (jawOpen proxy) so the waveform
+  // can visually respond to TTS speaking even when the mic is idle.
+  const mouthLevelRef3d = useRef(0);
 
   function bindImmediateTap(fromTouch: { current: boolean }, handler: () => void) {
     return {
@@ -154,37 +94,6 @@ export function VoiceStage({
   const showAiCaption = (!listening || thinking) && Boolean(captionLines.english);
   const showStatus = Boolean(statusCaption) && !showAiCaption;
 
-  useLayoutEffect(() => {
-    let storedId: string | null = null;
-    try {
-      storedId = window.localStorage.getItem(SELECTED_TUTOR_STORAGE_KEY);
-    } catch {
-      storedId = null;
-    }
-    const id = isCharacterId(storedId) ? storedId : character.id;
-    const next = getCharacter(id).portraitUrl ?? getCharacter(id).avatarUrl;
-    if (shownSrcRef.current === next) {
-      setPortraitSrc(next);
-      return;
-    }
-    const preloaded = new Image();
-    preloaded.onload = () => {
-      shownSrcRef.current = next;
-      setPortraitSrc(next);
-      setPortraitFailed(false);
-    };
-    preloaded.onerror = () => {
-      shownSrcRef.current = next;
-      setPortraitSrc(next);
-    };
-    preloaded.src = next;
-    if (preloaded.complete && preloaded.naturalWidth > 0) {
-      shownSrcRef.current = next;
-      setPortraitSrc(next);
-      setPortraitFailed(false);
-    }
-  }, [character.id, character.avatarUrl, character.portraitUrl]);
-
   function submitDraft() {
     const text = draft.trim();
     if (!text || disabled) return;
@@ -202,7 +111,7 @@ export function VoiceStage({
       >
         <div
           className={cn(
-            "avatar-portrait absolute inset-[-10%_0_8%]",
+            "avatar-portrait avatar-portrait-3d absolute inset-[-10%_0_8%]",
             speaking ? "avatar-portrait-speaking" : "avatar-portrait-idle",
           )}
           style={{
@@ -213,18 +122,13 @@ export function VoiceStage({
             transition: "box-shadow 0.35s ease",
           }}
         >
-          {portraitSrc && !portraitFailed ? (
-            <img
-              src={portraitSrc}
-              alt=""
-              className="h-full w-full object-cover object-[center_18%] select-none"
-              draggable={false}
-              suppressHydrationWarning
-              onError={() => setPortraitFailed(true)}
-            />
-          ) : null}
-          <div className={cn("avatar-blink", blinking && "is-blink")} aria-hidden />
-          <div ref={mouthRef} className={cn("avatar-mouth", speaking && "is-speaking")} aria-hidden />
+          <Avatar3DStage
+            character={character}
+            isSpeaking={speaking}
+            spokenText={speakingText}
+            mouthLevelRef={mouthLevelRef3d}
+            modelUrl={null}
+          />
         </div>
         <div className="pointer-events-none absolute inset-x-0 bottom-0 h-[46%] bg-gradient-to-t from-[#050805] via-[#050805]/88 to-transparent" />
       </button>
@@ -339,7 +243,7 @@ export function VoiceStage({
           <VoiceWave
             mode={mode}
             color={character.accentColor}
-            levelRef={listening && audioLevelRef ? audioLevelRef : levelRef}
+            levelRef={listening && audioLevelRef ? audioLevelRef : mouthLevelRef3d}
           />
         </div>
         <div className="mt-3 flex items-center justify-center gap-4">

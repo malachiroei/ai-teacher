@@ -479,6 +479,7 @@ export function useSpeech(options?: {
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [transcript, setTranscript] = useState("");
   const [audioLevel, setAudioLevel] = useState(0);
+  const [speakingText, setSpeakingText] = useState("");
   const [speechLang, setSpeechLang] = useState<SpeechLang>("en-US");
   const [speechSupported, setSpeechSupported] = useState({ tts: false, stt: false });
   const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
@@ -785,8 +786,11 @@ export function useSpeech(options?: {
     if (!next) {
       stopResumeWatch();
       setIsSpeaking(false);
+      setSpeakingText("");
       return;
     }
+
+    setSpeakingText(next);
 
     const voices = collectVoices();
     voicesRef.current = voices;
@@ -864,6 +868,7 @@ export function useSpeech(options?: {
     } catch {
       ttsBusyRef.current = false;
       setIsSpeaking(false);
+      setSpeakingText("");
     }
   }, []);
 
@@ -871,6 +876,7 @@ export function useSpeech(options?: {
     ttsGenerationRef.current += 1;
     speechQueueRef.current = [];
     ttsBusyRef.current = false;
+    setSpeakingText("");
     cancelSpeechSynthesis();
     setIsSpeaking(false);
   }, []);
@@ -999,6 +1005,7 @@ export function useSpeech(options?: {
     transcript,
     audioLevel,
     audioLevelRef,
+    speakingText,
     speechLang,
     speechSupported,
     voices: listEnglishVoices(voices),

@@ -140,6 +140,11 @@ body {
   background-repeat: no-repeat;
 }
 
+.avatar-portrait-3d {
+  /* When we render the 3D canvas, we don't want the old background JPG to show. */
+  background-image: none !important;
+}
+
 .avatar-portrait-idle {
   /* static — intentionally no animation */
 }
