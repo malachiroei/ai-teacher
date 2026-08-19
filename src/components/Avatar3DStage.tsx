@@ -2,7 +2,7 @@
 
 import { Suspense, Component, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
-import { Bounds, Center, Environment, Html, useGLTF, useProgress } from "@react-three/drei";
+import { Environment, Html, useGLTF, useProgress } from "@react-three/drei";
 import type { Group } from "three";
 import { MathUtils, Mesh, Vector3 } from "three";
 import type { Character } from "@/lib/characters";
@@ -207,6 +207,8 @@ function GLTFTalkingAvatarInner({
   const { camera } = useThree();
   const groupRef = useRef<Group | null>(null);
   const headWorldPosRef = useRef(new Vector3());
+  const jawMeshNodeRef = useRef<Mesh | null>(null);
+  const jawMeshInitialPosRef = useRef<Vector3 | null>(null);
 
   const morphMapRef = useRef<
     | null
@@ -219,15 +221,6 @@ function GLTFTalkingAvatarInner({
       >
   >(null);
 
-  const speakingStartedAtRef = useRef<number>(0);
-
-  const { segments } = useVisemeSchedule(spokenText, isSpeaking);
-  const durationMs = segments.reduce((acc, s) => acc + s.durationMs, 0);
-
-  useEffect(() => {
-    if (isSpeaking) speakingStartedAtRef.current = performance.now();
-  }, [isSpeaking]);
-
   useEffect(() => {
     if (!scene) return;
     const map: Record<string, { mesh: Mesh; index: number }> = {};
@@ -235,6 +228,13 @@ function GLTFTalkingAvatarInner({
     scene.traverse((obj) => {
       if (!(obj instanceof Mesh)) return;
       const mesh = obj as Mesh;
+
+      // Best-effort jaw mesh for cases where the GLB doesn't expose mouth morph targets.
+      if (!jawMeshNodeRef.current && /teeth|jaw|mouth/i.test(mesh.name)) {
+        jawMeshNodeRef.current = mesh;
+        jawMeshInitialPosRef.current = mesh.position.clone();
+      }
+
       const dict = mesh.morphTargetDictionary;
       const infl = mesh.morphTargetInfluences;
       if (!dict || !infl) return;
@@ -297,37 +297,6 @@ function GLTFTalkingAvatarInner({
       0.18,
     );
 
-    let jaw = 0;
-    let aa = 0;
-    let e = 0;
-    let i = 0;
-    let o = 0;
-    let u = 0;
-
-    if (isSpeaking) {
-      const elapsedMs = Math.max(0, performance.now() - speakingStartedAtRef.current);
-      const p = durationMs ? elapsedMs % durationMs : 0;
-      let acc = 0;
-      let active: "aa" | "e" | "i" | "o" | "u" = "aa";
-      for (const seg of segments) {
-        acc += seg.durationMs;
-        if (p <= acc) {
-          active = seg.t;
-          break;
-        }
-      }
-
-      const ampBase = 0.18 + 0.82 * Math.abs(Math.sin((elapsedMs / 1000) * 2.2));
-      jaw = Math.min(1, ampBase);
-
-      // Vowel emphasis.
-      aa = active === "aa" ? 1 : 0;
-      e = active === "e" ? 1 : 0;
-      i = active === "i" ? 1 : 0;
-      o = active === "o" ? 1 : 0;
-      u = active === "u" ? 1 : 0;
-    }
-
     // Helper to lerp influence by morph key.
     const lerpMorph = (key: string | null | undefined, value: number) => {
       if (!key) return;
@@ -337,43 +306,57 @@ function GLTFTalkingAvatarInner({
       arr[hit.index] = MathUtils.lerp(arr[hit.index], value, 0.18);
     };
 
-    // Jaw.
-    lerpMorph("jawopen", jaw);
-    lerpMorph("jaw", jaw);
+    const wave = isSpeaking ? Math.max(0, Math.min(1, Math.sin(t * 14) * 0.7 + 0.3)) : 0;
 
-    // Vowels / visemes.
-    // Some GLBs (including our current local `alex.glb`) expose ARKit targets like:
-    // - jawOpen, mouthOpen, mouthSmile, mouthFunnel, mouthPucker, ...
-    // while others expose Oculus visemes like viseme_aa/viseme_E/...
-    // We handle both: if viseme keys exist -> drive them, else fall back to ARKit mouth shapes.
-    const hasAnyVisemes =
-      Boolean(map["visemeaa"]) || Boolean(map["visemee"]) || Boolean(map["visemei"]) || Boolean(map["visemeo"]) || Boolean(map["visemeu"]);
+    // Check if the mesh exposes any of the mouth morph targets we want to drive.
+    const hasAnyMouthMorph = Boolean(
+      map["mouthopen"] ||
+        map["jawopen"] ||
+        map["visemeaa"] ||
+        map["mouthsmile"] ||
+        map["mouthfunnel"],
+    );
 
-    if (hasAnyVisemes) {
-      lerpMorph("visemeaa", aa * jaw);
-      lerpMorph("visemee", e * jaw);
-      lerpMorph("visemei", i * jaw);
-      lerpMorph("visemeo", o * jaw);
-      lerpMorph("visemeu", u * jaw);
+    if (isSpeaking) {
+      // Active lip-sync (mouth/jaw targets).
+      lerpMorph("jawopen", wave);
+      lerpMorph("mouthopen", wave);
+      lerpMorph("visemeaa", wave);
+      lerpMorph("mouthsmile", wave);
+      lerpMorph("mouthfunnel", wave);
+
+      // If morph targets are missing, move the jaw/teeth mesh node directly.
+      if (!hasAnyMouthMorph && jawMeshNodeRef.current && jawMeshInitialPosRef.current) {
+        jawMeshNodeRef.current.position.y = MathUtils.lerp(
+          jawMeshNodeRef.current.position.y,
+          jawMeshInitialPosRef.current.y + wave * 0.02,
+          0.25,
+        );
+      }
     } else {
-      // Best-effort ARKit vowel mapping.
-      lerpMorph("mouthopen", jaw);
-      lerpMorph("mouthsmile", e * jaw);
-      lerpMorph("mouthfunnel", (i + o) * jaw);
-      lerpMorph("mouthpucker", u * jaw);
+      // Idle: close mouth targets and reset jaw mesh.
+      lerpMorph("jawopen", 0);
+      lerpMorph("mouthopen", 0);
+      lerpMorph("visemeaa", 0);
+      lerpMorph("mouthsmile", 0);
+      lerpMorph("mouthfunnel", 0);
+
+      if (jawMeshNodeRef.current && jawMeshInitialPosRef.current) {
+        jawMeshNodeRef.current.position.y = MathUtils.lerp(
+          jawMeshNodeRef.current.position.y,
+          jawMeshInitialPosRef.current.y,
+          0.25,
+        );
+      }
     }
 
-    if (mouthLevelRef) mouthLevelRef.current = MathUtils.lerp(mouthLevelRef.current, jaw, 0.18);
+    if (mouthLevelRef) mouthLevelRef.current = MathUtils.lerp(mouthLevelRef.current, wave, 0.18);
   });
 
   return (
-    <Bounds fit clip observe>
-      <Center top>
-        <group ref={groupRef} position={[0, -0.08, 0]} scale={[1, 1, 1]}>
-          <primitive object={scene} />
-        </group>
-      </Center>
-    </Bounds>
+    <group ref={groupRef} position={[0, -1.35, 0]} scale={1.7}>
+      <primitive object={scene} />
+    </group>
   );
 }
 
@@ -428,7 +411,7 @@ export function Avatar3DStage({ character, isSpeaking, spokenText, mouthLevelRef
     <Canvas
       className="avatar-3d-canvas"
       dpr={[1, 2]}
-      camera={{ position: [0, 1.4, 1.2], fov: 40 }}
+      camera={{ position: [0, 0.15, 0.95], fov: 30 }}
       style={{ width: "100%", height: "100%", pointerEvents: "none" }}
       shadows={false}
       gl={{ antialias: true, alpha: true }}

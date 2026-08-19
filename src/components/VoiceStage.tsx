@@ -193,7 +193,10 @@ export function VoiceStage({
                   {captionLines.english}
                 </p>
                 {captionLines.hebrew ? (
-                  <p dir="rtl" className="text-sm leading-snug text-gray-300 [unicode-bidi:isolate]">
+                  <p
+                    dir="rtl"
+                    className="relative z-30 max-h-[140px] overflow-y-auto px-4 text-center text-sm leading-snug text-gray-300 [unicode-bidi:isolate]"
+                  >
                     <MixedBidiText text={captionLines.hebrew} />
                   </p>
                 ) : null}
