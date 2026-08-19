@@ -154,7 +154,7 @@ body {
     filter: brightness(1);
   }
   50% {
-    transform: scale(1.015) rotate(0.5deg) translate3d(0.35%, -0.15%, 0);
+    transform: scale(1.012) rotate(0.5deg) translate3d(0.35%, -0.15%, 0);
     filter: brightness(1.03);
   }
 }

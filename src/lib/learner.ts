@@ -2,7 +2,7 @@ import type { Profile, ProfileInput } from "@/lib/supabase/types";
 import type { Message } from "@/types/chat";
 import { buildCharacterGreeting, getCharacter, type Character } from "@/lib/characters";
 import { hebrewTranslationGuide } from "@/lib/hebrew";
-import { formatMemoriesForPrompt, type UserMemory } from "@/lib/memory";
+import { formatMemoriesForPrompt, formatUserProfileBlock, type UserMemory } from "@/lib/memory";
 
 export const INTEREST_OPTIONS = ["Movies", "Cars", "Travel", "Sports", "Tech", "Music", "Food", "Games"] as const;
 
@@ -81,6 +81,9 @@ export function profilePayload(profile: Profile | ProfileInput | null | undefine
     english_level: profile.english_level || ("englishLevel" in profile ? profile.englishLevel : undefined),
     englishLevel: ("englishLevel" in profile ? profile.englishLevel : undefined) || profile.english_level,
     interests,
+    // Needed for onboarding-driven prompt injection.
+    native_language: (profile as Profile & { native_language?: string | null })?.native_language ?? null,
+    daily_goal_minutes: (profile as Profile & { daily_goal_minutes?: number | null })?.daily_goal_minutes ?? null,
     selected_character: character.id,
     custom_tutor_name: tutorDisplayName(character, profile),
     tutor_nicknames: parseTutorNicknames(profile.tutor_nicknames),
@@ -88,7 +91,7 @@ export function profilePayload(profile: Profile | ProfileInput | null | undefine
     placement_completed: "placement_completed" in profile ? Boolean(profile.placement_completed) : undefined,
     xp: "xp" in profile ? Number(profile.xp) || 0 : undefined,
     level: "level" in profile ? Number(profile.level) || 1 : undefined,
-  };
+  } as ProfileInput;
 }
 
 export function buildWelcomeMessage(profile?: Profile | null): Message {
@@ -127,8 +130,8 @@ export function buildLearnerContext(
   extras?: { memories?: UserMemory[]; isFirstSessionToday?: boolean },
 ) {
   const memories = extras?.memories ?? [];
-  const memoryBlock = formatMemoriesForPrompt(memories);
-  if (!profile && !memoryBlock) return "";
+  const memoryBlock = formatUserProfileBlock(profile, memories);
+  if (!profile && !formatMemoriesForPrompt(memories)) return "";
 
   const pronouns =
     profile?.gender === "girl" ? "she/her" : profile?.gender === "boy" ? "he/him" : "they/them";
@@ -166,6 +169,7 @@ YOU ARE THEIR BEST FRIEND:
 - Short, energetic, simple English. 1–2 sentences. Always end with a fun easy question.
 - Celebrate everything they say. Make them excited to talk to you every day.
 - After you know them, NEVER restart name/age/favorite quizzes. Ask about what they JUST said or a real memory.
+- If they ask "do you remember" anything listed above, answer YES with the exact stored fact.
 
 ${memoryBlock}
 ${

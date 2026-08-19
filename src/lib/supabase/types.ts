@@ -17,7 +17,9 @@ export interface Profile {
   selected_character?: CharacterId | string | null;
   custom_tutor_name?: string | null;
   tutor_nicknames?: Record<string, string> | string | null;
+  native_language?: string | null;
   daily_goal_minutes?: DailyGoalMinutes | number | null;
+  onboarding_completed?: boolean | null;
   preferred_practice_time?: string | null;
   notifications_enabled?: boolean | null;
   parent_whatsapp?: string | null;
@@ -44,7 +46,9 @@ export interface ProfileInput {
   selected_character?: CharacterId | string | null;
   custom_tutor_name?: string | null;
   tutor_nicknames?: Record<string, string> | string | null;
+  native_language?: string | null;
   daily_goal_minutes?: DailyGoalMinutes | number | null;
+  onboarding_completed?: boolean | null;
   preferred_practice_time?: string | null;
   notifications_enabled?: boolean | null;
   parent_whatsapp?: string | null;

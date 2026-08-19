@@ -11,6 +11,7 @@ import { GoalCelebrationModal } from "@/components/GoalCelebrationModal";
 import { LevelUpBurst } from "@/components/LevelUpBurst";
 import { LoadingScreen } from "@/components/LoadingScreen";
 import { OnboardingModal } from "@/components/OnboardingModal";
+import { InteractiveOnboarding } from "@/components/InteractiveOnboarding";
 import { SettingsModal } from "@/components/SettingsModal";
 import { VoiceStage } from "@/components/VoiceStage";
 import { useSpeech, SPEECH_UNAVAILABLE_MESSAGE, MIC_PERMISSION_MESSAGE } from "@/hooks/useSpeech";
@@ -135,6 +136,8 @@ export default function HomePage() {
   const [authReady, setAuthReady] = useState(false);
   const [historyReady, setHistoryReady] = useState(false);
   const [profileChecked, setProfileChecked] = useState(false);
+  const [onboardingDone, setOnboardingDone] = useState(false);
+  const [onboardingDoneChecked, setOnboardingDoneChecked] = useState(false);
   const [savingProfile, setSavingProfile] = useState(false);
   const [profileError, setProfileError] = useState("");
 
@@ -169,6 +172,7 @@ export default function HomePage() {
   const [awaitingGreeting, setAwaitingGreeting] = useState(false);
   const viewport = useVisualViewport();
   const needsOnboarding = Boolean(user && profileChecked && !isProfileComplete(profile));
+  const needsInteractiveOnboarding = Boolean(user && profileChecked && onboardingDoneChecked && !onboardingDone);
   const chatUnlocked = Boolean(user && isProfileComplete(profile));
   const resolvedTutorId =
     profile?.selected_character && isCharacterId(profile.selected_character)
@@ -179,7 +183,7 @@ export default function HomePage() {
     ...practiceSettingsFromProfile(profile),
     voice_speed: voiceSpeed,
   };
-  const { speak, enqueueSpeak, beginSpeakStream, unlockSpeech, stopSpeaking, startListening, stopListening, isListening, transcript, speechSupported, voices, isSpeaking } = useSpeech({
+  const { speak, enqueueSpeak, beginSpeakStream, unlockSpeech, stopSpeaking, startListening, stopListening, isListening, transcript, speechSupported, voices, isSpeaking, audioLevel, audioLevelRef } = useSpeech({
     character,
     rateMultiplier: voiceSpeed,
     preferredVoiceUri: practiceSettings.preferred_voice,
@@ -336,6 +340,26 @@ export default function HomePage() {
       setAuthReady(true);
     }
   }, [flash]);
+
+  useEffect(() => {
+    if (!profileChecked) return;
+
+    if (!user) {
+      setOnboardingDone(false);
+      setOnboardingDoneChecked(true);
+      return;
+    }
+
+    try {
+      const fromLocal = window.localStorage.getItem("onboarding_done") === "1";
+      const fromProfile = Boolean((profile as any)?.onboarding_completed);
+      setOnboardingDone(fromLocal || fromProfile);
+      setOnboardingDoneChecked(true);
+    } catch {
+      setOnboardingDone(Boolean((profile as any)?.onboarding_completed));
+      setOnboardingDoneChecked(true);
+    }
+  }, [profile, profileChecked, user]);
 
   useEffect(() => {
     let cancelled = false;
@@ -923,6 +947,44 @@ export default function HomePage() {
     }
   }
 
+  async function handleInteractiveOnboardingComplete(next: { profile: Profile; memories: UserMemory[] }) {
+    if (!user) return;
+    setSavingProfile(true);
+    setProfileError("");
+
+    try {
+      setProfile(next.profile);
+      setMemories(next.memories);
+      setHistoryReady(true);
+      forcePlacementRef.current = false;
+
+      const opener = friendshipMessage(next.profile);
+      spokenOpenerRef.current = opener.id;
+      setMessages([opener]);
+      setSpokenReply(opener.text);
+      setSpokenTranslation(opener.translation ?? "");
+
+      // With onboarding completed, we already have enough info to start.
+      setSuggestions(["I played a game!", "It was fun!", "I like that!"]);
+
+      unlockSpeech();
+      if (autoSpeak) speak(opener.text);
+
+      try {
+        await persistMessages(user.id, [
+          { id: opener.id, sender: "ai", text: opener.text, translation: opener.translation },
+        ]);
+      } catch {
+        /* opener can stay local if history insert fails */
+      }
+    } catch (e) {
+      console.error(e);
+      setProfileError("Couldn't start the onboarding chat. Please try again.");
+    } finally {
+      setSavingProfile(false);
+    }
+  }
+
   async function handleSaveSettings(next: SettingsSavePayload) {
     if (!user || !profile) return;
     setSavingSettings(true);
@@ -1006,7 +1068,14 @@ export default function HomePage() {
             }}
           />
         ) : null}
-        {needsOnboarding ? (
+        {needsInteractiveOnboarding && user ? (
+          <InteractiveOnboarding
+            user={user}
+            character={character}
+            initialProfile={profile}
+            onComplete={(next) => void handleInteractiveOnboardingComplete(next)}
+          />
+        ) : needsOnboarding && onboardingDone ? (
           <OnboardingModal
             saving={savingProfile}
             error={profileError}
@@ -1045,6 +1114,8 @@ export default function HomePage() {
           speaking={isSpeaking}
           listening={isListening}
           transcript={transcript}
+          audioLevel={audioLevel}
+          audioLevelRef={audioLevelRef}
           aiCaption={spokenReply}
           aiTranslation={spokenTranslation}
           autoSpeak={autoSpeak}

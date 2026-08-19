@@ -218,6 +218,105 @@ export function getSpeechAudioContext() {
   return unlockContext;
 }
 
+type MicMeter = {
+  stream: MediaStream | null;
+  source: MediaStreamAudioSourceNode | null;
+  analyser: AnalyserNode | null;
+  raf: number;
+};
+
+const micMeter: MicMeter = { stream: null, source: null, analyser: null, raf: 0 };
+
+function stopMicMeter() {
+  if (micMeter.raf) {
+    cancelAnimationFrame(micMeter.raf);
+    micMeter.raf = 0;
+  }
+  try {
+    micMeter.source?.disconnect();
+    micMeter.analyser?.disconnect();
+  } catch {
+    /* already disconnected */
+  }
+  micMeter.source = null;
+  micMeter.analyser = null;
+  micMeter.stream?.getTracks().forEach((track) => {
+    try {
+      track.stop();
+    } catch {
+      /* ignore */
+    }
+  });
+  micMeter.stream = null;
+}
+
+function startMicMeter(
+  generation: number,
+  generationRef: { current: number },
+  levelRef: { current: number },
+  onLevel: (value: number) => void,
+) {
+  if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia) return;
+
+  void (async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+        video: false,
+      });
+      if (generation !== generationRef.current) {
+        stream.getTracks().forEach((track) => track.stop());
+        return;
+      }
+
+      stopMicMeter();
+      micMeter.stream = stream;
+      const ctx = getSpeechAudioContext();
+      if (!ctx) return;
+      if (ctx.state === "suspended") await ctx.resume();
+      if (generation !== generationRef.current) {
+        stopMicMeter();
+        return;
+      }
+
+      const analyser = ctx.createAnalyser();
+      analyser.fftSize = 512;
+      analyser.smoothingTimeConstant = 0.28;
+      const source = ctx.createMediaStreamSource(stream);
+      source.connect(analyser);
+      micMeter.analyser = analyser;
+      micMeter.source = source;
+
+      const samples = new Float32Array(new ArrayBuffer(analyser.fftSize * 4)) as Float32Array<ArrayBuffer>;
+      let lastEmit = 0;
+      const tick = () => {
+        if (generation !== generationRef.current || !micMeter.analyser) {
+          levelRef.current = 0;
+          return;
+        }
+        micMeter.analyser.getFloatTimeDomainData(samples);
+        let sum = 0;
+        for (let i = 0; i < samples.length; i += 1) {
+          const sample = samples[i] ?? 0;
+          sum += sample * sample;
+        }
+        const rms = Math.sqrt(sum / samples.length);
+        const next = Math.min(1, Math.max(0, (rms - 0.012) / 0.18));
+        levelRef.current = next;
+        const now = performance.now();
+        if (now - lastEmit > 80) {
+          lastEmit = now;
+          onLevel(next);
+        }
+        micMeter.raf = requestAnimationFrame(tick);
+      };
+      micMeter.raf = requestAnimationFrame(tick);
+    } catch {
+      /* SpeechRecognition can still work without a meter */
+    }
+  })();
+}
+
 function primeVoicePlayer() {
   const player = ensureVoicePlayer();
   if (!player) return;
@@ -304,14 +403,19 @@ export function unlockSpeechSynthesis() {
   }
 }
 
-function kickUtterance(utterance: SpeechSynthesisUtterance, generation: number, generationRef: { current: number }) {
+function kickUtterance(
+  utterance: SpeechSynthesisUtterance,
+  generation: number,
+  generationRef: { current: number },
+  interrupt = false,
+) {
   if (typeof window === "undefined" || !("speechSynthesis" in window)) return;
   if (generation !== generationRef.current) return;
   try {
     resumeAudioGraph();
     utterance.volume = 1;
     utterance.lang = "en-US";
-    if (window.speechSynthesis.speaking || window.speechSynthesis.pending) {
+    if (interrupt && (window.speechSynthesis.speaking || window.speechSynthesis.pending)) {
       window.speechSynthesis.cancel();
     }
     window.speechSynthesis.resume();
@@ -323,6 +427,61 @@ function kickUtterance(utterance: SpeechSynthesisUtterance, generation: number, 
   }
 }
 
+const MALE_VOICE_NEEDLES = [
+  "en-us-neural2-d",
+  "en-us-wavenet-d",
+  "google uk english male",
+  "google us english male",
+  "uk english male",
+  "us english male",
+  "en-us-x-sfg",
+  "en-us-x-tpd",
+  "arthur",
+  "daniel",
+  "david",
+  "george",
+  "male",
+  "alex",
+  "guy",
+  "james",
+  "fred",
+];
+
+const FEMALE_VOICE_NEEDLES = [
+  "en-us-neural2-f",
+  "en-us-wavenet-f",
+  "google us english female",
+  "google uk english female",
+  "google us english",
+  "samantha",
+  "victoria",
+  "karen",
+  "moira",
+  "female",
+];
+
+function rankVoicesByNeedles(voices: SpeechSynthesisVoice[], needles: string[], gender: "male" | "female") {
+  return listEnglishVoices(voices)
+    .map((voice) => {
+      const blob = `${voice.name} ${voice.voiceURI}`.toLowerCase();
+      if (gender === "male" && isVoiceLikelyFemale(voice) && !blob.includes("male")) {
+        return { voice, score: -1 };
+      }
+      if (gender === "female" && isVoiceLikelyMale(voice) && !blob.includes("female")) {
+        return { voice, score: -1 };
+      }
+      let score = 0;
+      needles.forEach((needle, index) => {
+        if (blob.includes(needle)) score += 56 - index * 2;
+      });
+      if (gender === "male" && isVoiceLikelyMale(voice)) score += 14;
+      if (gender === "female" && isVoiceLikelyFemale(voice)) score += 14;
+      return { voice, score };
+    })
+    .filter((item) => item.score > 0)
+    .sort((a, b) => b.score - a.score);
+}
+
 function pickStreamingVoice(voices: SpeechSynthesisVoice[], character?: Character | null, preferredUri?: string | null) {
   const gender = character?.voice.gender ?? "female";
   const preferred = findVoiceByUri(voices, preferredUri);
@@ -332,42 +491,25 @@ function pickStreamingVoice(voices: SpeechSynthesisVoice[], character?: Characte
     if (!mismatch) return preferred;
   }
 
-  if (gender === "male") {
-    const maleNeedles = [
-      "google uk english male",
-      "google us english male",
-      "uk english male",
-      "us english male",
-      "en-us-x-sfg",
-      "en-us-x-tpd",
-      "male",
-      "david",
-      "george",
-      "daniel",
-      "alex",
-      "guy",
-      "james",
-      "fred",
-    ];
-    const ranked = listEnglishVoices(voices)
-      .map((voice) => {
-        const blob = `${voice.name} ${voice.voiceURI}`.toLowerCase();
-        if (isVoiceLikelyFemale(voice) && !blob.includes("male")) return { voice, score: -1 };
-        let score = 0;
-        maleNeedles.forEach((needle, index) => {
-          if (blob.includes(needle)) score += 48 - index * 3;
-        });
-        if (isVoiceLikelyMale(voice)) score += 12;
-        return { voice, score };
-      })
-      .filter((item) => item.score > 0)
-      .sort((a, b) => b.score - a.score);
-    if (ranked[0]) return ranked[0].voice;
-  }
+  const ranked = rankVoicesByNeedles(
+    voices,
+    gender === "male" ? MALE_VOICE_NEEDLES : FEMALE_VOICE_NEEDLES,
+    gender,
+  );
+  if (ranked[0]) return ranked[0].voice;
 
   const picked = pickCharacterVoice(voices, character);
   if (gender === "male" && picked && isVoiceLikelyFemale(picked)) return null;
+  if (gender === "female" && picked && isVoiceLikelyMale(picked)) return null;
   return picked;
+}
+
+function smoothSpokenText(text: string) {
+  return text
+    .replace(/,/g, " ")
+    .replace(/\s+/g, " ")
+    .replace(/\s+([.!?])/g, "$1")
+    .trim();
 }
 
 export function useSpeech(options?: {
@@ -380,6 +522,7 @@ export function useSpeech(options?: {
   const [isListening, setIsListening] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [transcript, setTranscript] = useState("");
+  const [audioLevel, setAudioLevel] = useState(0);
   const [speechLang, setSpeechLang] = useState<SpeechLang>("en-US");
   const [speechSupported, setSpeechSupported] = useState({ tts: false, stt: false });
   const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
@@ -404,6 +547,7 @@ export function useSpeech(options?: {
   const ttsBusyRef = useRef(false);
   const ttsGenerationRef = useRef(0);
   const sendTranscriptRef = useRef<(text?: string) => void>(() => {});
+  const audioLevelRef = useRef(0);
 
   characterRef.current = options?.character ?? null;
   rateMultiplierRef.current = options?.rateMultiplier ?? 1;
@@ -432,6 +576,9 @@ export function useSpeech(options?: {
     clearSilenceTimer();
     streamsRef.current["en-US"].running = false;
     streamsRef.current["he-IL"].running = false;
+    stopMicMeter();
+    audioLevelRef.current = 0;
+    setAudioLevel(0);
     setIsListening(false);
   }, [clearSilenceTimer]);
 
@@ -521,6 +668,7 @@ export function useSpeech(options?: {
           try {
             streamsRef.current[activeLang].running = true;
             setIsListening(true);
+            startMicMeter(session, listenGenerationRef, audioLevelRef, setAudioLevel);
           } catch {
             sendTranscriptRef.current("");
           }
@@ -701,14 +849,14 @@ export function useSpeech(options?: {
       const character = characterRef.current;
       const voice = pickStreamingVoice(voices, character, preview?.voiceUri ?? preferredVoiceUriRef.current);
       const speed = preview?.rateMultiplier ?? rateMultiplierRef.current ?? 1;
-      const utterance = new SpeechSynthesisUtterance(next);
+      const utterance = new SpeechSynthesisUtterance(smoothSpokenText(next));
       const generation = ttsGenerationRef.current;
       let started = false;
       const male = character?.voice.gender === "male";
       utterance.lang = "en-US";
       utterance.volume = 1;
-      utterance.rate = Math.min(1.4, Math.max(0.6, (male ? 0.95 : character?.voice.rate ?? 0.95) * speed));
-      utterance.pitch = male ? 0.78 : 1.05;
+      utterance.rate = Math.min(1.4, Math.max(0.6, (male ? 0.92 : character?.voice.rate ?? 0.95) * speed));
+      utterance.pitch = male ? 0.78 : 1.02;
       window.speechSynthesis.resume();
       if (voice && !(male && isVoiceLikelyFemale(voice))) utterance.voice = voice;
 
@@ -771,7 +919,7 @@ export function useSpeech(options?: {
       if (!trimmed || typeof window === "undefined" || !("speechSynthesis" in window)) return;
       stopSpeaking();
       resumeAudioGraph();
-      speechQueueRef.current = [trimmed];
+      speechQueueRef.current = [smoothSpokenText(trimmed)];
       playNextUtterance(preview);
     },
     [playNextUtterance, stopSpeaking],
@@ -800,7 +948,13 @@ export function useSpeech(options?: {
       if (!trimmed || typeof window === "undefined" || !("speechSynthesis" in window)) return;
       resumeAudioGraph();
       resumeSpeechSynthesis();
-      speechQueueRef.current.push(trimmed);
+      const spoken = smoothSpokenText(trimmed);
+      const last = speechQueueRef.current[speechQueueRef.current.length - 1];
+      if (last && last.length < 90 && !/[.!?…]["']?$/.test(last)) {
+        speechQueueRef.current[speechQueueRef.current.length - 1] = `${last} ${spoken}`;
+      } else {
+        speechQueueRef.current.push(spoken);
+      }
       setIsSpeaking(true);
       playNextUtterance(preview);
     },
@@ -881,6 +1035,8 @@ export function useSpeech(options?: {
     isListening,
     isSpeaking,
     transcript,
+    audioLevel,
+    audioLevelRef,
     speechLang,
     speechSupported,
     voices: listEnglishVoices(voices),

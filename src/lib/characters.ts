@@ -47,7 +47,7 @@ export const CHARACTERS: Character[] = [
       gender: "female",
       pitch: 1.08,
       rate: 0.95,
-      preferredNames: ["Samantha", "Victoria", "Google US English Female", "Karen"],
+      preferredNames: ["Samantha", "Victoria", "en-US-Neural2-F", "en-US-Wavenet-F", "Google US English", "Karen"],
     },
     greetingTemplate:
       "Hi{{nameBit}}! I'm {{tutorName}}, your friendly English tutor.{{topic}} How are you doing today?",
@@ -73,7 +73,7 @@ Stay age-appropriate. Keep helping with grammar and Hebrew translations as requi
       gender: "male",
       pitch: 0.95,
       rate: 1.02,
-      preferredNames: ["Daniel", "Alex", "Google US English Male", "Google UK English Male", "en-us-x-sfg", "en-us-x-tpd", "Fred"],
+      preferredNames: ["Daniel", "David", "Arthur", "en-US-Neural2-D", "en-US-Wavenet-D", "Google UK English Male", "en-us-x-sfg-local", "Alex"],
     },
     greetingTemplate:
       "Yo{{nameBit}}! I'm {{tutorName}} — let's level up your English.{{topic}} Ready to jump in?",
@@ -101,7 +101,7 @@ Stay age-appropriate. No violence details, no toxic "git gud" roasting.`,
       gender: "female",
       pitch: 1.14,
       rate: 1.02,
-      preferredNames: ["Samantha", "Tessa", "Karen", "Google US English Female"],
+      preferredNames: ["Samantha", "Tessa", "Karen", "en-US-Neural2-F", "Google US English"],
     },
     greetingTemplate:
       "Hey{{nameBit}}! I'm {{tutorName}}. Let's chat in English about the stuff you actually care about.{{topic}} What's your vibe today?",
@@ -129,7 +129,7 @@ Stay age-appropriate. No dating advice, no adult social-media drama.`,
       gender: "male",
       pitch: 0.86,
       rate: 0.92,
-      preferredNames: ["Daniel", "Alex", "Google US English Male", "Google UK English Male", "en-us-x-sfg", "en-us-x-tpd", "Aaron"],
+      preferredNames: ["Daniel", "David", "Arthur", "en-US-Neural2-D", "en-US-Wavenet-D", "Google UK English Male", "en-us-x-sfg-local", "Aaron"],
     },
     greetingTemplate:
       "Greetings{{nameBit}}! {{tutorName}} here.{{topic}} Ready for a new adventure in English?",
@@ -157,7 +157,7 @@ Stay age-appropriate. Wonder and excitement, not fear or grim sci-fi horror.`,
       gender: "male",
       pitch: 0.92,
       rate: 1.0,
-      preferredNames: ["Alex", "Daniel", "Google US English Male", "en-us-x-sfg", "en-us-x-tpd", "Fred", "Tom"],
+      preferredNames: ["Daniel", "David", "Arthur", "en-US-Neural2-D", "en-US-Wavenet-D", "Google UK English Male", "en-us-x-sfg-local", "Alex"],
     },
     greetingTemplate:
       "Hey{{nameBit}}! I'm {{tutorName}} — let's get your English in game shape.{{topic}} What's your favorite sport right now?",
@@ -185,7 +185,7 @@ Stay age-appropriate. No body-shaming, no extreme training pressure.`,
       gender: "female",
       pitch: 1.15,
       rate: 1.0,
-      preferredNames: ["Moira", "Fiona", "Samantha", "Google US English Female", "Victoria"],
+      preferredNames: ["Samantha", "Victoria", "en-US-Neural2-F", "en-US-Wavenet-F", "Google US English", "Moira"],
     },
     greetingTemplate:
       "Hey{{nameBit}}! I'm {{tutorName}}. Anime, manga, and drawing are my world.{{topic}} What are you watching or drawing lately?",
@@ -213,7 +213,7 @@ Stay age-appropriate. No adult anime, no violent gore, no dating/romance advice.
       gender: "male",
       pitch: 0.9,
       rate: 0.94,
-      preferredNames: ["Daniel", "Alex", "Google US English Male", "Google UK English Male", "en-us-x-sfg", "en-us-x-tpd", "Rishi"],
+      preferredNames: ["Daniel", "David", "Arthur", "en-US-Neural2-D", "en-US-Wavenet-D", "Google UK English Male", "en-us-x-sfg-local", "Rishi"],
     },
     greetingTemplate:
       "Hello{{nameBit}}! I'm {{tutorName}}. Let's explore tech, science, and wild ideas in English.{{topic}} What are you curious about today?",
@@ -241,7 +241,7 @@ Stay age-appropriate. Wonder and discovery, not scary experiments or unsafe DIY.
       gender: "female",
       pitch: 1.02,
       rate: 0.92,
-      preferredNames: ["Victoria", "Kathy", "Samantha", "Google US English Female", "Karen"],
+      preferredNames: ["Victoria", "Kathy", "Samantha", "en-US-Neural2-F", "Google US English"],
     },
     greetingTemplate:
       "Hi{{nameBit}}! I'm {{tutorName}}. I love animals, pets, and the wild outdoors.{{topic}} Do you have a pet, or a favorite animal?",
@@ -293,9 +293,9 @@ export function writeStoredTutorId(id?: string | null) {
 }
 
 const FEMALE_VOICE_HINT =
-  /samantha|victoria|karen|moira|tessa|zira|hazel|fiona|kathy|siri|nicky|jenny|aria|zira|female|woman|girl|us english female|uk english female|google us english(?! male)/i;
+  /samantha|victoria|karen|moira|tessa|zira|hazel|fiona|kathy|siri|nicky|jenny|aria|female|woman|girl|us english female|uk english female|google us english(?! male)|neural2-[af]|wavenet-[afc]/i;
 const MALE_VOICE_HINT =
-  /daniel|fred|david|mark|\btom\b|oliver|aaron|rishi|ravi|george|thomas|james|tony|echo|onyx|\balex\b|male|man|\bguy\b|\bboy\b|us english male|uk english male|en-us-x-sfg|en-us-x-tpd|standard-[bcdj]|neural2-[dj]/i;
+  /daniel|fred|david|mark|arthur|\btom\b|oliver|aaron|rishi|ravi|george|thomas|james|tony|echo|onyx|\balex\b|male|man|\bguy\b|\bboy\b|us english male|uk english male|en-us-x-sfg|en-us-x-tpd|neural2-[dj]|wavenet-[dj]|standard-[bcdj]/i;
 const NOVELTY_VOICE_HINT =
   /compact|novelty|whisper|bad news|good news|bells|boing|bubbles|cellos|trinoids|zarvox|deranged|hysterical|superstar|wobble/i;
 

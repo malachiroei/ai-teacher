@@ -21,6 +21,8 @@ interface VoiceStageProps {
   aiTranslation?: string;
   autoSpeak: boolean;
   voiceSpeed: string;
+  audioLevel?: number;
+  audioLevelRef?: { current: number };
   disabled?: boolean;
   onToggleMic: () => void;
   onToggleSpeak: () => void;
@@ -44,7 +46,7 @@ function useTalkingFace(speaking: boolean) {
           setBlinking(false);
           schedule();
         }, 150);
-      }, 4000 + Math.random() * 2000);
+      }, 4000 + Math.random() * 1000);
     };
     schedule();
     return () => {
@@ -144,6 +146,8 @@ export function VoiceStage({
   aiTranslation = "",
   autoSpeak,
   voiceSpeed,
+  audioLevel = 0,
+  audioLevelRef,
   disabled,
   onToggleMic,
   onToggleSpeak,
@@ -178,7 +182,7 @@ export function VoiceStage({
     };
   }
   const mode: VoiceWaveMode = speaking ? "speaking" : thinking ? "thinking" : listening ? "listening" : "idle";
-  const live = speaking || listening || thinking;
+  const liveWave = speaking || thinking || (listening && audioLevel >= 0.05);
   const trimmedTranscript = transcript.trim();
   const statusCaption = thinking && !aiCaption.trim()
     ? `${tutorName} is thinking...`
@@ -281,17 +285,34 @@ export function VoiceStage({
         <div className="mb-3 flex min-h-[3.5rem] items-end justify-center">
           <AnimatePresence mode="wait">
             {showStatus ? (
-              <motion.p
-                key={thinking ? "think" : listening ? "listen" : "idle"}
-                initial={{ opacity: 0, y: 8 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -6 }}
-                transition={{ duration: 0.2 }}
-                dir="ltr"
-                className="voice-subtitle max-w-[22rem] text-center text-[15px] font-medium leading-snug text-white"
-              >
-                {statusCaption}
-              </motion.p>
+              statusCaption === "Tap mic to talk" || listening ? (
+                <motion.button
+                  key={listening ? "listen" : "idle"}
+                  type="button"
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -6 }}
+                  transition={{ duration: 0.2 }}
+                  dir="ltr"
+                  disabled={Boolean(disabled && !listening)}
+                  className="voice-subtitle max-w-[22rem] cursor-pointer text-center text-[15px] font-medium leading-snug text-white transition-transform active:scale-95"
+                  {...bindImmediateTap(micTouchRef, onToggleMic)}
+                >
+                  {statusCaption}
+                </motion.button>
+              ) : (
+                <motion.p
+                  key={thinking ? "think" : "status"}
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -6 }}
+                  transition={{ duration: 0.2 }}
+                  dir="ltr"
+                  className="voice-subtitle max-w-[22rem] text-center text-[15px] font-medium leading-snug text-white"
+                >
+                  {statusCaption}
+                </motion.p>
+              )
             ) : showAiCaption ? (
               <motion.div
                 key="caption"
@@ -350,8 +371,12 @@ export function VoiceStage({
           ) : null}
         </AnimatePresence>
 
-        <div className={cn("relative mx-[-0.5rem]", live && "wave-glow")}>
-          <VoiceWave mode={mode} color={character.accentColor} levelRef={levelRef} />
+        <div className={cn("relative mx-[-0.5rem]", liveWave && "wave-glow")}>
+          <VoiceWave
+            mode={mode}
+            color={character.accentColor}
+            levelRef={listening && audioLevelRef ? audioLevelRef : levelRef}
+          />
         </div>
         <div className="mt-3 flex items-center justify-center gap-4">
           <button

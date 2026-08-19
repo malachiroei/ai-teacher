@@ -42,18 +42,22 @@ export function VoiceWave({ mode, color = "#3DFF8A", levelRef }: VoiceWaveProps)
     const draw = () => {
       const { width: w, height: h } = canvas.getBoundingClientRect();
       const current = modeRef.current;
-      const active = current === "speaking" || current === "listening" || current === "thinking";
       const liveLevel = Math.max(0, Math.min(1, levelHolder.current?.current ?? 0));
+      const listeningLoud = current === "listening" && liveLevel >= 0.05;
+      const speakingLoud = current === "speaking";
+      const active = speakingLoud || listeningLoud || current === "thinking";
       const target =
         current === "speaking"
-          ? 0.42 + liveLevel * 0.78
+          ? 0.38 + liveLevel * 0.82
           : current === "listening"
-            ? 0.84
+            ? liveLevel < 0.05
+              ? 0.018
+              : 0.32 + liveLevel * 0.9
             : current === "thinking"
-              ? 0.28
-              : 0.022;
-      amplitude += (target - amplitude) * (active ? 0.14 : 0.2);
-      time += active ? 0.056 : 0.004;
+              ? 0.22
+              : 0.016;
+      amplitude += (target - amplitude) * (active ? 0.18 : 0.28);
+      time += active ? 0.05 + liveLevel * 0.04 : 0.003;
 
       ctx.clearRect(0, 0, w, h);
 
@@ -68,11 +72,11 @@ export function VoiceWave({ mode, color = "#3DFF8A", levelRef }: VoiceWaveProps)
 
       const layers = active
         ? [
-            { gain: 1, freq: 1.55, speed: 1, width: 2.4, alpha: 0.95 },
-            { gain: 0.58, freq: 2.45, speed: 1.4, width: 1.5, alpha: 0.42 },
-            { gain: 0.32, freq: 3.3, speed: 0.72, width: 1.15, alpha: 0.26 },
+            { gain: 1, freq: 1.35 + liveLevel * 0.7, speed: 1, width: 2.4, alpha: 0.95 },
+            { gain: 0.58, freq: 2.2 + liveLevel * 0.9, speed: 1.4, width: 1.5, alpha: 0.42 },
+            { gain: 0.32, freq: 3.1, speed: 0.72, width: 1.15, alpha: 0.26 },
           ]
-        : [{ gain: 1, freq: 1, speed: 0.2, width: 1.6, alpha: 0.55 }];
+        : [{ gain: 1, freq: 1, speed: 0.12, width: 1.5, alpha: 0.45 }];
 
       for (const layer of layers) {
         ctx.beginPath();

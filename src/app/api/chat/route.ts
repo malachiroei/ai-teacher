@@ -11,7 +11,7 @@ import {
   shouldOfferSayHint,
   stripUnsolicitedScaffold,
 } from "@/lib/language";
-import { buildLearnerContext } from "@/lib/learner";
+import { buildLearnerContext, profilePayload } from "@/lib/learner";
 import { normalizeNewMemories, parseFavoriteThing, extractFactsFromUtterance, type UserMemory } from "@/lib/memory";
 import { polishHebrewTranslation } from "@/lib/hebrew";
 import { guessSpokenName, isPlacementActive, placementAnswerTurns, placementFollowUp } from "@/lib/placement";
@@ -23,6 +23,8 @@ import {
   speakableSentences,
   type ChatStreamEvent,
 } from "@/lib/chat-stream";
+import { fetchProfile, loadUserMemories } from "@/lib/chat-history";
+import { createClient } from "@/lib/supabase/server";
 import { trustSystemCertificates } from "@/lib/tls";
 import type { ProfileInput } from "@/lib/supabase/types";
 import type { ChatApiResponse, GrammarFeedback, Message } from "@/types/chat";
@@ -125,7 +127,8 @@ Stage 2 — Deep curiosity (the default after Stage 1):
   Ask rich, varied kid questions about pets, best friends, sports, Roblox/Minecraft, superhero powers, weekend plans, family.
   Never restart name/age/grade quizzes once you know them.
 Stage 3 — Memory:
-  Remember every fact. Use User Known Profile & Facts naturally next turn.
+  Remember every fact. Use ### USER PROFILE & MEMORIES as ground truth.
+  If the child asks "Do you remember how old I am?" or similar, answer with the stored age/grade/interests. Never dodge.
   Also return newMemories for any new fact (name, age, grade, games, family, likes).
 
 LANGUAGE / OUTPUT:
@@ -147,6 +150,20 @@ HEBREW TRANSLATION RULES:
 - NEVER slash forms: אוהב/ת, את/ה, שמח/ה. Choose ONE form.
 - Boy: אתה, אתה אוהב. Girl: את, את אוהבת. Other: avoid gendered verbs.
 - Keep English names intact.`;
+
+function formatStructuredUserProfile(profile?: ProfileInput | null) {
+  if (!profile) return "";
+  const fullName = String(profile.name ?? profile.nickname ?? "").trim() || "friend";
+  const level = String(profile.english_level ?? (profile as any).englishLevel ?? "beginner").trim() || "beginner";
+  const interests = Array.isArray(profile.interests) ? profile.interests.join(", ") : "none";
+  const targetDaily =
+    Number((profile as any).daily_goal_minutes ?? (profile as any).dailyGoalMinutes ?? 10) || 10;
+  return `User Profile:
+- Name: ${fullName}
+- Level: ${level} (Adjust English difficulty accordingly)
+- Selected Interests: ${interests}
+- Target: ${targetDaily} min/day`;
+}
 
 const TOPIC_STARTERS: ChatApiResponse[] = [
   {
@@ -1082,9 +1099,10 @@ async function streamGemini(
     BASE_TUTOR_RULES,
     character.systemPrompt,
     learnerContext,
+    formatStructuredUserProfile(profile),
     formatSessionHistory(history),
     languageHint,
-    "User Known Profile & Facts: use every memory below as true. Quote the child's latest words. Never say Cool! Tell me more about that / What happened next? / What do you like to do?",
+    "When asked about past facts, age, grade, or preferences, consult ### USER PROFILE & MEMORIES. Answer accurately, warmly, and directly.",
     "Keep the FULL conversation history. Never drop earlier turns or memories.",
     `Never break character. You are ${character.name} (${character.title}).`,
     profile?.custom_tutor_name && profile.custom_tutor_name !== character.name
@@ -1187,6 +1205,37 @@ function sseResponse(write: (send: (event: ChatStreamEvent) => void) => Promise<
   return new Response(stream, { headers: SSE_HEADERS });
 }
 
+function mergeMemories(primary: UserMemory[], extra: UserMemory[]) {
+  const seen = new Set<string>();
+  const out: UserMemory[] = [];
+  for (const memory of [...primary, ...extra]) {
+    const key = String(memory.fact ?? "").toLowerCase().trim();
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    out.push(memory);
+  }
+  return out.slice(0, 40);
+}
+
+async function loadStoredLearner(bodyProfile: ProfileInput | null, bodyMemories: UserMemory[]) {
+  try {
+    const supabase = await createClient();
+    const { data } = await supabase.auth.getUser();
+    if (!data.user) return { profile: bodyProfile, memories: bodyMemories };
+    const [storedProfile, storedMemories] = await Promise.all([
+      fetchProfile(supabase, data.user.id),
+      loadUserMemories(supabase, data.user.id),
+    ]);
+    const profile = storedProfile
+      ? { ...profilePayload(storedProfile), ...bodyProfile }
+      : bodyProfile;
+    return { profile, memories: mergeMemories(storedMemories, bodyMemories) };
+  } catch (error) {
+    console.error("[Gemini API Call Error]:", "memory load failed", error);
+    return { profile: bodyProfile, memories: bodyMemories };
+  }
+}
+
 export async function POST(request: Request) {
   try {
     const body = (await request.json()) as ChatRequestBody;
@@ -1194,9 +1243,10 @@ export async function POST(request: Request) {
       body.action === "change_topic" ? "change_topic" : body.action === "daily_open" ? "daily_open" : "chat";
     const userMessage = (body.userMessage ?? "").trim();
     const history = normalizeHistory(body.messages);
-    const profile = body.profile ?? null;
+    const stored = await loadStoredLearner(body.profile ?? null, Array.isArray(body.memories) ? body.memories : []);
+    const profile = stored.profile;
     const characterId = body.characterId ?? profile?.selected_character ?? null;
-    const memories = Array.isArray(body.memories) ? body.memories : [];
+    const memories = stored.memories;
     const isFirstSessionToday = Boolean(body.isFirstSessionToday);
     const placementCompleted = Boolean(body.placementCompleted || profile?.placement_completed);
     const placement =

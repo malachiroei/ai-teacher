@@ -190,10 +190,50 @@ export function formatMemoriesForPrompt(memories: UserMemory[]) {
       return `- [${memory.kind}] ${memory.fact}${when}`;
     })
     .join("\n");
-  return `User Known Profile & Facts:
-${lines}
+  return lines;
+}
 
-Use these facts naturally in future turns. Never quiz them again for a fact that is already listed.
-If this is the first chat of a new day, greet them like a best friend who missed them and follow up on a plan, pet, hobby, or how they feel.
-Do not invent memories that are not listed.`;
+export function formatUserProfileBlock(
+  profile?: {
+    nickname?: string | null;
+    name?: string | null;
+    age?: number | string | null;
+    english_level?: string | null;
+    englishLevel?: string | null;
+    daily_goal_minutes?: number | null;
+    dailyGoalMinutes?: number | null;
+    native_language?: string | null;
+    interests?: string[] | string | null;
+  } | null,
+  memories: UserMemory[] = [],
+) {
+  const name = String(profile?.nickname || profile?.name || "").trim() || "friend";
+  const age = Number(profile?.age);
+  const gradeFact = memories.find((memory) => /grade|כיתה/i.test(memory.fact))?.fact;
+  const ageFact = memories.find((memory) => /^Age is /i.test(memory.fact))?.fact;
+  const ageGrade = [Number.isFinite(age) && age > 0 ? `Age ${age}` : "", gradeFact || ageFact || ""]
+    .filter(Boolean)
+    .join(" / ") || "unknown";
+  const interests = Array.isArray(profile?.interests)
+    ? profile.interests.filter(Boolean).join(", ")
+    : String(profile?.interests ?? "").trim();
+  const hobbyFacts = memories
+    .filter((memory) => memory.kind === "preference" || /like|play|love|hobby/i.test(memory.fact))
+    .map((memory) => memory.fact)
+    .slice(0, 12);
+  const hobbies = [...new Set([interests, ...hobbyFacts].filter(Boolean))].join("; ") || "none stored yet";
+  const facts = formatMemoriesForPrompt(memories);
+  const level = String(profile?.english_level ?? profile?.englishLevel ?? "").trim() || "beginner";
+  const targetDaily = Number(profile?.daily_goal_minutes ?? profile?.dailyGoalMinutes ?? 10) || 10;
+  const nativeLanguage = String(profile?.native_language ?? "").trim();
+
+  return `### USER PROFILE & MEMORIES
+Child Name: ${name}
+Child Age / Grade: ${ageGrade}
+English Comfort Level: ${level}
+Known Interests & Hobbies: ${hobbies}
+Target Daily Practice: ${targetDaily} min/day${nativeLanguage ? ` (native language: ${nativeLanguage})` : ""}
+${facts ? `Stored facts:\n${facts}` : "No extra facts stored yet."}
+
+When asked about past facts, age, grade, or preferences, consult the USER PROFILE & MEMORIES section above. Answer accurately, warmly, and directly (e.g., "Of course, ${name}! You are in 9th grade and you love playing basketball! 🏀"). Never say you do not remember if the fact is listed here.`;
 }
