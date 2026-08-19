@@ -419,6 +419,7 @@ export function Avatar3DStage({ character, isSpeaking, spokenText, mouthLevelRef
 
         <AvatarGLTFErrorBoundary key={modelUrlToUse} fallback={null}>
           <GLTFTalkingAvatar
+            key={candidateCharacterId}
             modelUrl={modelUrlToUse}
             isSpeaking={isSpeaking}
             spokenText={spokenText}
