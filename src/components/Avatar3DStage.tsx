@@ -1,11 +1,10 @@
 "use client";
 
 import { Suspense, Component, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
-import { Canvas, useFrame, useLoader, useThree } from "@react-three/fiber";
-import { Environment, Html, useProgress } from "@react-three/drei";
+import { Canvas, useFrame, useThree } from "@react-three/fiber";
+import { Bounds, Center, Environment, Html, useGLTF, useProgress } from "@react-three/drei";
 import type { Group } from "three";
-import { MathUtils, Mesh } from "three";
-import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
+import { MathUtils, Mesh, Vector3 } from "three";
 import type { Character } from "@/lib/characters";
 
 type Avatar3DStageProps = {
@@ -204,17 +203,10 @@ function GLTFTalkingAvatarInner({
   spokenText?: string;
   mouthLevelRef?: { current: number };
 }) {
-  // Use our own GLTFLoader instance so we can best-effort set crossOrigin.
-  const gltfLoader = useMemo(() => {
-    const loader = new GLTFLoader();
-    (loader as any).setCrossOrigin?.("anonymous");
-    return loader;
-  }, []);
-
-  const gltf = useLoader(gltfLoader, modelUrl);
-  const { scene } = gltf;
+  const { scene } = useGLTF(modelUrl);
   const { camera } = useThree();
   const groupRef = useRef<Group | null>(null);
+  const headWorldPosRef = useRef(new Vector3());
 
   const morphMapRef = useRef<
     | null
@@ -266,7 +258,7 @@ function GLTFTalkingAvatarInner({
     // Gentle idle head tracking (toward camera) + realistic periodic blinks.
     const t = clock.getElapsedTime();
     if (!isSpeaking) {
-      const headPos = groupRef.current.position;
+      const headPos = groupRef.current.getWorldPosition(headWorldPosRef.current);
       const dir = camera.position.clone().sub(headPos).normalize();
 
       // Convert camera direction vector into small, friendly yaw/pitch.
@@ -349,67 +341,68 @@ function GLTFTalkingAvatarInner({
     lerpMorph("jawopen", jaw);
     lerpMorph("jaw", jaw);
 
-    // Vowels / visemes (keys are normalized via normMorphName()).
-    lerpMorph("visemeaa", aa * jaw);
-    lerpMorph("visemee", e * jaw);
-    lerpMorph("visemei", i * jaw);
-    lerpMorph("visemeo", o * jaw);
-    lerpMorph("visemeu", u * jaw);
+    // Vowels / visemes.
+    // Some GLBs (including our current local `alex.glb`) expose ARKit targets like:
+    // - jawOpen, mouthOpen, mouthSmile, mouthFunnel, mouthPucker, ...
+    // while others expose Oculus visemes like viseme_aa/viseme_E/...
+    // We handle both: if viseme keys exist -> drive them, else fall back to ARKit mouth shapes.
+    const hasAnyVisemes =
+      Boolean(map["visemeaa"]) || Boolean(map["visemee"]) || Boolean(map["visemei"]) || Boolean(map["visemeo"]) || Boolean(map["visemeu"]);
+
+    if (hasAnyVisemes) {
+      lerpMorph("visemeaa", aa * jaw);
+      lerpMorph("visemee", e * jaw);
+      lerpMorph("visemei", i * jaw);
+      lerpMorph("visemeo", o * jaw);
+      lerpMorph("visemeu", u * jaw);
+    } else {
+      // Best-effort ARKit vowel mapping.
+      lerpMorph("mouthopen", jaw);
+      lerpMorph("mouthsmile", e * jaw);
+      lerpMorph("mouthfunnel", (i + o) * jaw);
+      lerpMorph("mouthpucker", u * jaw);
+    }
 
     if (mouthLevelRef) mouthLevelRef.current = MathUtils.lerp(mouthLevelRef.current, jaw, 0.18);
   });
 
-  return <primitive object={scene} ref={groupRef} />;
+  return (
+    <Bounds fit clip observe>
+      <Center top>
+        <group ref={groupRef} position={[0, -0.08, 0]} scale={[1, 1, 1]}>
+          <primitive object={scene} />
+        </group>
+      </Center>
+    </Bounds>
+  );
 }
 
-export function Avatar3DStage({ character, isSpeaking, spokenText, mouthLevelRef, modelUrl }: Avatar3DStageProps) {
-  const [resolvedModelUrl, setResolvedModelUrl] = useState<string | null>(null);
+export function Avatar3DStage({ character, isSpeaking, spokenText, mouthLevelRef }: Avatar3DStageProps) {
+  const fallbackModelUrl = "/models/alex.glb";
+  const candidateCharacterId = character.id === "luna" ? "emma" : character.id;
+  const candidateModelUrl = `/models/${candidateCharacterId}.glb`;
+  const [modelUrlToUse, setModelUrlToUse] = useState<string>(fallbackModelUrl);
 
-  const modelChoice = useMemo(() => {
-    // Local (preferred) avatars in public/models/{characterId}.glb
-    // Remote (fallback) are Ready Player Me examples with ARKit + Oculus visemes.
-    const morphTargets = "ARKit,Oculus+Visemes,mouthOpen,mouthSmile,eyesClosed,eyesLookUp,eyesLookDown";
-    const textureParams = "textureSizeLimit=1024&textureFormat=png";
-
-    const alexUrl = `/models/alex.glb`;
-    const maxUrl = `/models/max.glb`;
-    const emmaUrl = `/models/emma.glb`;
-
-    const remoteAlex = `https://models.readyplayer.me/65a8dba831b23abb4f401bae.glb?morphTargets=${morphTargets}&${textureParams}`;
-    const remoteMax = `https://models.readyplayer.me/661feb3563b4a87a148eb0df.glb?morphTargets=${morphTargets}&${textureParams}`;
-    const remoteEmma = `https://models.readyplayer.me/64bfa15f0e72c63d7c3934a6.glb?morphTargets=${morphTargets}&${textureParams}`;
-
-    if (typeof modelUrl === "string" && modelUrl.trim()) {
-      return { localUrl: modelUrl, remoteUrl: null as string | null };
-    }
-
-    if (character.id === "alex") return { localUrl: alexUrl, remoteUrl: remoteAlex };
-    if (character.id === "max") return { localUrl: maxUrl, remoteUrl: remoteMax };
-    if (character.id === "emma" || character.id === "luna") return { localUrl: emmaUrl, remoteUrl: remoteEmma };
-
-    // For characters without explicit mapping, default to Emma tutor model.
-    return { localUrl: emmaUrl, remoteUrl: remoteEmma };
-  }, [character.id, modelUrl]);
-
+  // Universal local model resolution:
+  // - Prefer /models/{characterId}.glb
+  // - If missing, fall back to /models/alex.glb
   useEffect(() => {
     let cancelled = false;
-    if (typeof modelUrl === "string" && modelUrl.trim()) {
-      setResolvedModelUrl(modelUrl.trim());
-      return;
-    }
-
-    // If we have a local model, probe it first so we avoid `useGLTF` 404 crashes.
-    const localUrl = modelChoice.localUrl;
-    const remoteUrl = modelChoice.remoteUrl;
 
     async function resolve() {
+      // If we already use the fallback, skip the probe.
+      if (candidateModelUrl === fallbackModelUrl) {
+        setModelUrlToUse(fallbackModelUrl);
+        return;
+      }
+
       try {
-        const res = await fetch(localUrl, { method: "HEAD" });
+        const res = await fetch(candidateModelUrl, { method: "HEAD" });
         if (cancelled) return;
-        setResolvedModelUrl(res.ok ? localUrl : remoteUrl);
+        setModelUrlToUse(res.ok ? candidateModelUrl : fallbackModelUrl);
       } catch {
         if (cancelled) return;
-        setResolvedModelUrl(remoteUrl);
+        setModelUrlToUse(fallbackModelUrl);
       }
     }
 
@@ -417,7 +410,7 @@ export function Avatar3DStage({ character, isSpeaking, spokenText, mouthLevelRef
     return () => {
       cancelled = true;
     };
-  }, [modelChoice.localUrl, modelChoice.remoteUrl, modelUrl]);
+  }, [candidateModelUrl]);
 
   function ModelLoader() {
     const { progress } = useProgress();
@@ -435,28 +428,25 @@ export function Avatar3DStage({ character, isSpeaking, spokenText, mouthLevelRef
     <Canvas
       className="avatar-3d-canvas"
       dpr={[1, 2]}
-      camera={{ position: [0, 0.15, 2.2], fov: 22 }}
+      camera={{ position: [0, 1.4, 1.2], fov: 40 }}
       style={{ width: "100%", height: "100%", pointerEvents: "none" }}
       shadows={false}
       gl={{ antialias: true, alpha: true }}
     >
       <Suspense fallback={<ModelLoader />}>
-        <ambientLight intensity={0.25} />
-        <directionalLight intensity={0.65} position={[1.4, 2.1, 1.6]} />
+        <ambientLight intensity={1.5} />
+        <directionalLight intensity={2.0} position={[0, 5, 5]} />
+        <pointLight intensity={1.2} position={[0, 2, 2]} />
         <Environment preset="city" />
 
-        {resolvedModelUrl ? (
-          <AvatarGLTFErrorBoundary
-            key={resolvedModelUrl}
-            fallback={
-              <FallbackAvatar character={character} isSpeaking={isSpeaking} spokenText={spokenText} mouthLevelRef={mouthLevelRef} />
-            }
-          >
-            <GLTFTalkingAvatar modelUrl={resolvedModelUrl} isSpeaking={isSpeaking} spokenText={spokenText} mouthLevelRef={mouthLevelRef} />
-          </AvatarGLTFErrorBoundary>
-        ) : (
-          <FallbackAvatar character={character} isSpeaking={isSpeaking} spokenText={spokenText} mouthLevelRef={mouthLevelRef} />
-        )}
+        <AvatarGLTFErrorBoundary key={modelUrlToUse} fallback={null}>
+          <GLTFTalkingAvatar
+            modelUrl={modelUrlToUse}
+            isSpeaking={isSpeaking}
+            spokenText={spokenText}
+            mouthLevelRef={mouthLevelRef}
+          />
+        </AvatarGLTFErrorBoundary>
       </Suspense>
     </Canvas>
   );
