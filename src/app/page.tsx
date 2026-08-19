@@ -958,14 +958,30 @@ export default function HomePage() {
       setHistoryReady(true);
       forcePlacementRef.current = false;
 
-      const opener = friendshipMessage(next.profile);
+      // Build a fully personalised first greeting using the onboarding data.
+      const kidName = (next.profile.full_name ?? next.profile.nickname ?? "").trim() || "there";
+      const kidInterest = next.profile.interests?.[0] ?? "";
+      const tutorNameStr = character.name;
+      const greetingText = kidInterest
+        ? `Hey ${kidName}! Welcome to the Cyber Academy! I'm ${tutorNameStr} — I see you love ${kidInterest}! Ready for our first mission? 🚀`
+        : `Hey ${kidName}! Welcome to the Cyber Academy! I'm ${tutorNameStr} — let's have some fun with English! Ready? 🚀`;
+      const greetingTranslation = kidInterest
+        ? `היי ${kidName}! ברוך הבא לאקדמיה! אני ${tutorNameStr} — ראיתי שאתה אוהב ${kidInterest}! מוכן למשימה הראשונה? 🚀`
+        : `היי ${kidName}! ברוך הבא לאקדמיה! אני ${tutorNameStr} — בואו נשחק עם אנגלית! מוכן? 🚀`;
+
+      const opener = {
+        id: typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `${Date.now()}`,
+        sender: "ai" as const,
+        text: greetingText,
+        timestamp: Date.now(),
+        translation: greetingTranslation,
+      };
+
       spokenOpenerRef.current = opener.id;
       setMessages([opener]);
       setSpokenReply(opener.text);
-      setSpokenTranslation(opener.translation ?? "");
-
-      // With onboarding completed, we already have enough info to start.
-      setSuggestions(["I played a game!", "It was fun!", "I like that!"]);
+      setSpokenTranslation(opener.translation);
+      setSuggestions(["That sounds fun!", "Let's play!", "Tell me more!"]);
 
       unlockSpeech();
       if (autoSpeak) speak(opener.text);

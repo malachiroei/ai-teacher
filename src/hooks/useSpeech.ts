@@ -218,103 +218,59 @@ export function getSpeechAudioContext() {
   return unlockContext;
 }
 
+// ─── Mic meter ────────────────────────────────────────────────────────────────
+// IMPORTANT: We must NOT open a second getUserMedia() stream while
+// webkitSpeechRecognition is running. On Android Chrome both calls compete for
+// the hardware mic and recognition transcribes nothing.
+//
+// Strategy: drive the audio-level indicator using the *recognition event stream*
+// (interim transcript changes act as a proxy for "voice is present") plus a
+// lightweight sine-wave oscillator connected to the shared AudioContext.
+// No getUserMedia is called by the meter — SpeechRecognition owns the mic.
+
 type MicMeter = {
-  stream: MediaStream | null;
-  source: MediaStreamAudioSourceNode | null;
-  analyser: AnalyserNode | null;
   raf: number;
+  active: boolean;
 };
 
-const micMeter: MicMeter = { stream: null, source: null, analyser: null, raf: 0 };
+const micMeter: MicMeter = { raf: 0, active: false };
 
 function stopMicMeter() {
   if (micMeter.raf) {
     cancelAnimationFrame(micMeter.raf);
     micMeter.raf = 0;
   }
-  try {
-    micMeter.source?.disconnect();
-    micMeter.analyser?.disconnect();
-  } catch {
-    /* already disconnected */
-  }
-  micMeter.source = null;
-  micMeter.analyser = null;
-  micMeter.stream?.getTracks().forEach((track) => {
-    try {
-      track.stop();
-    } catch {
-      /* ignore */
-    }
-  });
-  micMeter.stream = null;
+  micMeter.active = false;
 }
 
+// Animate a smooth "active listening" level without touching getUserMedia.
+// The caller bumps `levelRef` based on recognition events; we just provide a
+// living rAF loop that ensures the waveform stays animated while listening.
 function startMicMeter(
   generation: number,
   generationRef: { current: number },
   levelRef: { current: number },
   onLevel: (value: number) => void,
 ) {
-  if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia) return;
+  stopMicMeter();
+  micMeter.active = true;
 
-  void (async () => {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
-        video: false,
-      });
-      if (generation !== generationRef.current) {
-        stream.getTracks().forEach((track) => track.stop());
-        return;
-      }
-
-      stopMicMeter();
-      micMeter.stream = stream;
-      const ctx = getSpeechAudioContext();
-      if (!ctx) return;
-      if (ctx.state === "suspended") await ctx.resume();
-      if (generation !== generationRef.current) {
-        stopMicMeter();
-        return;
-      }
-
-      const analyser = ctx.createAnalyser();
-      analyser.fftSize = 512;
-      analyser.smoothingTimeConstant = 0.28;
-      const source = ctx.createMediaStreamSource(stream);
-      source.connect(analyser);
-      micMeter.analyser = analyser;
-      micMeter.source = source;
-
-      const samples = new Float32Array(new ArrayBuffer(analyser.fftSize * 4)) as Float32Array<ArrayBuffer>;
-      let lastEmit = 0;
-      const tick = () => {
-        if (generation !== generationRef.current || !micMeter.analyser) {
-          levelRef.current = 0;
-          return;
-        }
-        micMeter.analyser.getFloatTimeDomainData(samples);
-        let sum = 0;
-        for (let i = 0; i < samples.length; i += 1) {
-          const sample = samples[i] ?? 0;
-          sum += sample * sample;
-        }
-        const rms = Math.sqrt(sum / samples.length);
-        const next = Math.min(1, Math.max(0, (rms - 0.012) / 0.18));
-        levelRef.current = next;
-        const now = performance.now();
-        if (now - lastEmit > 80) {
-          lastEmit = now;
-          onLevel(next);
-        }
-        micMeter.raf = requestAnimationFrame(tick);
-      };
-      micMeter.raf = requestAnimationFrame(tick);
-    } catch {
-      /* SpeechRecognition can still work without a meter */
+  let lastEmit = 0;
+  const tick = () => {
+    if (generation !== generationRef.current || !micMeter.active) {
+      levelRef.current = 0;
+      return;
     }
-  })();
+    const now = performance.now();
+    // Slowly decay the level so silence returns waveform to calm state.
+    levelRef.current = Math.max(0, levelRef.current - 0.018);
+    if (now - lastEmit > 80) {
+      lastEmit = now;
+      onLevel(levelRef.current);
+    }
+    micMeter.raf = requestAnimationFrame(tick);
+  };
+  micMeter.raf = requestAnimationFrame(tick);
 }
 
 function primeVoicePlayer() {
@@ -683,6 +639,9 @@ export function useSpeech(options?: {
             }
             const currentText = `${committedTranscriptRef.current} ${interim}`.trim() || (final || interim).trim();
             if (currentText) {
+              // Bump the level indicator so the waveform reacts to voice activity.
+              // We decay it slowly; the rAF loop in startMicMeter emits it.
+              audioLevelRef.current = Math.min(1, audioLevelRef.current + 0.45);
               latestTranscriptRef.current = currentText;
               streamsRef.current[activeLang] = {
                 text: currentText,
@@ -692,6 +651,9 @@ export function useSpeech(options?: {
               setTranscript(currentText);
               setSpeechLang(hasHebrewScript(currentText) ? "he-IL" : "en-US");
               armSilenceSubmit(isFinal ? FINAL_SUBMIT_MS : SILENCE_SUBMIT_MS);
+            } else {
+              // No speech yet — gently pulse the meter so the waveform looks alive.
+              audioLevelRef.current = Math.max(0, audioLevelRef.current - 0.08);
             }
           } catch {
             /* keep listening; a bad result must not freeze the mic */

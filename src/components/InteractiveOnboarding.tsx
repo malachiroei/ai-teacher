@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import type { User } from "@supabase/supabase-js";
 import type { Character } from "@/lib/characters";
-import type { EnglishLevel, Profile } from "@/lib/supabase/types";
+import type { Profile } from "@/lib/supabase/types";
 import { cn } from "@/lib/utils";
 import { createClient } from "@/lib/supabase/client";
 import { fetchProfile, loadUserMemories, saveExtractedFact, seedProfileMemories } from "@/lib/chat-history";
@@ -20,35 +20,57 @@ interface InteractiveOnboardingProps {
   onComplete: (next: OnboardingPayload) => void | Promise<void>;
 }
 
-const nativeLanguageChips = [
-  { id: "he", label: "🇮🇱 עברית", value: "עברית" },
-  { id: "es", label: "🇪🇸 Español", value: "Español" },
-  { id: "tr", label: "🇹🇷 Türkçe", value: "Türkçe" },
-  { id: "ru", label: "🇷🇺 Русский", value: "Русский" },
-  { id: "other", label: "עוד...", value: "__custom__" },
+// ── Step definitions ──────────────────────────────────────────────────────────
+const SCHOOL_STAGE_CHIPS = [
+  { id: "elem-low",  label: "🎒 כיתות א׳–ג׳",      ageRange: "6-9"  },
+  { id: "elem-high", label: "🚀 כיתות ד׳–ו׳",       ageRange: "10-12" },
+  { id: "middle",    label: "⚡ חטיבת ביניים",       ageRange: "13-15" },
+  { id: "high",      label: "🎓 תיכון / בוגר",      ageRange: "16-20" },
+] as const;
+type SchoolStageId = (typeof SCHOOL_STAGE_CHIPS)[number]["id"];
+
+const PASSION_CHIPS = [
+  { id: "gaming",   label: "🎮 גיימינג ומיינקראפט", interests: ["Games", "Minecraft"] },
+  { id: "sports",   label: "⚽ ספורט וכדורגל",      interests: ["Sports"] },
+  { id: "media",    label: "🎬 סרטים ויוטיוב",       interests: ["Movies"] },
+  { id: "science",  label: "🚀 מדע וחלל",            interests: ["Science", "Tech"] },
+  { id: "art",      label: "🎨 יצירה וציור",         interests: ["Art"] },
+  { id: "animals",  label: "🐾 חיות וטבע",           interests: ["Animals"] },
+] as const;
+type PassionId = (typeof PASSION_CHIPS)[number]["id"];
+
+const LEARNING_STYLE_CHIPS = [
+  { id: "challenges", label: "🎯 אתגרים וחידונים" },
+  { id: "chat",       label: "💬 שיחות זורמות וכיף" },
+  { id: "stories",    label: "📖 סיפורים והרפתקאות" },
+] as const;
+type LearningStyleId = (typeof LEARNING_STYLE_CHIPS)[number]["id"];
+
+const CONFIDENCE_CHIPS = [
+  { id: "beginner",      label: "🐣 מילים בסיסיות",                  level: "beginner" as const },
+  { id: "intermediate",  label: "🗣️ מבין קצת אבל מתבייש לדבר",      level: "intermediate" as const },
+  { id: "advanced",      label: "🚀 מבין מצוין ורוצה שוטף",         level: "advanced" as const },
+] as const;
+type ConfidenceId = (typeof CONFIDENCE_CHIPS)[number]["id"];
+
+const GOAL_CHIPS = [
+  { id: 5,  label: "⚡ 5 דקות זריזות" },
+  { id: 10, label: "🔥 10 דקות יומיות" },
+  { id: 15, label: "🏆 15 דקות אלופים" },
 ] as const;
 
-const englishLevelChips: Array<{ id: EnglishLevel; label: string }> = [
-  { id: "beginner", label: "🌱 מתחיל (Beginner)" },
-  { id: "intermediate", label: "⚡ בינוני (Intermediate)" },
-  { id: "advanced", label: "🚀 מתקדם (Advanced)" },
+// ── Bot messages per step ─────────────────────────────────────────────────────
+const BOT_MESSAGES = [
+  "שלום! אני המורה הקיברנטי שלך ב-BuddyAI. כדי לכוון את האימון בדיוק אליך — מה שמך?",
+  (name: string) => `נעים מאוד, ${name}! 🤝 באיזו שלב בית-ספר אתה נמצא?`,
+  "מגניב! מה הכי מדליק אותך? (אפשר לבחור כמה)",
+  "איך אתה אוהב ללמוד הכי טוב?",
+  "מה רמת הביטחון שלך באנגלית?",
+  "ולבסוף — כמה זמן ביום תרצה להתאמן?",
 ];
 
-const interestChips = [
-  { id: "travel", label: "✈️ טיולים", interests: ["Travel"] },
-  { id: "career", label: "💼 קריירה", interests: ["Tech"] },
-  { id: "gaming", label: "🎮 גיימינג וספורט", interests: ["Games", "Sports"] },
-  { id: "friends", label: "👥 שיחה עם חברים", interests: ["Movies"] },
-  { id: "school", label: "🎓 לימודים ובית ספר", interests: ["Tech"] },
-] as const;
-
-const goalChips = [
-  { id: 5, label: "⏱️ 5 דקות ביום" },
-  { id: 10, label: "⏱️ 10 דקות ביום" },
-  { id: 15, label: "⏱️ 15 דקות ביום" },
-] as const;
-
-function ChipButton({
+// ── Reusable styled chip ──────────────────────────────────────────────────────
+function CyberChip({
   selected,
   onClick,
   children,
@@ -63,343 +85,343 @@ function ChipButton({
       suppressHydrationWarning
       onClick={onClick}
       className={cn(
-        "rounded-2xl border px-4 py-2 text-left text-[14px] font-semibold transition",
-        selected ? "border-[#2f6bff] bg-blue-50 text-[#2f6bff]" : "border-slate-200 bg-white/70 text-slate-700 hover:bg-white",
+        "relative flex items-center gap-2 rounded-2xl border px-4 py-2.5 text-left text-[14px] font-semibold transition-all duration-150",
+        selected
+          ? "border-cyan-400/80 bg-cyan-500/15 text-cyan-300 shadow-[0_0_14px_rgba(34,211,238,0.35)]"
+          : "border-white/12 bg-white/5 text-white/75 hover:border-white/22 hover:bg-white/10 hover:text-white",
       )}
     >
+      {selected && (
+        <span className="absolute inset-0 rounded-2xl bg-cyan-400/6 blur-[1px] pointer-events-none" />
+      )}
       {children}
     </button>
   );
 }
 
+// ── Progress dots ─────────────────────────────────────────────────────────────
+function StepDots({ total, current }: { total: number; current: number }) {
+  return (
+    <div className="flex items-center justify-center gap-1.5">
+      {Array.from({ length: total }).map((_, i) => (
+        <span
+          key={i}
+          className={cn(
+            "block rounded-full transition-all duration-300",
+            i < current
+              ? "h-1.5 w-5 bg-cyan-400"
+              : i === current
+                ? "h-1.5 w-5 bg-white/80"
+                : "h-1.5 w-3 bg-white/22",
+          )}
+        />
+      ))}
+    </div>
+  );
+}
+
+// ── Main component ─────────────────────────────────────────────────────────────
 export function InteractiveOnboarding({ user, character, initialProfile, onComplete }: InteractiveOnboardingProps) {
   const initialName = String(initialProfile?.full_name ?? initialProfile?.nickname ?? "").trim();
 
-  const [step, setStep] = useState<0 | 1 | 2 | 3 | 4 | 5>(0);
+  const [step, setStep] = useState(0);
   const [name, setName] = useState(initialName);
-
-  const [nativeLanguageId, setNativeLanguageId] = useState<(typeof nativeLanguageChips)[number]["id"]>("he");
-  const [nativeLanguageCustom, setNativeLanguageCustom] = useState("");
-
-  const [englishLevel, setEnglishLevel] = useState<EnglishLevel | null>(null);
-  const [selectedInterestChipIds, setSelectedInterestChipIds] = useState<string[]>(["travel"]);
-  const [dailyGoal, setDailyGoal] = useState<(typeof goalChips)[number]["id"] | null>(10);
+  const [schoolStage, setSchoolStage] = useState<SchoolStageId | null>(null);
+  const [passionIds, setPassionIds] = useState<PassionId[]>([]);
+  const [learningStyle, setLearningStyle] = useState<LearningStyleId | null>(null);
+  const [confidenceId, setConfidenceId] = useState<ConfidenceId | null>(null);
+  const [dailyGoal, setDailyGoal] = useState<5 | 10 | 15 | null>(null);
 
   const [saving, setSaving] = useState(false);
-  const [closing, setClosing] = useState(false);
-  const [error, setError] = useState<string>("");
-
-  const nativeLanguage = useMemo(() => {
-    if (nativeLanguageId === "other") return nativeLanguageCustom.trim();
-    return nativeLanguageChips.find((c) => c.id === nativeLanguageId)?.value ?? "";
-  }, [nativeLanguageCustom, nativeLanguageId]);
-
-  const selectedInterests = useMemo(() => {
-    const interests: string[] = [];
-    for (const chipId of selectedInterestChipIds) {
-      const chip = interestChips.find((c) => c.id === chipId);
-      if (chip) interests.push(...chip.interests);
-    }
-    return Array.from(new Set(interests));
-  }, [selectedInterestChipIds]);
+  const [error, setError] = useState("");
 
   const avatarSrc = character.portraitUrl ?? character.avatarUrl;
-  const titleByStep = useMemo(() => {
-    return step === 0
-      ? "שלום!"
-      : step === 1
-        ? "נעים להכיר"
-        : step === 2
-          ? "רמת אנגלית"
-          : step === 3
-            ? "תחומי עניין"
-            : step === 4
-              ? "יעד יומי"
-              : "מסיים…";
-  }, [step]);
+  const accentColor = character.accentColor;
 
-  function toggleInterestChip(id: string) {
-    setSelectedInterestChipIds((current) => (current.includes(id) ? current.filter((x) => x !== id) : [...current, id]));
+  const selectedInterests = useMemo(() => {
+    const out: string[] = [];
+    for (const id of passionIds) {
+      const chip = PASSION_CHIPS.find((c) => c.id === id);
+      if (chip) out.push(...chip.interests);
+    }
+    return Array.from(new Set(out));
+  }, [passionIds]);
+
+  const englishLevel = useMemo(() => {
+    return CONFIDENCE_CHIPS.find((c) => c.id === confidenceId)?.level ?? null;
+  }, [confidenceId]);
+
+  const ageApprox = useMemo(() => {
+    const stage = SCHOOL_STAGE_CHIPS.find((c) => c.id === schoolStage);
+    if (!stage) return 12;
+    const [lo] = stage.ageRange.split("-").map(Number);
+    return lo + 1;
+  }, [schoolStage]);
+
+  const botText = useMemo(() => {
+    const msg = BOT_MESSAGES[step];
+    if (typeof msg === "function") return msg(name || "חבר");
+    return msg;
+  }, [step, name]);
+
+  function togglePassion(id: PassionId) {
+    setPassionIds((prev) => prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]);
   }
 
-  async function handleNext() {
+  function validateAndNext() {
     setError("");
-    if (closing) return;
-
     if (step === 0) {
-      const trimmed = name.trim();
-      if (trimmed.length < 2) {
-        setError("נא להזין שם (לפחות 2 תווים).");
-        return;
-      }
-      setName(trimmed);
-      setStep(1);
-      return;
+      if (name.trim().length < 2) { setError("נא להזין שם (לפחות 2 תווים)."); return; }
+      setName(name.trim());
     }
-
-    if (step === 1) {
-      if (!nativeLanguage) {
-        setError("נא לבחור שפת אם.");
-        return;
-      }
-      setStep(2);
-      return;
-    }
-
-    if (step === 2) {
-      if (!englishLevel) {
-        setError("נא לבחור רמת אנגלית.");
-        return;
-      }
-      setStep(3);
-      return;
-    }
-
-    if (step === 3) {
-      if (selectedInterests.length === 0) {
-        setError("נא לבחור לפחות תחום עניין אחד.");
-        return;
-      }
-      setStep(4);
-      return;
-    }
-
-    if (step === 4) {
-      if (!dailyGoal) {
-        setError("נא לבחור יעד יומי.");
-        return;
-      }
-      setStep(5);
-      return;
-    }
+    if (step === 1 && !schoolStage) { setError("נא לבחור שלב בית-ספר."); return; }
+    if (step === 2 && passionIds.length === 0) { setError("נא לבחור לפחות תחום עניין אחד."); return; }
+    if (step === 3 && !learningStyle) { setError("נא לבחור סגנון למידה."); return; }
+    if (step === 4 && !confidenceId) { setError("נא לבחור רמת ביטחון."); return; }
+    if (step === 5) { void handleFinish(); return; }
+    setStep((s) => s + 1);
   }
 
   async function handleFinish() {
-    if (!name.trim() || !englishLevel || !dailyGoal || !nativeLanguage || selectedInterests.length === 0) return;
+    if (!dailyGoal) { setError("נא לבחור יעד יומי."); return; }
+    if (!englishLevel) { setError("נא לבחור רמת אנגלית."); return; }
     setSaving(true);
     setError("");
 
     try {
       const supabase = createClient();
 
-      // Save according to the onboarding contract.
-      await supabase
-        .from("profiles")
-        .update({
-          full_name: name.trim(),
-          native_language: nativeLanguage,
-          english_level: englishLevel,
-          interests: selectedInterests,
-          daily_goal_minutes: dailyGoal,
-          onboarding_completed: true,
-        } as any)
-        .eq("id", user.id);
+      await supabase.from("profiles").update({
+        full_name: name.trim(),
+        nickname: name.trim(),
+        english_level: englishLevel,
+        interests: selectedInterests,
+        age: ageApprox,
+        daily_goal_minutes: dailyGoal,
+        onboarding_completed: true,
+      } as never).eq("id", user.id);
 
-      // Ensure the app skips kids-placement quiz next.
       markKidsPlacementComplete(user.id);
-
-      // Persist onboarding state for routing.
-      try {
-        window.localStorage.setItem("onboarding_done", "1");
-      } catch {
-        /* ignore */
-      }
+      try { window.localStorage.setItem("onboarding_done", "1"); } catch { /* ignore */ }
 
       const nextProfile = await fetchProfile(supabase, user.id);
       if (!nextProfile) throw new Error("Profile not found after onboarding.");
 
-      // Seed starter memories: level + interests (and also name/age via the helper).
       await seedProfileMemories(supabase, user.id, nextProfile);
-
       await saveExtractedFact(supabase, user.id, `Level: ${englishLevel}`, "personal");
       await saveExtractedFact(supabase, user.id, `Interests: ${selectedInterests.join(", ")}`, "preference");
+      await saveExtractedFact(supabase, user.id, `Learning style: ${learningStyle ?? "chat"}`, "preference");
+      if (schoolStage) {
+        const stageLabel = SCHOOL_STAGE_CHIPS.find((c) => c.id === schoolStage)?.label ?? schoolStage;
+        await saveExtractedFact(supabase, user.id, `School stage: ${stageLabel}`, "personal");
+      }
 
       const memories = await loadUserMemories(supabase, user.id);
-
-      // Fade out, then hand control to the main VoiceStage.
-      setClosing(true);
-      window.setTimeout(() => {
-        void onComplete({ profile: nextProfile, memories });
-      }, 350);
+      void onComplete({ profile: nextProfile, memories });
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Couldn't finish onboarding. Please try again.");
+      setError(e instanceof Error ? e.message : "שגיאה בשמירה, נסה שוב.");
       setSaving(false);
-      setClosing(false);
-      setStep(4);
     }
   }
 
-  const botText = useMemo(() => {
-    if (step === 0) return "שלום! אני המורה האישי שלך ב-AI. אשמח להכיר אותך כדי להתאים לך את הלמידה. מה שמך?";
-    if (step === 1) return `נעים להכיר, ${name || "!"}! מהי שפת האם שלך?`;
-    if (step === 2) return "מה רמת האנגלית שלך כרגע?";
-    if (step === 3) return "באילו תחומים תרצה לשפר את האנגלית שלך? (אפשר לבחור כמה)";
-    if (step === 4) return "כמה זמן תרצה לתרגל בכל יום?";
-    return "כמעט שם…";
-  }, [name, step]);
-
-  const stepIndex = step;
-  const progress = [0, 1, 2, 3, 4].map((i) => i <= stepIndex - 1);
+  const TOTAL_STEPS = 6;
 
   return (
-    <AnimatePresence>
-      <motion.div
-        key="interactive-onboarding"
-        initial={{ opacity: 0, y: 10 }}
-        animate={{ opacity: 1, y: 0 }}
-        exit={{ opacity: 0, y: 6 }}
-        transition={{ duration: 0.22 }}
-        className="ambient-shell absolute inset-0 z-[70] flex flex-col px-5 pt-10 pb-6"
-      >
-        <div className="mb-6 flex items-center gap-2">
-          <span className="w-9" />
-          <div className="flex flex-1 justify-center gap-1.5">
-            {progress.map((done, idx) => (
-              <span key={idx} className={cn("h-1.5 rounded-full transition-all", done ? "w-6 bg-[#2f6bff]" : "w-4 bg-slate-200")} />
-            ))}
-          </div>
-          <span className="w-9 text-right text-xs font-medium text-slate-400">{step === 5 ? "5/5" : `${step + 1}/5`}</span>
-        </div>
+    <motion.div
+      key="interactive-onboarding"
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      transition={{ duration: 0.25 }}
+      className="absolute inset-0 z-[70] flex flex-col overflow-hidden bg-[#050c10]"
+      style={{
+        background: `radial-gradient(ellipse 160% 60% at 50% -10%, color-mix(in srgb, ${accentColor} 22%, transparent), transparent 60%),
+                     radial-gradient(ellipse 100% 50% at 80% 100%, rgba(0,200,255,0.06), transparent 55%),
+                     linear-gradient(180deg, #040c12 0%, #060e15 100%)`,
+      }}
+    >
+      {/* Scanline overlay */}
+      <div
+        className="pointer-events-none absolute inset-0 opacity-[0.035]"
+        style={{
+          background: "repeating-linear-gradient(to bottom,rgba(120,255,214,0.8) 0px,rgba(120,255,214,0.8) 1px,transparent 1px,transparent 3px)",
+        }}
+      />
 
-        <div className="flex-1 overflow-hidden">
-          <div className="mx-auto flex max-w-md flex-col items-center">
-            <motion.div
-              className="flex flex-col items-center gap-4"
-              animate={{ opacity: closing ? 0.6 : 1 }}
-              transition={{ duration: 0.18 }}
+      {/* Header */}
+      <div className="flex items-center justify-between px-5 pt-[calc(1.25rem+env(safe-area-inset-top))] pb-3">
+        <div className="flex items-center gap-2">
+          <span
+            className="rounded-full border border-cyan-400/40 px-2.5 py-0.5 text-[10px] font-bold tracking-widest text-cyan-400/80 uppercase"
+            style={{ boxShadow: "0 0 8px rgba(34,211,238,0.2)" }}
+          >
+            BuddyAI
+          </span>
+          <span className="text-[11px] font-medium tracking-widest text-white/35 uppercase">Cyber Academy</span>
+        </div>
+        <span className="text-xs font-semibold text-white/40">{step + 1} / {TOTAL_STEPS}</span>
+      </div>
+
+      {/* Progress */}
+      <div className="px-5 pb-4">
+        <StepDots total={TOTAL_STEPS} current={step} />
+      </div>
+
+      {/* Scrollable body */}
+      <div className="flex flex-1 flex-col items-center overflow-y-auto px-5 pb-[max(1.5rem,env(safe-area-inset-bottom))]">
+        <div className="w-full max-w-sm">
+
+          {/* Avatar + bubble */}
+          <div className="mb-5 flex flex-col items-center gap-3">
+            <div
+              className="relative h-24 w-24 rounded-full border-2 border-cyan-400/50"
+              style={{ boxShadow: `0 0 28px color-mix(in srgb, ${accentColor} 45%, rgba(34,211,238,0.3))` }}
             >
               <img
                 src={avatarSrc}
-                alt={`${character.name} avatar`}
-                className="h-28 w-28 rounded-full border border-white/40 shadow-[0_0_0_1px_rgba(47,107,255,0.12)]"
+                alt={character.name}
+                className="h-full w-full rounded-full object-cover object-[center_18%]"
+                draggable={false}
               />
-
-              <motion.div
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.18 }}
-                className="w-full rounded-3xl border border-white/60 bg-white/92 p-4 shadow-2xl shadow-blue-200/40"
-              >
-                <p className="text-center text-[16px] font-semibold leading-snug text-slate-900">{botText}</p>
-              </motion.div>
-            </motion.div>
-
-            <div className="mt-5 w-full">
-              <AnimatePresence mode="wait">
-                {step === 0 ? (
-                  <motion.div key="s0" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-                    <input
-                      value={name}
-                      onChange={(event) => setName(event.target.value)}
-                      suppressHydrationWarning
-                      autoFocus
-                      placeholder="לדוגמה: יואב"
-                      className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-lg outline-none focus:border-[#2f6bff] focus:bg-white"
-                    />
-                  </motion.div>
-                ) : null}
-
-                {step === 1 ? (
-                  <motion.div key="s1" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-                    <div className="flex flex-wrap gap-2">
-                      {nativeLanguageChips.map((chip) => (
-                        <ChipButton key={chip.id} selected={nativeLanguageId === chip.id} onClick={() => setNativeLanguageId(chip.id)}>
-                          {chip.label}
-                        </ChipButton>
-                      ))}
-                    </div>
-
-                    {nativeLanguageId === "other" ? (
-                      <input
-                        value={nativeLanguageCustom}
-                        onChange={(event) => setNativeLanguageCustom(event.target.value)}
-                        suppressHydrationWarning
-                        placeholder="כתוב/כתבי שפת אם…"
-                        className="mt-3 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-[15px] outline-none focus:border-[#2f6bff] focus:bg-white"
-                      />
-                    ) : null}
-                  </motion.div>
-                ) : null}
-
-                {step === 2 ? (
-                  <motion.div key="s2" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-                    <div className="grid gap-2">
-                      {englishLevelChips.map((chip) => (
-                        <ChipButton key={chip.id} selected={englishLevel === chip.id} onClick={() => setEnglishLevel(chip.id)}>
-                          {chip.label}
-                        </ChipButton>
-                      ))}
-                    </div>
-                  </motion.div>
-                ) : null}
-
-                {step === 3 ? (
-                  <motion.div key="s3" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-                    <div className="flex flex-wrap gap-2">
-                      {interestChips.map((chip) => (
-                        <ChipButton key={chip.id} selected={selectedInterestChipIds.includes(chip.id)} onClick={() => toggleInterestChip(chip.id)}>
-                          {chip.label}
-                        </ChipButton>
-                      ))}
-                    </div>
-                    <p className="mt-3 text-center text-xs text-slate-500">
-                      נבחרו: <span className="font-semibold text-slate-700">{selectedInterests.length ? selectedInterests.join(", ") : "-"}</span>
-                    </p>
-                  </motion.div>
-                ) : null}
-
-                {step === 4 ? (
-                  <motion.div key="s4" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-                    <div className="grid grid-cols-1 gap-2">
-                      {goalChips.map((chip) => (
-                        <ChipButton key={chip.id} selected={dailyGoal === chip.id} onClick={() => setDailyGoal(chip.id)}>
-                          {chip.label}
-                        </ChipButton>
-                      ))}
-                    </div>
-                  </motion.div>
-                ) : null}
-
-                {step === 5 ? (
-                  <motion.div key="s5" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-                    <div className="rounded-3xl border border-white/60 bg-white/92 p-4 text-center shadow-2xl shadow-blue-200/40">
-                      <p className="text-[16px] font-semibold text-slate-900">מכין לך את המורה…</p>
-                      <p className="mt-1 text-sm text-slate-500">זה לוקח רגע, ואז נתחיל לתרגל.</p>
-                    </div>
-                  </motion.div>
-                ) : null}
-              </AnimatePresence>
-
-              {error ? <p className="mt-3 text-center text-sm font-semibold text-red-600">{error}</p> : null}
-
-              <div className="mt-5">
-                {step <= 4 ? (
-                  <button
-                    type="button"
-                    onClick={() => void handleNext()}
-                    disabled={saving}
-                    className="flex h-12 w-full items-center justify-center rounded-full bg-[#2f6bff] text-[15px] font-semibold text-white shadow-lg shadow-blue-200 disabled:opacity-60"
-                  >
-                    המשך
-                  </button>
-                ) : null}
-
-                {step === 5 ? (
-                  <button
-                    type="button"
-                    onClick={() => void handleFinish()}
-                    disabled={saving}
-                    className="flex h-12 w-full items-center justify-center rounded-full bg-[#2f6bff] text-[15px] font-semibold text-white shadow-lg shadow-blue-200 disabled:opacity-60"
-                  >
-                    {saving ? "שומר נתונים…" : "התחל עכשיו"}
-                  </button>
-                ) : null}
-              </div>
+              {/* Neon ring */}
+              <span
+                className="absolute inset-[-3px] rounded-full border border-cyan-300/20 pointer-events-none"
+                style={{ boxShadow: "inset 0 0 12px rgba(34,211,238,0.15)" }}
+              />
             </div>
+
+            <AnimatePresence mode="wait">
+              <motion.div
+                key={step}
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -6 }}
+                transition={{ duration: 0.2 }}
+                className="w-full rounded-2xl border border-white/12 bg-white/6 px-4 py-3 backdrop-blur-md"
+                style={{ boxShadow: "0 4px 24px rgba(0,0,0,0.35)" }}
+              >
+                <p className="text-center text-[15px] font-semibold leading-snug text-white/92" dir="rtl">
+                  {botText}
+                </p>
+              </motion.div>
+            </AnimatePresence>
+          </div>
+
+          {/* Step content */}
+          <AnimatePresence mode="wait">
+            {step === 0 && (
+              <motion.div key="s0" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ duration: 0.18 }}>
+                <input
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter") validateAndNext(); }}
+                  suppressHydrationWarning
+                  autoFocus
+                  placeholder="השם שלי הוא…"
+                  className="w-full rounded-2xl border border-white/14 bg-white/7 px-4 py-3.5 text-[16px] text-white placeholder:text-white/28 outline-none focus:border-cyan-400/50 focus:bg-white/10 transition"
+                  dir="rtl"
+                />
+              </motion.div>
+            )}
+
+            {step === 1 && (
+              <motion.div key="s1" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ duration: 0.18 }}>
+                <div className="grid grid-cols-1 gap-2.5">
+                  {SCHOOL_STAGE_CHIPS.map((chip) => (
+                    <CyberChip key={chip.id} selected={schoolStage === chip.id} onClick={() => setSchoolStage(chip.id)}>
+                      {chip.label}
+                    </CyberChip>
+                  ))}
+                </div>
+              </motion.div>
+            )}
+
+            {step === 2 && (
+              <motion.div key="s2" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ duration: 0.18 }}>
+                <div className="flex flex-wrap gap-2">
+                  {PASSION_CHIPS.map((chip) => (
+                    <CyberChip key={chip.id} selected={passionIds.includes(chip.id)} onClick={() => togglePassion(chip.id)}>
+                      {chip.label}
+                    </CyberChip>
+                  ))}
+                </div>
+              </motion.div>
+            )}
+
+            {step === 3 && (
+              <motion.div key="s3" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ duration: 0.18 }}>
+                <div className="grid grid-cols-1 gap-2.5">
+                  {LEARNING_STYLE_CHIPS.map((chip) => (
+                    <CyberChip key={chip.id} selected={learningStyle === chip.id} onClick={() => setLearningStyle(chip.id)}>
+                      {chip.label}
+                    </CyberChip>
+                  ))}
+                </div>
+              </motion.div>
+            )}
+
+            {step === 4 && (
+              <motion.div key="s4" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ duration: 0.18 }}>
+                <div className="grid grid-cols-1 gap-2.5">
+                  {CONFIDENCE_CHIPS.map((chip) => (
+                    <CyberChip key={chip.id} selected={confidenceId === chip.id} onClick={() => setConfidenceId(chip.id)}>
+                      {chip.label}
+                    </CyberChip>
+                  ))}
+                </div>
+              </motion.div>
+            )}
+
+            {step === 5 && (
+              <motion.div key="s5" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ duration: 0.18 }}>
+                <div className="grid grid-cols-1 gap-2.5">
+                  {GOAL_CHIPS.map((chip) => (
+                    <CyberChip key={chip.id} selected={dailyGoal === chip.id} onClick={() => setDailyGoal(chip.id as 5 | 10 | 15)}>
+                      {chip.label}
+                    </CyberChip>
+                  ))}
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          {error && (
+            <p className="mt-3 text-center text-sm font-semibold text-red-400">{error}</p>
+          )}
+
+          <div className="mt-6">
+            <button
+              type="button"
+              onClick={validateAndNext}
+              disabled={saving}
+              className={cn(
+                "relative flex h-13 w-full items-center justify-center overflow-hidden rounded-2xl text-[15px] font-bold tracking-wide text-white transition-all disabled:opacity-50",
+              )}
+              style={{
+                background: `linear-gradient(135deg, color-mix(in srgb, ${accentColor} 80%, cyan), color-mix(in srgb, ${accentColor} 60%, rgba(0,200,255,0.9)))`,
+                boxShadow: `0 0 28px color-mix(in srgb, ${accentColor} 45%, rgba(34,211,238,0.4))`,
+              }}
+            >
+              <span className="relative z-10">
+                {saving ? "מעבד…" : step === 5 ? "🚀 כניסה לאקדמיה!" : "המשך ←"}
+              </span>
+              {/* shimmer sweep */}
+              <span className="absolute inset-0 -translate-x-full animate-[shimmer_2s_infinite] bg-gradient-to-r from-transparent via-white/12 to-transparent pointer-events-none" />
+            </button>
+
+            {step > 0 && (
+              <button
+                type="button"
+                onClick={() => { setError(""); setStep((s) => Math.max(0, s - 1) as typeof step); }}
+                disabled={saving}
+                className="mt-2 w-full py-2 text-center text-sm font-medium text-white/38 hover:text-white/60 transition"
+              >
+                ← חזרה
+              </button>
+            )}
           </div>
         </div>
-      </motion.div>
-    </AnimatePresence>
+      </div>
+    </motion.div>
   );
 }
-

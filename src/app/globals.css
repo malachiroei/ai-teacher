@@ -129,46 +129,35 @@ body {
     linear-gradient(180deg, #f7f8fc 0%, #eef1f8 48%, #e8ecf6 100%);
 }
 
+/* Portrait is 100% static — NO position/scale/rotation animations.
+   All visual energy goes to the external glow border and waveform only. */
 .avatar-portrait {
-  transform: none;
-  will-change: transform, filter;
+  transform: none !important;
+  will-change: filter;
   background-color: #050805;
   background-size: cover;
   background-position: center 18%;
   background-repeat: no-repeat;
-  transform-origin: 50% 28%;
 }
 
 .avatar-portrait-idle {
-  animation: avatar-breathe 5.6s ease-in-out infinite;
+  /* static — intentionally no animation */
 }
 
 .avatar-portrait-speaking {
-  animation: avatar-speak-live 1.05s ease-in-out infinite;
+  /* static — intentionally no animation; speaking feedback is via glow + waveform */
 }
 
+/* Keep these keyframes defined so older references compile, but they are not
+   applied to any element. */
 @keyframes avatar-breathe {
-  0%,
-  100% {
-    transform: scale(1) rotate(-0.5deg) translate3d(-0.35%, 0.2%, 0);
-    filter: brightness(1);
-  }
-  50% {
-    transform: scale(1.012) rotate(0.5deg) translate3d(0.35%, -0.15%, 0);
-    filter: brightness(1.03);
-  }
+  0%, 100% { filter: brightness(1); }
+  50%       { filter: brightness(1.02); }
 }
 
 @keyframes avatar-speak-live {
-  0%,
-  100% {
-    transform: scale(1) rotate(-0.45deg) translate3d(-0.25%, 0.15%, 0);
-    filter: brightness(1.02);
-  }
-  50% {
-    transform: scale(1.012) rotate(0.45deg) translate3d(0.25%, -0.12%, 0);
-    filter: brightness(1.07);
-  }
+  0%, 100% { filter: brightness(1.02); }
+  50%       { filter: brightness(1.06); }
 }
 
 .avatar-blink {
@@ -528,6 +517,11 @@ html[data-tutor="zoey"] .avatar-portrait { background-image: url("/characters/zo
   background: rgba(255, 255, 255, 0.55);
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
+}
+
+@keyframes shimmer {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(200%); }
 }
 
 @keyframes level-up-pop {

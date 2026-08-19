@@ -5,7 +5,6 @@ import { AnimatePresence, motion } from "framer-motion";
 import { Keyboard, Mic, Send, Volume2, VolumeX } from "lucide-react";
 import { MixedBidiText } from "@/components/MixedBidiText";
 import { VoiceWave, type VoiceWaveMode } from "@/components/VoiceWave";
-import { getSpeechAudioContext } from "@/hooks/useSpeech";
 import { splitCaptionLines } from "@/lib/hebrew";
 import { getCharacter, isCharacterId, SELECTED_TUTOR_STORAGE_KEY, type Character } from "@/lib/characters";
 import { cn } from "@/lib/utils";
@@ -55,6 +54,8 @@ function useTalkingFace(speaking: boolean) {
     };
   }, []);
 
+  // Animate mouth via a pure JS oscillator — no Web Audio nodes that could
+  // interfere with SpeechRecognition's mic capture.
   useEffect(() => {
     const mouth = mouthRef.current;
     if (!mouth) return;
@@ -66,48 +67,12 @@ function useTalkingFace(speaking: boolean) {
     }
 
     let raf = 0;
-    let osc: OscillatorNode | null = null;
-    let gain: GainNode | null = null;
-    let analyser: AnalyserNode | null = null;
-    let samples: Uint8Array<ArrayBuffer> | null = null;
     const started = performance.now();
-
-    try {
-      const ctx = getSpeechAudioContext();
-      if (ctx) {
-        if (ctx.state === "suspended") void ctx.resume();
-        analyser = ctx.createAnalyser();
-        analyser.fftSize = 256;
-        samples = new Uint8Array(new ArrayBuffer(analyser.fftSize));
-        osc = ctx.createOscillator();
-        osc.type = "sine";
-        osc.frequency.value = 10;
-        gain = ctx.createGain();
-        gain.gain.value = 0;
-        osc.connect(analyser);
-        analyser.connect(gain);
-        gain.connect(ctx.destination);
-        osc.start();
-      }
-    } catch {
-      analyser = null;
-    }
 
     const tick = (now: number) => {
       const t = (now - started) / 1000;
-      const freq = 8 + 4 * (0.5 + 0.5 * Math.sin(t * 0.85));
-      let amp = 0.5 + 0.5 * Math.sin(t * Math.PI * 2 * freq);
-      const burst = 0.55 + 0.45 * (0.5 + 0.5 * Math.sin(t * 5.1));
-      if (analyser && samples) {
-        analyser.getByteTimeDomainData(samples);
-        let sum = 0;
-        for (let i = 0; i < samples.length; i += 1) {
-          const sample = samples[i] ?? 128;
-          const centered = (sample - 128) / 128;
-          sum += centered * centered;
-        }
-        amp = Math.min(1, Math.sqrt(sum / samples.length) * 3.2);
-      }
+      const amp = 0.5 + 0.5 * Math.sin(t * Math.PI * 2 * (8 + 4 * Math.sin(t * 0.85)));
+      const burst = 0.55 + 0.45 * Math.sin(t * 5.1);
       const open = 1 + amp * burst * 0.6;
       levelRef.current = Math.max(0.18, Math.min(1, amp * burst));
       mouth.style.transform = `translate(-50%, 0) scaleY(${open.toFixed(3)})`;
@@ -118,14 +83,6 @@ function useTalkingFace(speaking: boolean) {
 
     return () => {
       cancelAnimationFrame(raf);
-      try {
-        osc?.stop();
-      } catch {
-        /* already stopped */
-      }
-      osc?.disconnect();
-      analyser?.disconnect();
-      gain?.disconnect();
       mouth.style.transform = "translate(-50%, 0) scaleY(1)";
       mouth.style.opacity = "0";
       levelRef.current = 0;
@@ -248,6 +205,13 @@ export function VoiceStage({
             "avatar-portrait absolute inset-[-10%_0_8%]",
             speaking ? "avatar-portrait-speaking" : "avatar-portrait-idle",
           )}
+          style={{
+            // All speaking feedback is a pure border glow — portrait image never moves.
+            boxShadow: speaking
+              ? `0 0 0 3px color-mix(in srgb, var(--accent) 75%, transparent), 0 0 48px color-mix(in srgb, var(--accent) 40%, transparent)`
+              : undefined,
+            transition: "box-shadow 0.35s ease",
+          }}
         >
           {portraitSrc && !portraitFailed ? (
             <img

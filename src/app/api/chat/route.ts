@@ -155,14 +155,20 @@ function formatStructuredUserProfile(profile?: ProfileInput | null) {
   if (!profile) return "";
   const fullName = String(profile.name ?? profile.nickname ?? "").trim() || "friend";
   const level = String(profile.english_level ?? (profile as any).englishLevel ?? "beginner").trim() || "beginner";
-  const interests = Array.isArray(profile.interests) ? profile.interests.join(", ") : "none";
-  const targetDaily =
-    Number((profile as any).daily_goal_minutes ?? (profile as any).dailyGoalMinutes ?? 10) || 10;
-  return `User Profile:
-- Name: ${fullName}
-- Level: ${level} (Adjust English difficulty accordingly)
-- Selected Interests: ${interests}
-- Target: ${targetDaily} min/day`;
+  const interestsList = Array.isArray(profile.interests) ? profile.interests : [];
+  const interests = interestsList.join(", ") || "none";
+  const targetDaily = Number((profile as any).daily_goal_minutes ?? 10) || 10;
+  const age = Number(profile.age) || 0;
+
+  // This block is injected directly into the Gemini system prompt. It must be
+  // anchored at the top of every request so the model NEVER forgets it.
+  return `### PERMANENT USER PROFILE (anchor — never ignore or forget):
+- Name: ${fullName} — always address by this name.
+- Age: ${age > 0 ? age : "unknown"}.
+- English Level: ${level} — calibrate vocabulary and sentence length accordingly at ALL times.
+- Passions / Interests: ${interests} — weave these naturally into every conversation.
+- Daily Practice Target: ${targetDaily} min/day.
+Always use the Name, Level, and Interests above in EVERY reply. Never revert to generic greetings or re-ask for information already stored here.`;
 }
 
 const TOPIC_STARTERS: ChatApiResponse[] = [
