@@ -7,12 +7,15 @@ export type VoiceWaveMode = "idle" | "listening" | "speaking" | "thinking";
 interface VoiceWaveProps {
   mode: VoiceWaveMode;
   color?: string;
+  levelRef?: { current: number };
 }
 
-export function VoiceWave({ mode, color = "#3DFF8A" }: VoiceWaveProps) {
+export function VoiceWave({ mode, color = "#3DFF8A", levelRef }: VoiceWaveProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const modeRef = useRef(mode);
+  const levelHolder = useRef(levelRef);
   modeRef.current = mode;
+  levelHolder.current = levelRef;
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -40,8 +43,15 @@ export function VoiceWave({ mode, color = "#3DFF8A" }: VoiceWaveProps) {
       const { width: w, height: h } = canvas.getBoundingClientRect();
       const current = modeRef.current;
       const active = current === "speaking" || current === "listening" || current === "thinking";
+      const liveLevel = Math.max(0, Math.min(1, levelHolder.current?.current ?? 0));
       const target =
-        current === "speaking" ? 1.08 : current === "listening" ? 0.84 : current === "thinking" ? 0.28 : 0.022;
+        current === "speaking"
+          ? 0.42 + liveLevel * 0.78
+          : current === "listening"
+            ? 0.84
+            : current === "thinking"
+              ? 0.28
+              : 0.022;
       amplitude += (target - amplitude) * (active ? 0.14 : 0.2);
       time += active ? 0.056 : 0.004;
 

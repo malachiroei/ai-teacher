@@ -114,6 +114,48 @@ let unlockContext: AudioContext | null = null;
 let voicePlayer: HTMLAudioElement | null = null;
 let speechUnlocked = false;
 let resumeWatchId: number | null = null;
+let cachedVoices: SpeechSynthesisVoice[] = [];
+
+function collectVoices() {
+  if (typeof window === "undefined" || !("speechSynthesis" in window)) return cachedVoices;
+  try {
+    const next = window.speechSynthesis.getVoices();
+    if (next.length > 0) cachedVoices = next;
+  } catch {
+    /* Android Chrome can throw before the engine is ready */
+  }
+  return cachedVoices;
+}
+
+function waitForVoices(timeoutMs = 1500) {
+  const existing = collectVoices();
+  if (existing.length > 0) return Promise.resolve(existing);
+
+  return new Promise<SpeechSynthesisVoice[]>((resolve) => {
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      window.clearTimeout(timer);
+      try {
+        window.speechSynthesis.removeEventListener("voiceschanged", finish);
+      } catch {
+        /* ignore */
+      }
+      resolve(collectVoices());
+    };
+
+    try {
+      if (typeof window.speechSynthesis.addEventListener === "function") {
+        window.speechSynthesis.addEventListener("voiceschanged", finish);
+      }
+    } catch {
+      /* some WebViews expose TTS without event support */
+    }
+
+    const timer = window.setTimeout(finish, timeoutMs);
+  });
+}
 
 function resumeSpeechSynthesis() {
   if (typeof window === "undefined" || !("speechSynthesis" in window)) return;
@@ -296,6 +338,8 @@ function pickStreamingVoice(voices: SpeechSynthesisVoice[], character?: Characte
       "google us english male",
       "uk english male",
       "us english male",
+      "en-us-x-sfg",
+      "en-us-x-tpd",
       "male",
       "david",
       "george",
@@ -572,17 +616,16 @@ export function useSpeech(options?: {
     }
 
     const loadVoices = () => {
-      try {
-        const next = window.speechSynthesis.getVoices();
-        voicesRef.current = next;
-        setVoices(next);
-      } catch {
-        voicesRef.current = [];
-        setVoices([]);
-      }
+      const next = collectVoices();
+      voicesRef.current = next;
+      setVoices(next);
     };
 
     loadVoices();
+    void waitForVoices().then((next) => {
+      voicesRef.current = next;
+      setVoices(next);
+    });
     try {
       if (typeof window.speechSynthesis.addEventListener === "function") {
         window.speechSynthesis.addEventListener("voiceschanged", loadVoices);
@@ -621,22 +664,41 @@ export function useSpeech(options?: {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const waitingForVoicesRef = useRef(false);
+  const voicesWaitedRef = useRef(false);
+
   const playNextUtterance = useCallback((preview?: { rateMultiplier?: number; voiceUri?: string | null }) => {
     if (typeof window === "undefined" || !("speechSynthesis" in window)) return;
     if (ttsBusyRef.current) return;
 
-    const next = speechQueueRef.current.shift();
+    const next = speechQueueRef.current[0];
     if (!next) {
       stopResumeWatch();
       setIsSpeaking(false);
       return;
     }
 
+    const voices = collectVoices();
+    voicesRef.current = voices;
+    if (voices.length === 0 && !voicesWaitedRef.current) {
+      if (waitingForVoicesRef.current) return;
+      waitingForVoicesRef.current = true;
+      void waitForVoices().then((loaded) => {
+        waitingForVoicesRef.current = false;
+        voicesWaitedRef.current = true;
+        voicesRef.current = loaded;
+        setVoices(loaded);
+        playNextUtterance(preview);
+      });
+      return;
+    }
+
+    speechQueueRef.current.shift();
+
     try {
       resumeAudioGraph();
       resumeSpeechSynthesis();
       const character = characterRef.current;
-      const voices = voicesRef.current.length > 0 ? voicesRef.current : window.speechSynthesis.getVoices();
       const voice = pickStreamingVoice(voices, character, preview?.voiceUri ?? preferredVoiceUriRef.current);
       const speed = preview?.rateMultiplier ?? rateMultiplierRef.current ?? 1;
       const utterance = new SpeechSynthesisUtterance(next);
@@ -646,7 +708,7 @@ export function useSpeech(options?: {
       utterance.lang = "en-US";
       utterance.volume = 1;
       utterance.rate = Math.min(1.4, Math.max(0.6, (male ? 0.95 : character?.voice.rate ?? 0.95) * speed));
-      utterance.pitch = male ? 0.82 : 1.05;
+      utterance.pitch = male ? 0.78 : 1.05;
       window.speechSynthesis.resume();
       if (voice && !(male && isVoiceLikelyFemale(voice))) utterance.voice = voice;
 

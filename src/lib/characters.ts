@@ -73,7 +73,7 @@ Stay age-appropriate. Keep helping with grammar and Hebrew translations as requi
       gender: "male",
       pitch: 0.95,
       rate: 1.02,
-      preferredNames: ["Daniel", "Alex", "Google US English Male", "Google UK English Male", "Fred"],
+      preferredNames: ["Daniel", "Alex", "Google US English Male", "Google UK English Male", "en-us-x-sfg", "en-us-x-tpd", "Fred"],
     },
     greetingTemplate:
       "Yo{{nameBit}}! I'm {{tutorName}} — let's level up your English.{{topic}} Ready to jump in?",
@@ -129,7 +129,7 @@ Stay age-appropriate. No dating advice, no adult social-media drama.`,
       gender: "male",
       pitch: 0.86,
       rate: 0.92,
-      preferredNames: ["Daniel", "Alex", "Google US English Male", "Google UK English Male", "Aaron"],
+      preferredNames: ["Daniel", "Alex", "Google US English Male", "Google UK English Male", "en-us-x-sfg", "en-us-x-tpd", "Aaron"],
     },
     greetingTemplate:
       "Greetings{{nameBit}}! {{tutorName}} here.{{topic}} Ready for a new adventure in English?",
@@ -157,7 +157,7 @@ Stay age-appropriate. Wonder and excitement, not fear or grim sci-fi horror.`,
       gender: "male",
       pitch: 0.92,
       rate: 1.0,
-      preferredNames: ["Alex", "Daniel", "Google US English Male", "Fred", "Tom"],
+      preferredNames: ["Alex", "Daniel", "Google US English Male", "en-us-x-sfg", "en-us-x-tpd", "Fred", "Tom"],
     },
     greetingTemplate:
       "Hey{{nameBit}}! I'm {{tutorName}} — let's get your English in game shape.{{topic}} What's your favorite sport right now?",
@@ -213,7 +213,7 @@ Stay age-appropriate. No adult anime, no violent gore, no dating/romance advice.
       gender: "male",
       pitch: 0.9,
       rate: 0.94,
-      preferredNames: ["Daniel", "Alex", "Google US English Male", "Google UK English Male", "Rishi"],
+      preferredNames: ["Daniel", "Alex", "Google US English Male", "Google UK English Male", "en-us-x-sfg", "en-us-x-tpd", "Rishi"],
     },
     greetingTemplate:
       "Hello{{nameBit}}! I'm {{tutorName}}. Let's explore tech, science, and wild ideas in English.{{topic}} What are you curious about today?",
@@ -295,7 +295,7 @@ export function writeStoredTutorId(id?: string | null) {
 const FEMALE_VOICE_HINT =
   /samantha|victoria|karen|moira|tessa|zira|hazel|fiona|kathy|siri|nicky|jenny|aria|zira|female|woman|girl|us english female|uk english female|google us english(?! male)/i;
 const MALE_VOICE_HINT =
-  /daniel|fred|david|mark|\btom\b|oliver|aaron|rishi|ravi|george|thomas|james|tony|echo|onyx|\balex\b|male|man|\bguy\b|\bboy\b|us english male|uk english male|standard-[bcdj]|neural2-[dj]/i;
+  /daniel|fred|david|mark|\btom\b|oliver|aaron|rishi|ravi|george|thomas|james|tony|echo|onyx|\balex\b|male|man|\bguy\b|\bboy\b|us english male|uk english male|en-us-x-sfg|en-us-x-tpd|standard-[bcdj]|neural2-[dj]/i;
 const NOVELTY_VOICE_HINT =
   /compact|novelty|whisper|bad news|good news|bells|boing|bubbles|cellos|trinoids|zarvox|deranged|hysterical|superstar|wobble/i;
 

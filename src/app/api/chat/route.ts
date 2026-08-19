@@ -1,4 +1,3 @@
-import { GoogleGenAI, Type } from "@google/genai";
 import { NextResponse } from "next/server";
 import { getCharacter } from "@/lib/characters";
 import {
@@ -37,7 +36,26 @@ const SSE_HEADERS = {
   "X-Accel-Buffering": "no",
 };
 
-const FAST_MODELS = ["gemini-1.5-flash", "gemini-2.0-flash", "gemini-2.5-flash"];
+const FAST_MODELS = ["gemini-2.5-flash", "gemini-1.5-flash", "gemini-3.6-flash", "gemini-2.5-flash-lite"];
+const GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta";
+const RESPONSE_SCHEMA = {
+  type: "OBJECT",
+  properties: {
+    aiResponse: { type: "STRING" },
+    translation: { type: "STRING" },
+    newMemories: {
+      type: "ARRAY",
+      items: {
+        type: "OBJECT",
+        properties: {
+          fact: { type: "STRING" },
+          kind: { type: "STRING" },
+        },
+      },
+    },
+  },
+  required: ["aiResponse", "translation"],
+};
 
 function geminiApiKey() {
   return (
@@ -46,6 +64,20 @@ function geminiApiKey() {
     process.env.GOOGLE_API_KEY?.trim() ||
     ""
   );
+}
+
+function geminiAuthHeaders(apiKey: string): HeadersInit {
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    Accept: "text/event-stream, application/json",
+  };
+  // AQ. and AIzaSy keys must use x-goog-api-key. Sending them as Bearer makes Google expect OAuth and return 401.
+  if (/^ya29[.-]/i.test(apiKey)) {
+    headers.Authorization = `Bearer ${apiKey}`;
+  } else {
+    headers["x-goog-api-key"] = apiKey;
+  }
+  return headers;
 }
 
 type ChatAction = "chat" | "change_topic" | "daily_open";
@@ -63,8 +95,11 @@ interface ChatRequestBody {
   placementCompleted?: boolean;
 }
 
-const BASE_TUTOR_RULES = `You are the child's caring, enthusiastic BEST FRIEND and English companion for ages 6–13 (Hebrew at home).
+const BASE_TUTOR_RULES = `You are BuddyAI, a warm, kid-friendly English tutor and enthusiastic companion for children aged 6–13 (Hebrew at home).
 Stay in CHARACTER. Peer-like Disney/Pixar vibe. Never a strict teacher. Never a quiz machine.
+
+Always respond dynamically and relevantly to what the child just said, in English or Hebrew.
+If the child says "I don't understand", "what?", "לא הבנתי", or "מה", explain in simpler English and offer a Hebrew hint. NEVER say "that's awesome" to confusion. NEVER quote their words back as "you said ... that's awesome".
 
 THE CHILD IS ANSWERING YOUR QUESTIONS (often in Hebrew or simple English).
 You MUST read and react directly to what they just said.
@@ -77,7 +112,8 @@ BANNED PHRASES (never say these):
 - "What happened next?"
 - "What do you like to do?"
 - "That's interesting. Tell me more"
-Never use a generic template. Every reply MUST quote or reuse specific words the child used.
+- "you said ... that's awesome! What do you like most about it?"
+Never use a generic template. Every reply MUST quote or reuse specific words the child used — except when they are confused, then explain.
 
 3-STAGE FLOW:
 Stage 1 — Initial connection (first 3-4 real answers ONLY, and only if those facts are still unknown):
@@ -545,7 +581,17 @@ function isBannedGenericReply(text: string) {
     /what happened next\?/.test(n) ||
     /what do you like to do\?/.test(n) ||
     /tell me more about that/.test(n) ||
-    /that's interesting\.?\s*tell me more/.test(n)
+    /that's interesting\.?\s*tell me more/.test(n) ||
+    /you said .+that'?s awesome/.test(n)
+  );
+}
+
+function looksConfused(text: string) {
+  const n = text.replace(/\s+/g, " ").trim().toLowerCase();
+  return (
+    /^(i\s+)?(don't|dont|do not)\s+understand\b/.test(n) ||
+    /^(what|huh|hmm+)\??$/.test(n) ||
+    /לא מבין|לא מבינה|לא הבנתי|^מה\??$|^מה זה/.test(text)
   );
 }
 
@@ -554,6 +600,18 @@ function contextualReply(userMessage: string, profile?: ProfileInput | null): Ch
   const name = String(profile?.nickname ?? "").trim();
   const prefix = name ? `${name}, ` : "";
   const quoted = spoken.slice(0, 42);
+
+  if (looksConfused(spoken)) {
+    return {
+      aiResponse: capReply(
+        `${prefix}no problem — I will make it simpler. Want me to say it in Hebrew, or try a smaller English sentence?`,
+      ),
+      translation: `${prefix}אין בעיה — נעשה את זה יותר פשוט. רוצה שאגיד בעברית, או ננסה משפט קטן באנגלית?`,
+      grammarAnalysis: emptyGrammar(spoken),
+      suggestedAnswers: ["Say it in Hebrew.", "A smaller sentence, please.", "I understand now."],
+      newMemories: [],
+    };
+  }
 
   if (/football|soccer|כדורגל/i.test(spoken)) {
     return {
@@ -603,9 +661,10 @@ function contextualReply(userMessage: string, profile?: ProfileInput | null): Ch
     };
   }
 
+  const detail = quoted || "that";
   return {
-    aiResponse: capReply(`${prefix}you said "${quoted}" — that's awesome! What do you like most about it?`),
-    translation: `${prefix}אמרת "${quoted}" — איזה כיף! מה אתה הכי אוהב בזה?`,
+    aiResponse: capReply(`${prefix}I heard you. ${detail}? Tell me one more detail so I can ask a better question.`),
+    translation: `${prefix}שמעתי אותך. ${detail}? תוסיף עוד פרט אחד כדי שאשאל שאלה טובה יותר.`,
     grammarAnalysis: emptyGrammar(spoken),
     suggestedAnswers: ["It is fun!", "I do it a lot.", "I love it!"],
     newMemories: extractFactsFromUtterance(spoken),
@@ -707,15 +766,12 @@ function polishReply(reply: ChatApiResponse, profile?: ProfileInput | null, user
   let aiResponse = collapseRepeatedSpeech(englishSpeechLine(reply.aiResponse));
   if (!allowScaffold) aiResponse = stripUnsolicitedScaffold(aiResponse);
   aiResponse = collapseRepeatedSpeech(aiResponse);
+  if (isBannedGenericReply(aiResponse)) {
+    console.error("[Gemini API Call Error]:", "Banned generic template from model", aiResponse);
+  }
 
   let translation = reply.translation;
   let newMemories = reply.newMemories;
-  if (userMessage && isBannedGenericReply(aiResponse)) {
-    const fallback = contextualReply(userMessage, profile);
-    aiResponse = collapseRepeatedSpeech(englishSpeechLine(fallback.aiResponse));
-    translation = fallback.translation;
-    newMemories = normalizeNewMemories([...(fallback.newMemories ?? []), ...(newMemories ?? [])]);
-  }
   if (!allowScaffold) {
     translation = translation
       .replace(/באנגלית אפשר להגיד:\s*["']?[^"']*["']?\s*/g, "")
@@ -770,15 +826,11 @@ function extractJson(content: string): ChatApiResponse {
 }
 
 function logGeminiError(label: string, error: unknown) {
-  console.error("[Gemini API Error]", label, error);
+  console.error("[Gemini API Call Error]:", label, error);
   if (error instanceof Error) {
-    console.error("[Gemini API Error] message:", error.message);
-    console.error("[Gemini API Error] stack:", error.stack);
+    console.error("[Gemini API Call Error]:", error.message);
     const cause = (error as Error & { cause?: unknown }).cause;
-    if (cause) {
-      console.error("[Gemini API Error] cause:", cause);
-      if (cause instanceof Error) console.error("[Gemini API Error] cause stack:", cause.stack);
-    }
+    if (cause) console.error("[Gemini API Call Error]:", cause);
   }
 }
 
@@ -891,6 +943,101 @@ This is their answer to your last question (Hebrew or simple English). You MUST 
   return turns;
 }
 
+type GeminiPart = { text?: string };
+type GeminiContent = { role?: string; parts?: GeminiPart[] };
+type GeminiResponse = {
+  candidates?: Array<{ content?: GeminiContent }>;
+  error?: { message?: string };
+};
+
+function textFromGeminiResponse(payload: unknown) {
+  if (!payload || typeof payload !== "object") return "";
+  const data = payload as GeminiResponse;
+  if (data.error?.message) throw new Error(data.error.message);
+  const parts = data.candidates?.[0]?.content?.parts ?? [];
+  return parts.map((part) => part.text ?? "").join("");
+}
+
+async function readSseGeminiText(response: Response, onDelta: (accumulated: string) => void) {
+  if (!response.body) throw new Error("Gemini stream missing body");
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let accumulated = "";
+
+  const consumeFrame = (frame: string) => {
+    for (const line of frame.split("\n")) {
+      const trimmed = line.trim();
+      if (!trimmed.startsWith("data:")) continue;
+      const raw = trimmed.slice(5).trim();
+      if (!raw || raw === "[DONE]") continue;
+      try {
+        accumulated += textFromGeminiResponse(JSON.parse(raw) as unknown);
+        onDelta(accumulated);
+      } catch (error) {
+        if (error instanceof SyntaxError) continue;
+        throw error;
+      }
+    }
+  };
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const frames = buffer.split("\n\n");
+    buffer = frames.pop() ?? "";
+    for (const frame of frames) {
+      if (frame.trim()) consumeFrame(frame);
+    }
+  }
+  if (buffer.trim()) {
+    try {
+      consumeFrame(buffer);
+    } catch {
+      /* ignore a truncated trailing SSE frame */
+    }
+  }
+  return accumulated;
+}
+
+async function geminiGenerate(
+  apiKey: string,
+  model: string,
+  body: unknown,
+  stream: boolean,
+  onDelta: (text: string) => void,
+) {
+  const method = stream ? "streamGenerateContent?alt=sse" : "generateContent";
+  const url = `${GEMINI_API_BASE}/models/${encodeURIComponent(model)}:${method}`;
+  const response = await fetch(url, {
+    method: "POST",
+    headers: geminiAuthHeaders(apiKey),
+    body: JSON.stringify(body),
+  });
+  if (!response.ok) {
+    const details = await response.text();
+    throw new Error(`Gemini ${model} ${response.status}: ${details.slice(0, 600)}`);
+  }
+  if (stream) {
+    const contentType = response.headers.get("content-type") ?? "";
+    if (contentType.includes("text/event-stream") || contentType.includes("text/plain")) {
+      return readSseGeminiText(response, onDelta);
+    }
+    const json = (await response.json()) as unknown;
+    const chunks = Array.isArray(json) ? json : [json];
+    let accumulated = "";
+    for (const chunk of chunks) {
+      accumulated += textFromGeminiResponse(chunk);
+      if (accumulated) onDelta(accumulated);
+    }
+    return accumulated;
+  }
+  const text = textFromGeminiResponse(await response.json());
+  if (text) onDelta(text);
+  return text;
+}
+
 async function streamGemini(
   history: ChatTurn[],
   userMessage: string,
@@ -910,12 +1057,6 @@ async function streamGemini(
   const placement = !placementCompleted && Boolean(extras?.placement || isPlacementActive(history, placementCompleted));
   const userTurns = placementAnswerTurns(history);
   const allowScaffold = shouldOfferSayHint(userMessage);
-  const greeting = maybeGreetingReply(userMessage, action, history, profile, placement, placementCompleted);
-  if (greeting) {
-    const payload = polishReply(greeting, profile, userMessage);
-    for (const event of eventsForCompleteReply(payload)) onEvent(event);
-    return payload;
-  }
 
   const languageHint =
     action === "daily_open" || extras?.isFirstSessionToday
@@ -961,55 +1102,32 @@ async function streamGemini(
         : userMessage;
 
   const contents = buildGeminiContents(history, latestText, action);
-
-  const ai = new GoogleGenAI({ apiKey });
-  const config = {
-    temperature: 0.7,
-    maxOutputTokens: 280,
-    responseMimeType: "application/json",
-    systemInstruction: system,
-    responseSchema: {
-      type: Type.OBJECT,
-      properties: {
-        aiResponse: { type: Type.STRING },
-        translation: { type: Type.STRING },
-        newMemories: {
-          type: Type.ARRAY,
-          items: {
-            type: Type.OBJECT,
-            properties: {
-              fact: { type: Type.STRING },
-              kind: { type: Type.STRING },
-            },
-          },
-        },
-      },
-      required: ["aiResponse", "translation"],
+  const requestBody = {
+    systemInstruction: { parts: [{ text: system }] },
+    contents,
+    generationConfig: {
+      temperature: 0.7,
+      maxOutputTokens: 280,
+      responseMimeType: "application/json",
+      responseSchema: RESPONSE_SCHEMA,
     },
   };
 
   let lastError: unknown;
 
   for (const model of FAST_MODELS) {
-    try {
-      const stream = await ai.models.generateContentStream({
-        model,
-        contents,
-        config,
-      });
-      let accumulated = "";
-      let spoken = 0;
-      let lastCaption = "";
-      let spokenText = "";
-      for await (const chunk of stream) {
-        accumulated += chunk.text ?? "";
-        const progress = progressFromPartial(accumulated, spoken, lastCaption, spokenText, allowScaffold);
-        spoken = progress.spoken;
-        lastCaption = progress.lastCaption;
-        spokenText = progress.spokenText;
-        for (const event of progress.events) onEvent(event);
-      }
-      if (!accumulated.trim()) throw new Error("Empty Gemini stream");
+    let spoken = 0;
+    let lastCaption = "";
+    let spokenText = "";
+    const pushProgress = (accumulated: string) => {
+      const progress = progressFromPartial(accumulated, spoken, lastCaption, spokenText, allowScaffold);
+      spoken = progress.spoken;
+      lastCaption = progress.lastCaption;
+      spokenText = progress.spokenText;
+      for (const event of progress.events) onEvent(event);
+    };
+
+    const finish = (accumulated: string) => {
       const payload = polishReply(extractJson(accumulated), profile, userMessage);
       payload.newMemories = normalizeNewMemories([
         ...(payload.newMemories ?? []),
@@ -1023,13 +1141,30 @@ async function streamGemini(
       onEvent({ type: "caption", text: payload.aiResponse, translation: payload.translation });
       onEvent({ type: "done", payload });
       return payload;
-    } catch (error) {
-      lastError = error;
-      logGeminiError(`Gemini stream ${model} failed`, error);
+    };
+
+    try {
+      const accumulated = await geminiGenerate(apiKey, model, requestBody, true, pushProgress);
+      if (!accumulated.trim()) throw new Error(`Empty Gemini stream from ${model}`);
+      return finish(accumulated);
+    } catch (streamError) {
+      lastError = streamError;
+      console.error("[Gemini API Call Error]:", streamError);
+      logGeminiError(`Gemini stream ${model} failed`, streamError);
+    }
+
+    try {
+      const accumulated = await geminiGenerate(apiKey, model, requestBody, false, pushProgress);
+      if (!accumulated.trim()) throw new Error(`Empty Gemini generateContent from ${model}`);
+      return finish(accumulated);
+    } catch (syncError) {
+      lastError = syncError;
+      console.error("[Gemini API Call Error]:", syncError);
+      logGeminiError(`Gemini generateContent ${model} failed`, syncError);
     }
   }
 
-  throw lastError instanceof Error ? lastError : new Error("Gemini stream failed");
+  throw lastError instanceof Error ? lastError : new Error("Gemini request failed");
 }
 
 function sseResponse(write: (send: (event: ChatStreamEvent) => void) => Promise<void>) {
@@ -1075,36 +1210,13 @@ export async function POST(request: Request) {
 
     const extras = { memories, isFirstSessionToday, placement, placementCompleted };
     const apiKey = geminiApiKey();
+    if (!apiKey) {
+      console.error("[Gemini API Call Error]:", "Missing GEMINI_API_KEY or GOOGLE_GENERATIVE_AI_API_KEY");
+      return NextResponse.json({ error: "Missing GEMINI_API_KEY" }, { status: 500 });
+    }
 
     return sseResponse(async (send) => {
-      const greeting = maybeGreetingReply(userMessage, action, history, profile, placement, placementCompleted);
-      if (greeting) {
-        for (const event of eventsForCompleteReply(polishReply(greeting, profile, userMessage))) send(event);
-        return;
-      }
-
-      if (apiKey) {
-        try {
-          await streamGemini(history, userMessage, action, profile, characterId, extras, send);
-          return;
-        } catch (error) {
-          console.error("[Gemini API Error]", error);
-          logGeminiError("Gemini fallback", error);
-        }
-      } else {
-        console.error("[Gemini API Error] Missing GEMINI_API_KEY or GOOGLE_GENERATIVE_AI_API_KEY");
-      }
-
-      const payload = polishReply(
-        mockReply(userMessage, action, history, profile, placement, memories, placementCompleted),
-        profile,
-        userMessage,
-      );
-      payload.newMemories = normalizeNewMemories([
-        ...(payload.newMemories ?? []),
-        ...extractFactsFromUtterance(userMessage),
-      ]);
-      for (const event of eventsForCompleteReply(payload)) send(event);
+      await streamGemini(history, userMessage, action, profile, characterId, extras, send);
     });
   } catch (error) {
     logGeminiError("Chat POST failed", error);

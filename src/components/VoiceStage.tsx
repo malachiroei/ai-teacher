@@ -31,6 +31,7 @@ interface VoiceStageProps {
 
 function useTalkingFace(speaking: boolean) {
   const mouthRef = useRef<HTMLDivElement>(null);
+  const levelRef = useRef(0);
   const [blinking, setBlinking] = useState(false);
 
   useEffect(() => {
@@ -58,6 +59,7 @@ function useTalkingFace(speaking: boolean) {
     if (!speaking) {
       mouth.style.transform = "translate(-50%, 0) scaleY(1)";
       mouth.style.opacity = "0";
+      levelRef.current = 0;
       return;
     }
 
@@ -105,6 +107,7 @@ function useTalkingFace(speaking: boolean) {
         amp = Math.min(1, Math.sqrt(sum / samples.length) * 3.2);
       }
       const open = 1 + amp * burst * 0.6;
+      levelRef.current = Math.max(0.18, Math.min(1, amp * burst));
       mouth.style.transform = `translate(-50%, 0) scaleY(${open.toFixed(3)})`;
       mouth.style.opacity = (0.18 + amp * burst * 0.48).toFixed(3);
       raf = requestAnimationFrame(tick);
@@ -123,10 +126,11 @@ function useTalkingFace(speaking: boolean) {
       gain?.disconnect();
       mouth.style.transform = "translate(-50%, 0) scaleY(1)";
       mouth.style.opacity = "0";
+      levelRef.current = 0;
     };
   }, [speaking]);
 
-  return { mouthRef, blinking };
+  return { mouthRef, blinking, levelRef };
 }
 
 export function VoiceStage({
@@ -154,7 +158,7 @@ export function VoiceStage({
   const micTouchRef = useRef(false);
   const speakTouchRef = useRef(false);
   const shownSrcRef = useRef<string | null>(null);
-  const { mouthRef, blinking } = useTalkingFace(speaking);
+  const { mouthRef, blinking, levelRef } = useTalkingFace(speaking);
 
   function bindImmediateTap(fromTouch: { current: boolean }, handler: () => void) {
     return {
@@ -347,7 +351,7 @@ export function VoiceStage({
         </AnimatePresence>
 
         <div className={cn("relative mx-[-0.5rem]", live && "wave-glow")}>
-          <VoiceWave mode={mode} color={character.accentColor} />
+          <VoiceWave mode={mode} color={character.accentColor} levelRef={levelRef} />
         </div>
         <div className="mt-3 flex items-center justify-center gap-4">
           <button
