@@ -644,7 +644,10 @@ export async function saveExtractedFact(
   const clean = normalizeFactText(fact);
   if (clean.length < 4) return null;
   const kind = mapMemoryCategory(category);
-  const eventOn = eventDate ? String(eventDate).slice(0, 10) : null;
+  const rawEvent = eventDate ? String(eventDate).trim() : "";
+  const candidate = rawEvent ? rawEvent.slice(0, 10) : null;
+  // PostgREST is strict about date formats; only accept YYYY-MM-DD.
+  const eventOn = candidate && /^\d{4}-\d{2}-\d{2}$/.test(candidate) ? candidate : null;
   const now = new Date().toISOString();
 
   try {
