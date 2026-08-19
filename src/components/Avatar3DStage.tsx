@@ -350,7 +350,7 @@ function GLTFTalkingAvatarInner({
 
   return (
     <group ref={groupRef}>
-      <primitive object={scene} position={[0, -2.4, 0]} scale={1.8} rotation={[0, 0, 0]} />
+      <primitive object={scene} position={[0, -2.85, 0]} scale={1.7} rotation={[0, 0, 0]} />
     </group>
   );
 }
@@ -406,7 +406,7 @@ export function Avatar3DStage({ character, isSpeaking, spokenText, mouthLevelRef
     <Canvas
       className="avatar-3d-canvas"
       dpr={[1, 2]}
-      camera={{ position: [0, 0.45, 1.25], fov: 28 }}
+      camera={{ position: [0, 0.4, 1.35], fov: 28 }}
       style={{ width: "100%", height: "100%", pointerEvents: "none" }}
       shadows={false}
       gl={{ antialias: true, alpha: true }}
