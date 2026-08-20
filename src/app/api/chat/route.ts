@@ -40,7 +40,7 @@ const FAST_MODELS = ["gemini-2.5-flash"];
 /** Only wait this long for Gemini response headers — never abort an in-flight stream. */
 const GEMINI_CONNECT_TIMEOUT_MS = 12_000;
 const VOICE_LATENCY_RULE =
-  "OUTPUT FORMAT (CRITICAL): Reply with pure spoken English plaintext ONLY. No JSON. No Hebrew. No markdown. No labels. Reply in exactly ONE concise, complete, friendly conversational sentence followed by a question. Keep the whole reply under 20 words. Never leave a thought incomplete. Always end with punctuation (. ! or ?). Example tone: Hey Roei! Great to hear from you — ready for some tennis practice today?";
+  "OUTPUT FORMAT (CRITICAL): Reply with pure spoken English plaintext ONLY. No JSON. No Hebrew. No markdown. No labels. One short complete sentence + one short question. If English Level is beginner: under 12 words total, A1 vocabulary only. Never leave a thought incomplete. Always end with punctuation (. ! or ?).";
 const GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta";
 
 function geminiApiKey() {
@@ -117,21 +117,23 @@ Stage 3 — Memory:
   Also remember new personal facts (name, age, grade, games, family, likes) for later turns.
 
 LANGUAGE / OUTPUT:
-- Reply in exactly ONE concise, complete, friendly conversational sentence followed by a question about THEIR last words.
-- Keep the whole reply under 20 words. Never leave a thought incomplete.
+- Reply in exactly ONE concise, complete, friendly conversational sentence followed by a short question about THEIR last words.
+- Match their English level STRICTLY:
+  - beginner: max 8 words before the question, only A1 words (hi, like, play, fun, yes, no, good). No idioms, no "mission", no "academy", no long clauses.
+  - intermediate: max 12 words, simple everyday English.
+  - advanced: still kid-friendly, under 20 words.
 - English plaintext ONLY. Never Hebrew in the spoken reply. Never JSON. Never markdown fences.
-- A1 / beginner words unless they clearly speak more. Short. Energetic.
 - If they speak Hebrew: not an error. Reply in simple English.
 
 GREETINGS (hi, hey, hello, שלום, היי): just a hello. Never teach a phrase. Never "You can say".
 If you already know their name, greet by name. Do not ask their name again.
 
-Keep the spoken reply under 20 words.`;
+Keep the spoken reply under 20 words (beginner: under 12 including the question).`;
 
 function formatStructuredUserProfile(profile?: ProfileInput | null) {
   if (!profile) return "";
   const fullName = String(profile.name ?? profile.nickname ?? "").trim() || "friend";
-  const level = String(profile.english_level ?? (profile as any).englishLevel ?? "beginner").trim() || "beginner";
+  const level = String(profile.english_level ?? (profile as any).englishLevel ?? "beginner").trim().toLowerCase() || "beginner";
   const interestsList = Array.isArray(profile.interests) ? profile.interests : [];
   const interests = interestsList.join(", ") || "none";
   const targetDaily = Number((profile as any).daily_goal_minutes ?? 10) || 10;
@@ -142,7 +144,14 @@ function formatStructuredUserProfile(profile?: ProfileInput | null) {
   return `### PERMANENT USER PROFILE (anchor — never ignore or forget):
 - Name: ${fullName} — always address by this name.
 - Age: ${age > 0 ? age : "unknown"}.
-- English Level: ${level} — calibrate vocabulary and sentence length accordingly at ALL times.
+- English Level: ${level} — STRICT calibration:
+  ${
+    level === "beginner"
+      ? "BEGINNER ONLY: very short A1 sentences (max ~8 words + a tiny question). Words like hi/like/play/fun/good. No fancy words."
+      : level === "intermediate"
+        ? "INTERMEDIATE: short everyday sentences, one idea at a time."
+        : "Keep it kid-simple and under 20 words."
+  }
 - Passions / Interests: ${interests} — weave these naturally into every conversation.
 - Daily Practice Target: ${targetDaily} min/day.
 Always use the Name, Level, and Interests above in EVERY reply. Never revert to generic greetings or re-ask for information already stored here.`;

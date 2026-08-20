@@ -43,7 +43,7 @@ export function GoalCelebrationModal({
           <X className="h-4 w-4" />
         </button>
         <div className="px-5 pt-6 pb-5 text-center">
-          <CharacterAvatar character={character} className="mx-auto h-24 w-24" eager live3d />
+          <CharacterAvatar character={character} className="mx-auto h-24 w-24" eager />
           <p className="mt-3 text-xs font-semibold tracking-wide uppercase" style={{ color: character.accentColor }}>
             Daily goal complete
           </p>

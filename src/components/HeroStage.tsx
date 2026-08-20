@@ -92,7 +92,7 @@ export function HeroStage({
           )}
           style={{ width: size, height: size }}
         >
-          <CharacterAvatar character={character} className="h-full w-full" eager framed={false} live3d />
+          <CharacterAvatar character={character} className="h-full w-full" eager framed={false} />
         </div>
       </motion.button>
 

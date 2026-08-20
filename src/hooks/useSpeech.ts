@@ -211,8 +211,8 @@ function ensureOutputGain() {
 function sliderToOutputGain(slider: number) {
   const val = Math.max(0, Math.min(1, slider));
   if (val === 0) return 0;
-  // Mild perceptual curve — stays audible at low slider positions (unlike val^2).
-  return Math.pow(val, 1.35);
+  // Stronger perceptual curve so mid/low slider positions are clearly quieter.
+  return Math.pow(val, 2.2);
 }
 
 function applyOutputVolume(slider: number) {
@@ -225,7 +225,6 @@ function applyOutputVolume(slider: number) {
     player.defaultMuted = false;
     player.volume = gain;
   }
-  // Update live utterance volume only — never cancel/resume the synth here.
   if (activeUtterance) {
     try {
       activeUtterance.volume = gain;
@@ -543,6 +542,8 @@ export function useSpeech(options?: {
   const sendTranscriptRef = useRef<(text?: string) => void>(() => {});
   const audioLevelRef = useRef(0);
   const volumeRef = useRef(1);
+  const speakingTextRef = useRef("");
+  const lastCommittedVolumeRef = useRef(1);
 
   characterRef.current = options?.character ?? null;
   rateMultiplierRef.current = options?.rateMultiplier ?? 1;
@@ -878,6 +879,7 @@ export function useSpeech(options?: {
       ttsBusyRef.current = true;
       setIsSpeaking(true);
       setSpeakingText(next);
+      speakingTextRef.current = next;
       onUtteranceEnqueueRef.current?.(next);
       utterance.onstart = () => {
         if (generation !== ttsGenerationRef.current) return;
@@ -932,6 +934,7 @@ export function useSpeech(options?: {
     ttsBusyRef.current = false;
     activeUtterance = null;
     setSpeakingText("");
+    speakingTextRef.current = "";
     cancelSpeechSynthesis();
     setIsSpeaking(false);
   }, []);
@@ -939,10 +942,8 @@ export function useSpeech(options?: {
   const setVolume = useCallback((next: number, options?: { commitMute?: boolean }) => {
     const v = Math.max(0, Math.min(1, next));
     volumeRef.current = v;
-    // Live drag: only adjust gain/utterance.volume — never cancel playback.
     applyOutputVolume(v);
-    // Interrupt only when the user commits mute at exactly 0 (pointer up / change),
-    // not while touch-dragging across near-zero values.
+
     if (v === 0 && options?.commitMute) {
       ttsGenerationRef.current += 1;
       speechQueueRef.current = [];
@@ -951,8 +952,29 @@ export function useSpeech(options?: {
       cancelSpeechSynthesis();
       setIsSpeaking(false);
       setSpeakingText("");
+      speakingTextRef.current = "";
+      lastCommittedVolumeRef.current = 0;
+      return;
     }
-  }, []);
+
+    // Chrome freezes SpeechSynthesis volume at speak() — on commit, restart the
+    // current line so the new loudness is actually heard.
+    if (options?.commitMute && Math.abs(v - lastCommittedVolumeRef.current) >= 0.04) {
+      lastCommittedVolumeRef.current = v;
+      const current = speakingTextRef.current.trim();
+      if (current && (ttsBusyRef.current || (typeof window !== "undefined" && window.speechSynthesis?.speaking))) {
+        const rest = speechQueueRef.current.slice();
+        ttsGenerationRef.current += 1;
+        cancelSpeechSynthesis();
+        ttsBusyRef.current = false;
+        activeUtterance = null;
+        speechQueueRef.current = [current, ...rest];
+        playNextUtterance();
+      }
+    } else if (options?.commitMute) {
+      lastCommittedVolumeRef.current = v;
+    }
+  }, [playNextUtterance]);
 
   const speak = useCallback(
     (text: string, preview?: { rateMultiplier?: number; voiceUri?: string | null }) => {

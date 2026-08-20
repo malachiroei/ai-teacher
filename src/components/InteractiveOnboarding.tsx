@@ -189,22 +189,54 @@ export function InteractiveOnboarding({ user, character, initialProfile: _initia
 
     try {
       const supabase = createClient();
+      const trimmedName = name.trim();
 
-      await supabase.from("profiles").update({
-        full_name: name.trim(),
-        nickname: name.trim(),
-        english_level: englishLevel,
-        interests: selectedInterests,
-        age: ageApprox,
-        daily_goal_minutes: dailyGoal,
-        onboarding_completed: true,
-      } as never).eq("id", user.id);
+      // Avoid unknown columns (e.g. onboarding_completed) that cause Supabase 400s.
+      const { error: saveError } = await supabase
+        .from("profiles")
+        .update({
+          full_name: trimmedName,
+          nickname: trimmedName,
+          english_level: englishLevel,
+          interests: selectedInterests,
+          age: ageApprox,
+          daily_goal_minutes: dailyGoal,
+        } as never)
+        .eq("id", user.id);
+      if (saveError) console.warn("Onboarding profile save:", saveError.message ?? saveError);
 
       markKidsPlacementComplete(user.id);
-      try { window.localStorage.setItem("onboarding_done", "1"); } catch { /* ignore */ }
+      try {
+        window.localStorage.setItem("onboarding_done", "1");
+      } catch {
+        /* ignore */
+      }
 
-      const nextProfile = await fetchProfile(supabase, user.id);
-      if (!nextProfile) throw new Error("Profile not found after onboarding.");
+      const stored = await fetchProfile(supabase, user.id);
+      const nextProfile: Profile = stored
+        ? {
+            ...stored,
+            nickname: trimmedName || stored.nickname,
+            full_name: trimmedName || stored.full_name,
+            english_level: englishLevel,
+            interests: selectedInterests.length ? selectedInterests : stored.interests,
+            age: ageApprox,
+            daily_goal_minutes: dailyGoal,
+          }
+        : ({
+            id: user.id,
+            nickname: trimmedName,
+            full_name: trimmedName,
+            english_level: englishLevel,
+            interests: selectedInterests,
+            age: ageApprox,
+            daily_goal_minutes: dailyGoal,
+            gender: "other",
+            selected_character: character.id,
+            placement_completed: true,
+            xp: 0,
+            level: 1,
+          } as Profile);
 
       await seedProfileMemories(supabase, user.id, nextProfile);
       await saveExtractedFact(supabase, user.id, `Level: ${englishLevel}`, "personal");

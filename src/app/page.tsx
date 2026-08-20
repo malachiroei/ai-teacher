@@ -1114,16 +1114,26 @@ export default function HomePage() {
       setHistoryReady(true);
       forcePlacementRef.current = false;
 
-      // Build a fully personalised first greeting using the onboarding data.
-      const kidName = (next.profile.full_name ?? next.profile.nickname ?? "").trim() || "there";
+      // Personalised first greeting — keep BEGINNER ultra-simple (matches onboarding choice).
+      const kidName = (next.profile.full_name ?? next.profile.nickname ?? "").trim() || "friend";
       const kidInterest = next.profile.interests?.[0] ?? "";
       const tutorNameStr = character.name;
-      const greetingText = kidInterest
-        ? `Hey ${kidName}! Welcome to the Cyber Academy! I'm ${tutorNameStr} — I see you love ${kidInterest}! Ready for our first mission? 🚀`
-        : `Hey ${kidName}! Welcome to the Cyber Academy! I'm ${tutorNameStr} — let's have some fun with English! Ready? 🚀`;
-      const greetingTranslation = kidInterest
-        ? `היי ${kidName}! ברוך הבא לאקדמיה! אני ${tutorNameStr} — ראיתי שאתה אוהב ${kidInterest}! מוכן למשימה הראשונה? 🚀`
-        : `היי ${kidName}! ברוך הבא לאקדמיה! אני ${tutorNameStr} — בואו נשחק עם אנגלית! מוכן? 🚀`;
+      const level = String(next.profile.english_level || "beginner").toLowerCase();
+      const isBeginner = level === "beginner" || level.includes("begin");
+      const greetingText = isBeginner
+        ? kidInterest
+          ? `Hi ${kidName}! I am ${tutorNameStr}. Do you like ${kidInterest}?`
+          : `Hi ${kidName}! I am ${tutorNameStr}. How are you?`
+        : kidInterest
+          ? `Hey ${kidName}! I'm ${tutorNameStr}. You like ${kidInterest} — cool! What do you want to talk about?`
+          : `Hey ${kidName}! I'm ${tutorNameStr}. What do you want to talk about today?`;
+      const greetingTranslation = isBeginner
+        ? kidInterest
+          ? `היי ${kidName}! אני ${tutorNameStr}. אתה אוהב ${kidInterest}?`
+          : `היי ${kidName}! אני ${tutorNameStr}. מה שלומך?`
+        : kidInterest
+          ? `היי ${kidName}! אני ${tutorNameStr}. אתה אוהב ${kidInterest} — מגניב! על מה בא לך לדבר?`
+          : `היי ${kidName}! אני ${tutorNameStr}. על מה בא לך לדבר היום?`;
 
       const opener = {
         id: typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `${Date.now()}`,
@@ -1137,7 +1147,11 @@ export default function HomePage() {
       setMessages([opener]);
       setSpokenReply(opener.text);
       setSpokenTranslation(opener.translation);
-      setSuggestions(["That sounds fun!", "Let's play!", "Tell me more!"]);
+      setSuggestions(
+        isBeginner
+          ? ["Yes!", "I like it!", "Hi!"]
+          : ["That sounds fun!", "Let's play!", "Tell me more!"],
+      );
 
       unlockSpeech();
       if (autoSpeak) speak(opener.text);
