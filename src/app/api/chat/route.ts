@@ -885,14 +885,9 @@ function progressFromPartial(
   let nextCaption = lastCaption;
   let nextSpokenText = spokenText;
   const caption = collapseRepeatedSpeech(allowScaffold ? raw : stripUnsolicitedScaffold(raw));
-  if (caption && caption !== lastCaption) {
-    translation = extractJsonStringField(accumulated, "translation");
-    events.push({ type: "caption", text: caption, translation });
-    nextCaption = caption;
-  }
   if (spoken === 0) {
-    // Emit an early speakable chunk sooner to reduce perceived TTS latency.
-    const early = pullEarlySpeakableChunk(raw, spoken, 1);
+    // First 3–4 words / first clause — emit before translation so TTS starts instantly.
+    const early = pullEarlySpeakableChunk(raw, spoken, 3);
     let earlyText = collapseRepeatedSpeech(englishSpeechLine(early.chunk));
     if (!allowScaffold) earlyText = collapseRepeatedSpeech(stripUnsolicitedScaffold(earlyText));
     if (earlyText && !isRedundantSpeechChunk(earlyText, nextSpokenText)) {
@@ -908,6 +903,11 @@ function progressFromPartial(
     if (!clean || isRedundantSpeechChunk(clean, nextSpokenText)) continue;
     nextSpokenText = nextSpokenText ? `${nextSpokenText} ${clean}` : clean;
     events.push({ type: "sentence", text: clean });
+  }
+  if (caption && caption !== lastCaption) {
+    translation = extractJsonStringField(accumulated, "translation");
+    events.push({ type: "caption", text: caption, translation });
+    nextCaption = caption;
   }
   return { spoken: pulled.consumed, lastCaption: nextCaption, spokenText: nextSpokenText, events };
 }

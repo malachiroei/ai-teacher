@@ -355,11 +355,9 @@ function GLTFTalkingAvatarInner({
   );
 }
 
-const LOCAL_CHARACTER_MODELS = new Set(["alex", "max", "emma", "luna"]);
-
-function resolveCharacterModelId(characterId: string) {
-  if (characterId === "luna") return "emma";
-  if (LOCAL_CHARACTER_MODELS.has(characterId)) return characterId;
+function resolveCharacterModelId(characterId: string, gender?: "female" | "male") {
+  const femaleIds = new Set(["emma", "luna", "mia", "zoey"]);
+  if (gender === "female" || femaleIds.has(characterId)) return "emma";
   return "alex";
 }
 
@@ -376,7 +374,7 @@ function ModelLoader() {
 }
 
 export function Avatar3DStage({ character, isSpeaking, spokenText, mouthLevelRef }: Avatar3DStageProps) {
-  const characterId = resolveCharacterModelId(character.id);
+  const characterId = resolveCharacterModelId(character.id, character.voice.gender);
   const modelUrl = `/models/${characterId}.glb`;
 
   useEffect(() => {

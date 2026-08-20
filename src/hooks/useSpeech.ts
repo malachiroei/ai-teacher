@@ -15,7 +15,7 @@ export const SPEECH_UNAVAILABLE_MESSAGE =
 
 export const MIC_PERMISSION_MESSAGE = "Please allow microphone access in your browser settings";
 
-const SILENCE_SUBMIT_MS = 4000;
+const SILENCE_SUBMIT_MS = 700;
 const FINAL_SUBMIT_MS = 700;
 const ONEND_RESULT_GRACE_MS = 300;
 
@@ -112,6 +112,10 @@ const SILENT_WAV =
 
 let unlockContext: AudioContext | null = null;
 let voicePlayer: HTMLAudioElement | null = null;
+let outputGain: GainNode | null = null;
+let voicePlayerSource: MediaElementAudioSourceNode | null = null;
+let activeUtterance: SpeechSynthesisUtterance | null = null;
+let currentOutputVolume = 1;
 let speechUnlocked = false;
 let resumeWatchId: number | null = null;
 let cachedVoices: SpeechSynthesisVoice[] = [];
@@ -184,9 +188,9 @@ function ensureVoicePlayer() {
   voicePlayer.setAttribute("preload", "auto");
   voicePlayer.controls = false;
   voicePlayer.autoplay = false;
-  voicePlayer.muted = false;
+  voicePlayer.muted = currentOutputVolume <= 0.001;
   voicePlayer.defaultMuted = false;
-  voicePlayer.volume = 1;
+  voicePlayer.volume = currentOutputVolume;
   voicePlayer.hidden = true;
   if (!voicePlayer.getAttribute("src")) {
     voicePlayer.src = SILENT_WAV;
@@ -213,8 +217,57 @@ function unlockAudioContext() {
   }
 }
 
+function ensureOutputGain() {
+  unlockAudioContext();
+  if (!unlockContext) return null;
+  if (!outputGain) {
+    outputGain = unlockContext.createGain();
+    outputGain.gain.value = currentOutputVolume;
+    outputGain.connect(unlockContext.destination);
+  }
+  const player = ensureVoicePlayer();
+  if (player && !voicePlayerSource) {
+    try {
+      voicePlayerSource = unlockContext.createMediaElementSource(player);
+      voicePlayerSource.connect(outputGain);
+    } catch {
+      /* MediaElementSource can only be created once per element */
+    }
+  }
+  return outputGain;
+}
+
+function applyOutputVolume(next: number) {
+  const v = Math.max(0, Math.min(1, next));
+  currentOutputVolume = v;
+  const player = ensureVoicePlayer();
+  if (player) {
+    player.muted = v <= 0.001;
+    player.defaultMuted = false;
+    player.volume = v;
+  }
+  if (activeUtterance) {
+    try {
+      activeUtterance.volume = v;
+    } catch {
+      /* some engines freeze volume at speak() time */
+    }
+  }
+  const gain = ensureOutputGain();
+  if (gain && unlockContext) {
+    try {
+      const now = unlockContext.currentTime;
+      gain.gain.cancelScheduledValues(now);
+      gain.gain.setTargetAtTime(v, now, 0.02);
+    } catch {
+      gain.gain.value = v;
+    }
+  }
+}
+
 export function getSpeechAudioContext() {
   unlockAudioContext();
+  ensureOutputGain();
   return unlockContext;
 }
 
@@ -277,9 +330,9 @@ function primeVoicePlayer() {
   const player = ensureVoicePlayer();
   if (!player) return;
   try {
-    player.muted = false;
+    player.muted = currentOutputVolume <= 0.001;
     player.defaultMuted = false;
-    player.volume = 1;
+    player.volume = currentOutputVolume;
     if (player.src !== SILENT_WAV) player.src = SILENT_WAV;
     player.currentTime = 0;
     const play = player.play();
@@ -295,11 +348,7 @@ function primeVoicePlayer() {
 
 function resumeAudioGraph() {
   unlockAudioContext();
-  const player = ensureVoicePlayer();
-  if (!player) return;
-  player.muted = false;
-  player.defaultMuted = false;
-  player.volume = 1;
+  applyOutputVolume(currentOutputVolume);
 }
 
 function startResumeWatch() {
@@ -370,6 +419,8 @@ function kickUtterance(
   try {
     resumeAudioGraph();
     utterance.lang = "en-US";
+    utterance.volume = currentOutputVolume;
+    activeUtterance = utterance;
     if (interrupt && (window.speechSynthesis.speaking || window.speechSynthesis.pending)) {
       window.speechSynthesis.cancel();
     }
@@ -821,6 +872,7 @@ export function useSpeech(options?: {
       const male = character?.voice.gender === "male";
       utterance.lang = "en-US";
       utterance.volume = volumeRef.current;
+      activeUtterance = utterance;
       utterance.rate = Math.min(1.4, Math.max(0.6, (male ? 0.92 : character?.voice.rate ?? 0.95) * speed));
       utterance.pitch = male ? 0.78 : 1.02;
       window.speechSynthesis.resume();
@@ -837,11 +889,13 @@ export function useSpeech(options?: {
       };
       utterance.onend = () => {
         if (generation !== ttsGenerationRef.current) return;
+        if (activeUtterance === utterance) activeUtterance = null;
         ttsBusyRef.current = false;
         playNextUtterance();
       };
       utterance.onerror = () => {
         if (generation !== ttsGenerationRef.current) return;
+        if (activeUtterance === utterance) activeUtterance = null;
         ttsBusyRef.current = false;
         playNextUtterance();
       };
@@ -876,6 +930,7 @@ export function useSpeech(options?: {
     ttsGenerationRef.current += 1;
     speechQueueRef.current = [];
     ttsBusyRef.current = false;
+    activeUtterance = null;
     setSpeakingText("");
     cancelSpeechSynthesis();
     setIsSpeaking(false);
@@ -884,13 +939,7 @@ export function useSpeech(options?: {
   const setVolume = useCallback((next: number) => {
     const v = Math.max(0, Math.min(1, next));
     volumeRef.current = v;
-    if (voicePlayer) {
-      try {
-        voicePlayer.volume = v;
-      } catch {
-        /* ignore */
-      }
-    }
+    applyOutputVolume(v);
   }, []);
 
   const speak = useCallback(

@@ -302,6 +302,11 @@ export function VoiceStage({
               max={1}
               step={0.01}
               value={volume}
+              onInput={(e) => {
+                const v = Number((e.target as HTMLInputElement).value);
+                setVolume(v);
+                onSetVolume(v);
+              }}
               onChange={(e) => {
                 const v = Number(e.target.value);
                 setVolume(v);

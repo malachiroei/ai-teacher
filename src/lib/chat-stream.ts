@@ -45,15 +45,22 @@ export function pullEarlySpeakableChunk(text: string, alreadyConsumed: number, m
   const pending = text.slice(alreadyConsumed);
   if (!pending.trim()) return { chunk: "", consumed: alreadyConsumed };
 
-  // Include comma so we can start TTS sooner on clause boundaries.
+  // Play as soon as a clause boundary lands, without waiting for a full paragraph.
   const punctuationIndex = pending.search(/[.!?,…]/);
-  const windowText = punctuationIndex >= 0 ? pending.slice(0, punctuationIndex) : pending;
-  const words = [...windowText.matchAll(/[\p{L}\p{N}'’]+/gu)];
+  if (punctuationIndex >= 0) {
+    const clause = collapseRepeatedSpeech(pending.slice(0, punctuationIndex + 1).trim());
+    if (clause && hasSpeakableLetters(clause)) {
+      return { chunk: clause, consumed: alreadyConsumed + punctuationIndex + 1 };
+    }
+  }
+
+  const words = [...pending.matchAll(/[\p{L}\p{N}'’]+/gu)];
   if (words.length < minWords) return { chunk: "", consumed: alreadyConsumed };
 
-  const boundary = words[Math.min(words.length, minWords) - 1];
+  const take = Math.min(4, words.length);
+  const boundary = words[take - 1];
   const end = (boundary.index ?? 0) + boundary[0].length;
-  const chunk = collapseRepeatedSpeech(windowText.slice(0, end));
+  const chunk = collapseRepeatedSpeech(pending.slice(0, end));
   if (!chunk || !hasSpeakableLetters(chunk)) return { chunk: "", consumed: alreadyConsumed };
 
   return { chunk, consumed: alreadyConsumed + end };
