@@ -1,12 +1,18 @@
 import { NextResponse } from "next/server";
-import { polishHebrewTranslation, quickHebrewSubtitle, shouldSkipLlmTranslate, isCleanHebrewSubtitle } from "@/lib/hebrew";
+import {
+  polishHebrewTranslation,
+  quickHebrewSubtitle,
+  shouldSkipLlmTranslate,
+  isCleanHebrewSubtitle,
+  isCompleteHebrewSubtitle,
+} from "@/lib/hebrew";
 import { trustSystemCertificates } from "@/lib/tls";
 
 export const dynamic = "force-dynamic";
 
 const MODEL = "gemini-2.5-flash";
 const GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta";
-const TIMEOUT_MS = 4000;
+const TIMEOUT_MS = 12000;
 
 function geminiApiKey() {
   return (
@@ -64,9 +70,10 @@ async function translateWithGemini(apiKey: string, english: string, gender?: str
         role: "user",
         parts: [
           {
-            text: `Translate the entire English tutor reply below into one natural Israeli Hebrew subtitle for a child.
+            text: `Translate the COMPLETE English tutor reply below into one natural Israeli Hebrew subtitle for a child.
 Rules:
-- Natural spoken Hebrew for the FULL sentence(s), not word-by-word.
+- Translate EVERY sentence to the end — never stop mid-phrase.
+- Natural spoken Hebrew for the FULL reply, not word-by-word.
 - No slash forms (אוהב/ת). ${genderHint}
 - Keep English personal names intact (Roei, Emma, Alex).
 - Return Hebrew only — no quotes, labels, JSON, or English leftover.
@@ -79,7 +86,9 @@ ${english}`,
     ],
     generationConfig: {
       temperature: 0.2,
-      maxOutputTokens: 220,
+      maxOutputTokens: 1024,
+      // Thinking tokens otherwise eat the budget and truncate the Hebrew mid-sentence.
+      thinkingConfig: { thinkingBudget: 0 },
     },
   };
 
@@ -98,10 +107,12 @@ ${english}`,
     }
     const text = cleanHebrewOutput(textFromGeminiResponse(await response.json()));
     if (!text || !/[\u0590-\u05FF]/.test(text)) return "";
-    return polishHebrewTranslation(
+    const polished = polishHebrewTranslation(
       text,
       gender === "girl" || gender === "boy" || gender === "other" ? gender : null,
     );
+    if (!isCompleteHebrewSubtitle(polished, english)) return "";
+    return polished;
   } finally {
     clearTimeout(timer);
   }
@@ -128,7 +139,7 @@ export async function POST(request: Request) {
 
     try {
       const translationRaw = await translateWithGemini(apiKey, text, body.gender);
-      const translation = isCleanHebrewSubtitle(translationRaw) ? translationRaw : "";
+      const translation = isCompleteHebrewSubtitle(translationRaw, text) ? translationRaw : "";
       return NextResponse.json({
         translation: translation || local,
         source: translation ? "gemini" : "local",

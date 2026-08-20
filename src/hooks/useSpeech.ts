@@ -494,6 +494,9 @@ function pickStreamingVoice(voices: SpeechSynthesisVoice[], character?: Characte
 
 function smoothSpokenText(text: string) {
   return text
+    // Chrome TTS often errors / drops the rest of the queue on emoji & ZWJ sequences.
+    .replace(/\p{Extended_Pictographic}/gu, " ")
+    .replace(/[\uFE0F\u200D\u20E3]/g, "")
     .replace(/,/g, " ")
     .replace(/\s+/g, " ")
     .replace(/\s+([.!?])/g, "$1")
@@ -889,17 +892,24 @@ export function useSpeech(options?: {
         resumeSpeechSynthesis();
         startResumeWatch();
       };
+      // Chrome drops the next speak() if called synchronously inside onend/onerror.
+      const advanceQueue = () => {
+        window.setTimeout(() => {
+          if (generation !== ttsGenerationRef.current) return;
+          playNextUtterance(preview);
+        }, 40);
+      };
       utterance.onend = () => {
         if (generation !== ttsGenerationRef.current) return;
         if (activeUtterance === utterance) activeUtterance = null;
         ttsBusyRef.current = false;
-        playNextUtterance();
+        advanceQueue();
       };
       utterance.onerror = () => {
         if (generation !== ttsGenerationRef.current) return;
         if (activeUtterance === utterance) activeUtterance = null;
         ttsBusyRef.current = false;
-        playNextUtterance();
+        advanceQueue();
       };
 
       kickUtterance(utterance, generation, ttsGenerationRef);

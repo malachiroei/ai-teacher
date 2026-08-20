@@ -235,5 +235,5 @@ Known Interests & Hobbies: ${hobbies}
 Target Daily Practice: ${targetDaily} min/day${nativeLanguage ? ` (native language: ${nativeLanguage})` : ""}
 ${facts ? `Stored facts:\n${facts}` : "No extra facts stored yet."}
 
-When asked about past facts, age, grade, or preferences, consult the USER PROFILE & MEMORIES section above. Answer accurately, warmly, and directly (e.g., "Of course, ${name}! You are in 9th grade and you love playing basketball! 🏀"). Never say you do not remember if the fact is listed here.`;
+When asked about past facts, age, grade, or preferences, consult the USER PROFILE & MEMORIES section above. Answer accurately, warmly, and directly (e.g., "Of course! You're in 9th grade and you love basketball — would you rather dunk or hit a buzzer-beater?"). Use their name sparingly. Never say you do not remember if the fact is listed here.`;
 }

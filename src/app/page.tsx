@@ -38,7 +38,7 @@ import {
 } from "@/lib/chat-history";
 import { getCharacter, isCharacterId, readStoredTutorId, writeStoredTutorId, type CharacterId } from "@/lib/characters";
 import { useDailyPractice } from "@/hooks/useDailyPractice";
-import { quickHebrewSubtitle, shouldSkipLlmTranslate, isCleanHebrewSubtitle } from "@/lib/hebrew";
+import { quickHebrewSubtitle, shouldSkipLlmTranslate, isCompleteHebrewSubtitle } from "@/lib/hebrew";
 import { logConversationPedagogyReport } from "@/lib/conversation-pedagogy";
 import { parseTutorNicknames, profilePayload, withTutorDisplayName } from "@/lib/learner";
 import { consumeChatStream, speakableSentences } from "@/lib/chat-stream";
@@ -171,6 +171,7 @@ export default function HomePage() {
   const spokenOpenerRef = useRef("");
   const forcePlacementRef = useRef(false);
   const dailyGreetedRef = useRef("");
+  const listenAfterTopicRef = useRef(false);
   const latencyClientRef = useRef<PipelineClientMetrics | null>(null);
   const latencyServerRef = useRef<PipelineServerMetrics | null>(null);
   const latencyReportPrintedRef = useRef(false);
@@ -346,6 +347,25 @@ export default function HomePage() {
     setTimeout(() => setNotice(""), 2800);
   }, []);
 
+  useEffect(() => {
+    if (!listenAfterTopicRef.current) return;
+    if (isLoading || awaitingGreeting || isSpeaking || isListening) return;
+    listenAfterTopicRef.current = false;
+    if (!speechSupported.stt) return;
+    unlockSpeech();
+    const started = startListening("en-US");
+    if (!started) flash(SPEECH_UNAVAILABLE_MESSAGE);
+  }, [
+    awaitingGreeting,
+    flash,
+    isListening,
+    isLoading,
+    isSpeaking,
+    speechSupported.stt,
+    startListening,
+    unlockSpeech,
+  ]);
+
   const applyLiveCaption = useCallback((caption: string, translation: string) => {
     setSpokenReply(caption);
     if (translation.trim()) setSpokenTranslation(translation);
@@ -364,7 +384,7 @@ export default function HomePage() {
     };
 
     const local = quickHebrewSubtitle(text, gender);
-    if (local && isCleanHebrewSubtitle(local)) {
+    if (local && isCompleteHebrewSubtitle(local, text)) {
       setSpokenTranslation(local);
       if (shouldSkipLlmTranslate(text, local)) {
         const turn = latencyClientRef.current;
@@ -385,7 +405,7 @@ export default function HomePage() {
         turn.tTranslateStart = Date.now();
         console.log(`[latency] T_TRANSLATE_START +${turn.tTranslateStart - turn.tClientSend}ms`);
       }
-      let hebrew = local && isCleanHebrewSubtitle(local) ? local : "";
+      let hebrew = local && isCompleteHebrewSubtitle(local, text) ? local : "";
       try {
         const response = await fetch("/api/translate", {
           method: "POST",
@@ -395,9 +415,12 @@ export default function HomePage() {
         if (response.ok) {
           const data = (await response.json()) as { translation?: string };
           const next = String(data.translation ?? "").trim();
-          if (isCleanHebrewSubtitle(next)) {
+          if (isCompleteHebrewSubtitle(next, text)) {
             hebrew = next;
             setSpokenTranslation(next);
+          } else if (!hebrew) {
+            // Avoid leaving a truncated optimistic subtitle on screen.
+            setSpokenTranslation("");
           }
         }
       } catch {
@@ -675,10 +698,12 @@ export default function HomePage() {
     const profileSnapshot = profile;
     let streamedSpeech = false;
 
-    // Prepare speak queue before network — must not include setState / XP / Supabase.
+    // Clear prior mic/TTS, then arm the stream queue before network work.
+    stopListening();
+    stopSpeaking();
     beginSpeakStream();
 
-    // CRITICAL: initiate HTTP immediately on this tick — no state/XP/speech teardown first.
+    // CRITICAL: initiate HTTP immediately on this tick — no state/XP after this.
     const replyPromise = requestReply(
       { userMessage: text, history, activeProfile: profileSnapshot },
       {
@@ -698,8 +723,6 @@ export default function HomePage() {
 
     // Everything below runs after fetch() has already been invoked.
     unlockSpeech();
-    stopListening();
-    stopSpeaking();
     setMenuOpen(false);
     setInput("");
     setSpokenReply("");
@@ -781,7 +804,7 @@ export default function HomePage() {
       );
       setSuggestions(data.suggestedAnswers ?? []);
       setSpokenReply(data.aiResponse);
-      setSpokenTranslation(data.translation ?? "");
+      if (data.translation?.trim()) setSpokenTranslation(data.translation);
       setIsLoading(false);
       sendingRef.current = false;
       if (autoSpeak && !streamedSpeech) {
@@ -812,7 +835,10 @@ export default function HomePage() {
 
   async function handleAnotherQuestion() {
     if (isLoading || !chatUnlocked || !user) return;
+    listenAfterTopicRef.current = false;
     setIsLoading(true);
+    stopListening();
+    stopSpeaking();
     beginSpeakStream();
     const { tClientSend, live: latencyLive } = beginLatencyTurn("(change topic)");
     let streamedSpeech = false;
@@ -840,12 +866,14 @@ export default function HomePage() {
       setMessages((current) => [...current, aiMessage]);
       setSuggestions(data.suggestedAnswers ?? []);
       setSpokenReply(data.aiResponse);
-      setSpokenTranslation(data.translation ?? "");
+      if (data.translation?.trim()) setSpokenTranslation(data.translation);
       if (autoSpeak && !streamedSpeech) speak(data.aiResponse);
+      // Open the mic after the tutor finishes asking what they want to talk about.
+      listenAfterTopicRef.current = true;
       void persistMemories(data.newMemories);
-      // Fire-and-forget so switching topics doesn't delay TTS.
       void persistMessages(user.id, [{ id: aiMessage.id, sender: "ai", text: data.aiResponse, translation: data.translation }]);
     } catch {
+      listenAfterTopicRef.current = false;
       flash("Couldn't switch topics right now.");
     } finally {
       setIsLoading(false);
@@ -1034,7 +1062,7 @@ export default function HomePage() {
         };
         setMessages((current) => [...current, opener]);
         setSpokenReply(data.aiResponse);
-        setSpokenTranslation(data.translation ?? "");
+        if (data.translation?.trim()) setSpokenTranslation(data.translation);
         // Fire-and-forget so greeting audio isn't blocked by chat persistence.
         void persistMessages(user.id, [{ id: opener.id, sender: "ai", text: opener.text, translation: opener.translation }]);
       } catch {
@@ -1309,6 +1337,7 @@ export default function HomePage() {
           voiceSpeed={formatVoiceSpeed(voiceSpeed)}
           disabled={isLoading || awaitingGreeting || !chatUnlocked}
           onToggleMic={handleToggleMic}
+          onChangeTopic={() => void handleAnotherQuestion()}
           onSendText={(text) => {
             unlockSpeech();
             void sendMessage(text);

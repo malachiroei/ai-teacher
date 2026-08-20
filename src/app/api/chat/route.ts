@@ -40,7 +40,63 @@ const FAST_MODELS = ["gemini-2.5-flash"];
 /** Only wait this long for Gemini response headers — never abort an in-flight stream. */
 const GEMINI_CONNECT_TIMEOUT_MS = 12_000;
 const VOICE_LATENCY_RULE =
-  "OUTPUT FORMAT (CRITICAL): Reply with pure spoken English plaintext ONLY. No JSON. No Hebrew. No markdown. No labels. One short complete sentence + one short question. If English Level is beginner: under 12 words total, A1 vocabulary only. Never leave a thought incomplete. Always end with punctuation (. ! or ?).";
+  "OUTPUT FORMAT (CRITICAL): Pure spoken English plaintext ONLY. No JSON. No Hebrew. No markdown. No labels. Exactly ONE punchy high-energy sentence + ONE exciting open question. Under 25 words total (beginner: under 12, A1 only). Always end with punctuation (. ! or ?). Never leave a thought incomplete.";
+
+const BASE_TUTOR_RULES = `You are BuddyAI — a cool older sibling / supportive teammate for kids aged 6–13 (Hebrew at home).
+Stay in CHARACTER. Peer-like Disney/Pixar vibe. Never a strict teacher. Never a quiz machine.
+
+NATURAL NAMING (CRITICAL):
+- Do NOT say the child's name in every message. That feels robotic.
+- Use their name sparingly: greetings, once every 5–6 turns at most, or when celebrating something big.
+- Most turns: talk like a real friend with no name at all.
+
+TOPIC FLEXIBILITY (CRITICAL):
+- If the child mentions or hints at ANY new topic (gaming, pizza, pets, space, school, superpowers, etc.), DROP the previous topic instantly.
+- Never force the conversation back to old questions. Match their energy and jump into their world.
+
+PERSONAL CONTEXT:
+- Weave known interests and memories naturally (e.g. "Since you love basketball, would you rather…").
+- Reference shared details like a real friend — not a checklist.
+
+DYNAMIC VARIETY (anti-repetition):
+- Rotate formats: Would You Rather choices, exciting hypotheticals, playful challenges, quick reactions.
+- NEVER ask two generic "Do you like X?" questions in a row.
+- Prefer concrete, fun choices over vague "tell me more".
+
+INVISIBLE ENGLISH COACHING (recasting):
+- If they make a grammar/spelling mistake or mix in Hebrew, model the correct English phrase naturally inside your reply.
+- NEVER say "that's wrong", "incorrect", or lecture about grammar.
+
+Always respond dynamically to what they just said (English or Hebrew).
+If they say "I don't understand", "what?", "לא הבנתי", or "מה", explain in simpler English. NEVER say "that's awesome" to confusion.
+
+BANNED PHRASES (never say these):
+- "Cool! Tell me more about that"
+- "What happened next?"
+- "What do you like to do?"
+- "That's interesting. Tell me more"
+- "you said ... that's awesome! What do you like most about it?"
+Never use a generic template. Every reply MUST react to specific words they used — except when confused, then explain.
+
+3-STAGE FLOW:
+Stage 1 — Initial connection (first 3–4 real answers ONLY if facts are unknown):
+  1) Warm greeting (name OK here once).
+  2) Grade / age.
+  3) Favorite subject or hobby.
+Stage 2 — Deep curiosity (default after Stage 1): follow THEIR lead with varied formats above.
+Stage 3 — Memory: use ### USER PROFILE & MEMORIES. Answer memory questions directly. Store new personal facts.
+
+LANGUAGE / OUTPUT:
+- Exactly ONE punchy sentence + ONE open question. Under 25 words total.
+- beginner: max ~8 words before the question, A1 only (hi, like, play, fun, yes, no, good).
+- intermediate: max ~12 words before the question.
+- advanced: still kid-friendly, under 25 words total.
+- English plaintext ONLY. Never Hebrew in the spoken reply. Never JSON. Never markdown fences.
+- If they speak Hebrew: not an error. Reply in simple English. Recast their idea in correct English naturally.
+
+GREETINGS (hi, hey, hello, שלום, היי): warm hello; name allowed once. Never teach a phrase. Never "You can say".
+Do not ask their name again if you already know it.`;
+
 const GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta";
 
 function geminiApiKey() {
@@ -82,54 +138,6 @@ interface ChatRequestBody {
   clientSendAt?: number | null;
 }
 
-const BASE_TUTOR_RULES = `You are BuddyAI, a warm, kid-friendly English tutor and enthusiastic companion for children aged 6–13 (Hebrew at home).
-Stay in CHARACTER. Peer-like Disney/Pixar vibe. Never a strict teacher. Never a quiz machine.
-
-Always respond dynamically and relevantly to what the child just said, in English or Hebrew.
-If the child says "I don't understand", "what?", "לא הבנתי", or "מה", explain in simpler English and offer a Hebrew hint. NEVER say "that's awesome" to confusion. NEVER quote their words back as "you said ... that's awesome".
-
-THE CHILD IS ANSWERING YOUR QUESTIONS (often in Hebrew or simple English).
-You MUST read and react directly to what they just said.
-Example: If they say "ללכת לים" (go to the beach), talk about the beach: "I love the beach! Do you like swimming in the sea or making sandcastles? 🏖️"
-Example: If they say "I play football" or "אני אוהב לשחק כדורגל", say "You play football? That's awesome! Are you a striker or a goalkeeper? ⚽"
-Example: If they say "I am in 4th grade", say "You're in 4th grade? Nice! What's your favorite subject at school? 🏫"
-
-BANNED PHRASES (never say these):
-- "Cool! Tell me more about that"
-- "What happened next?"
-- "What do you like to do?"
-- "That's interesting. Tell me more"
-- "you said ... that's awesome! What do you like most about it?"
-Never use a generic template. Every reply MUST quote or reuse specific words the child used — except when they are confused, then explain.
-
-3-STAGE FLOW:
-Stage 1 — Initial connection (first 3-4 real answers ONLY, and only if those facts are still unknown):
-  1) Warm greeting + name.
-  2) Grade / age: "What grade are you in at school? 🏫"
-  3) Favorite subject or hobby: "What is your favorite thing to learn or play? 🎮"
-  Diagnose Beginner vs Intermediate from their English and keep words that simple.
-Stage 2 — Deep curiosity (the default after Stage 1):
-  Ask rich, varied kid questions about pets, best friends, sports, Roblox/Minecraft, superhero powers, weekend plans, family.
-  Never restart name/age/grade quizzes once you know them.
-Stage 3 — Memory:
-  Remember every fact. Use ### USER PROFILE & MEMORIES as ground truth.
-  If the child asks "Do you remember how old I am?" or similar, answer with the stored age/grade/interests. Never dodge.
-  Also remember new personal facts (name, age, grade, games, family, likes) for later turns.
-
-LANGUAGE / OUTPUT:
-- Reply in exactly ONE concise, complete, friendly conversational sentence followed by a short question about THEIR last words.
-- Match their English level STRICTLY:
-  - beginner: max 8 words before the question, only A1 words (hi, like, play, fun, yes, no, good). No idioms, no "mission", no "academy", no long clauses.
-  - intermediate: max 12 words, simple everyday English.
-  - advanced: still kid-friendly, under 20 words.
-- English plaintext ONLY. Never Hebrew in the spoken reply. Never JSON. Never markdown fences.
-- If they speak Hebrew: not an error. Reply in simple English.
-
-GREETINGS (hi, hey, hello, שלום, היי): just a hello. Never teach a phrase. Never "You can say".
-If you already know their name, greet by name. Do not ask their name again.
-
-Keep the spoken reply under 20 words (beginner: under 12 including the question).`;
-
 function formatStructuredUserProfile(profile?: ProfileInput | null) {
   if (!profile) return "";
   const fullName = String(profile.name ?? profile.nickname ?? "").trim() || "friend";
@@ -139,10 +147,8 @@ function formatStructuredUserProfile(profile?: ProfileInput | null) {
   const targetDaily = Number((profile as any).daily_goal_minutes ?? 10) || 10;
   const age = Number(profile.age) || 0;
 
-  // This block is injected directly into the Gemini system prompt. It must be
-  // anchored at the top of every request so the model NEVER forgets it.
   return `### PERMANENT USER PROFILE (anchor — never ignore or forget):
-- Name: ${fullName} — always address by this name.
+- Name: ${fullName} — know it, spell it right, but do NOT say it every turn (greetings / every 5–6 turns max).
 - Age: ${age > 0 ? age : "unknown"}.
 - English Level: ${level} — STRICT calibration:
   ${
@@ -150,104 +156,104 @@ function formatStructuredUserProfile(profile?: ProfileInput | null) {
       ? "BEGINNER ONLY: very short A1 sentences (max ~8 words + a tiny question). Words like hi/like/play/fun/good. No fancy words."
       : level === "intermediate"
         ? "INTERMEDIATE: short everyday sentences, one idea at a time."
-        : "Keep it kid-simple and under 20 words."
+        : "Keep it kid-simple and under 25 words total."
   }
-- Passions / Interests: ${interests} — weave these naturally into every conversation.
+- Passions / Interests: ${interests} — weave naturally when relevant; follow THEIR lead if they pivot.
 - Daily Practice Target: ${targetDaily} min/day.
-Always use the Name, Level, and Interests above in EVERY reply. Never revert to generic greetings or re-ask for information already stored here.`;
+Use Level and Interests. Never re-ask for facts already stored here. Never force their name into every reply.`;
 }
 
 const TOPIC_STARTERS: ChatApiResponse[] = [
   {
-    aiResponse: "Let's switch it up! Do you enjoy cooking at home, or do you prefer eating out?",
-    translation: "בואו נחליף נושא! אתה אוהב לבשל בבית, או שאתה מעדיף לאכול בחוץ?",
+    aiResponse: "Sure thing! What do you feel like talking about right now?",
+    translation: "בשמחה! על מה בא לך לדבר עכשיו?",
     grammarAnalysis: {
       hasError: false,
       explanation: "אין כאן שגיאת דקדוק — פשוט מחליפים נושא.",
       correctedText: "",
     },
-    suggestedAnswers: ["I love cooking at home.", "I usually eat out.", "It depends on the day."],
+    suggestedAnswers: ["Let's talk about games.", "I want to talk about sports.", "Animals!"],
   },
   {
-    aiResponse: "New topic! If you could travel anywhere next month, where would you go?",
-    translation: "נושא חדש! אם היית יכול לנסוע לאן שתרצה בחודש הבא, לאן היית הולך?",
+    aiResponse: "Totally! What's on your mind — games, food, space, or something else?",
+    translation: "בטח! מה בראש שלך — משחקים, אוכל, חלל, או משהו אחר?",
     grammarAnalysis: {
       hasError: false,
       explanation: "אין כאן שגיאת דקדוק — פשוט מחליפים נושא.",
       correctedText: "",
     },
-    suggestedAnswers: ["I would go to Italy.", "I'd stay close to home.", "I want to visit Japan."],
+    suggestedAnswers: ["Games!", "Food!", "Something else."],
   },
   {
-    aiResponse: "Let's talk about weekends. What does a perfect Saturday look like for you?",
-    translation: "בואו נדבר על סופי שבוע. איך נראה שבת מושלם עבורך?",
+    aiResponse: "Fresh start! What sounds fun to chat about today?",
+    translation: "התחלה חדשה! על מה כיף לדבר היום?",
     grammarAnalysis: {
       hasError: false,
       explanation: "אין כאן שגיאת דקדוק — פשוט מחליפים נושא.",
       correctedText: "",
     },
-    suggestedAnswers: ["I sleep in and watch movies.", "I meet friends outdoors.", "I like a quiet morning."],
+    suggestedAnswers: ["Pets!", "School!", "Superpowers!"],
   },
   {
-    aiResponse: "How about movies and shows? Have you watched anything interesting recently?",
-    translation: "מה לגבי סרטים וסדרות? ראית משהו מעניין לאחרונה?",
+    aiResponse: "I'm in! Tell me — what do you feel like talking about?",
+    translation: "אני בפנים! תגיד — על מה בא לך לדבר?",
     grammarAnalysis: {
       hasError: false,
       explanation: "אין כאן שגיאת דקדוק — פשוט מחליפים נושא.",
       correctedText: "",
     },
-    suggestedAnswers: ["Yes, I watched a comedy.", "I prefer documentaries.", "I haven't had time lately."],
+    suggestedAnswers: ["Movies!", "Sports!", "Whatever is cool."],
   },
 ];
 
 const INTEREST_TOPICS: Record<string, ChatApiResponse> = {
   Movies: {
-    aiResponse: "Let's talk movies! What's the last film or series you really enjoyed?",
-    translation: "בואו נדבר על סרטים! מה הסרט או הסדרה האחרונים שממש נהנית מהם?",
+    aiResponse: "Sure! What do you feel like talking about — movies, or something brand new?",
+    translation: "בשמחה! על מה בא לך לדבר — סרטים, או משהו חדש לגמרי?",
     grammarAnalysis: { hasError: false, explanation: "אין כאן שגיאת דקדוק — פשוט מחליפים נושא.", correctedText: "" },
-    suggestedAnswers: ["I watched a superhero movie.", "I love comedies.", "I prefer TV series."],
+    suggestedAnswers: ["Movies!", "Something new.", "Games instead."],
   },
   Cars: {
-    aiResponse: "You like cars — nice! If you could drive any car tomorrow, which one would you pick?",
-    translation: "אתה אוהב מכוניות — מגניב! אם היית יכול לנהוג בכל רכב מחר, מה היית בוחר?",
+    aiResponse: "Let's switch! What do you feel like talking about right now?",
+    translation: "בואו נחליף! על מה בא לך לדבר עכשיו?",
     grammarAnalysis: { hasError: false, explanation: "אין כאן שגיאת דקדוק — פשוט מחליפים נושא.", correctedText: "" },
-    suggestedAnswers: ["A fast sports car.", "Something electric.", "A classic old car."],
+    suggestedAnswers: ["Cars!", "Something else.", "Games!"],
   },
   Travel: {
-    aiResponse: "Travel time! If you could visit any country this year, where would you go?",
-    translation: "זמן טיולים! אם היית יכול לבקר בכל מדינה השנה, לאן היית נוסע?",
+    aiResponse: "Fresh topic time! What do you feel like chatting about?",
+    translation: "זמן לנושא חדש! על מה בא לך לדבר?",
     grammarAnalysis: { hasError: false, explanation: "אין כאן שגיאת דקדוק — פשוט מחליפים נושא.", correctedText: "" },
-    suggestedAnswers: ["I would go to Japan.", "I'd visit Italy.", "I want a beach holiday."],
+    suggestedAnswers: ["Travel!", "Food!", "Animals!"],
   },
   Sports: {
-    aiResponse: "Let's talk sports. Do you like playing, watching, or both?",
-    translation: "בואו נדבר על ספורט. אתה אוהב לשחק, לצפות, או גם וגם?",
+    aiResponse: "Sure thing! What do you feel like talking about right now?",
+    translation: "בשמחה! על מה בא לך לדבר עכשיו?",
     grammarAnalysis: { hasError: false, explanation: "אין כאן שגיאת דקדוק — פשוט מחליפים נושא.", correctedText: "" },
-    suggestedAnswers: ["I love playing soccer.", "I mostly watch games.", "I like going to the gym."],
+    suggestedAnswers: ["Sports!", "Games!", "Something fun."],
   },
   Tech: {
-    aiResponse: "Tech is a great topic. What app or gadget do you use the most every day?",
-    translation: "טכנולוגיה זה נושא מעולה. באיזו אפליקציה או גאדג'ט אתה הכי משתמש כל יום?",
+    aiResponse: "I'm ready! What do you feel like talking about?",
+    translation: "אני מוכן! על מה בא לך לדבר?",
     grammarAnalysis: { hasError: false, explanation: "אין כאן שגיאת דקדוק — פשוט מחליפים נושא.", correctedText: "" },
-    suggestedAnswers: ["My phone, all day.", "I like gaming PCs.", "I use AI tools a lot."],
+    suggestedAnswers: ["Tech!", "Games!", "Something else."],
   },
   Music: {
-    aiResponse: "Music time! What kind of music do you listen to when you want to feel good?",
-    translation: "זמן מוזיקה! לאיזה סוג מוזיקה אתה שומע כשאתה רוצה להרגיש טוב?",
+    aiResponse: "Cool switch! What do you feel like talking about right now?",
+    translation: "החלפה מגניבה! על מה בא לך לדבר עכשיו?",
     grammarAnalysis: { hasError: false, explanation: "אין כאן שגיאת דקדוק — פשוט מחליפים נושא.", correctedText: "" },
-    suggestedAnswers: ["I love pop music.", "Mostly hip-hop.", "I like calm songs."],
+    suggestedAnswers: ["Music!", "Movies!", "Games!"],
   },
   Food: {
-    aiResponse: "Let's talk food. What's your favorite meal at the moment?",
-    translation: "בואו נדבר על אוכל. מה הארוחה האהובה עליך עכשיו?",
+    aiResponse: "Yum energy! What do you feel like talking about?",
+    translation: "אנרגיית אוכל! על מה בא לך לדבר?",
     grammarAnalysis: { hasError: false, explanation: "אין כאן שגיאת דקדוק — פשוט מחליפים נושא.", correctedText: "" },
-    suggestedAnswers: ["I love pizza.", "Anything homemade.", "Sushi is my favorite."],
+    suggestedAnswers: ["Food!", "Pizza!", "Something else."],
   },
   Games: {
-    aiResponse: "Gaming! Are you more into phone games, console, or PC?",
-    translation: "גיימינג! אתה יותר במשחקי טלפון, קונסולה או מחשב?",
+    aiResponse: "Game on — or new vibe? What do you feel like talking about?",
+    translation: "משחקים — או וייב חדש? על מה בא לך לדבר?",
     grammarAnalysis: { hasError: false, explanation: "אין כאן שגיאת דקדוק — פשוט מחליפים נושא.", correctedText: "" },
-    suggestedAnswers: ["Mostly phone games.", "I play on a console.", "PC gaming all the way."],
+    suggestedAnswers: ["Games!", "Sports!", "Something new."],
   },
 };
 
@@ -261,16 +267,31 @@ function pickTopic(turn: number, profile?: ProfileInput | null): ChatApiResponse
   if (interests.length > 0) {
     const topic = interests[turn % interests.length];
     const match = INTEREST_TOPICS[topic];
-    if (match) return personalizeReply(match, profile);
+    if (match) return match;
   }
-  return personalizeReply(TOPIC_STARTERS[turn % TOPIC_STARTERS.length], profile);
+  return TOPIC_STARTERS[turn % TOPIC_STARTERS.length];
 }
 
-function personalizeReply(reply: ChatApiResponse, profile?: ProfileInput | null): ChatApiResponse {
-  if (!profile?.nickname) return reply;
-  if (reply.aiResponse.includes(profile.nickname)) return reply;
-  const rest = reply.aiResponse.charAt(0).toLowerCase() + reply.aiResponse.slice(1);
-  return { ...reply, aiResponse: `${profile.nickname}, ${rest}` };
+function turnsSinceNameUsed(history: ChatTurn[], name: string) {
+  const trimmed = name.trim();
+  if (!trimmed) return 99;
+  const aiTurns = history.filter((turn) => turn.sender === "ai");
+  for (let i = aiTurns.length - 1; i >= 0; i -= 1) {
+    if (new RegExp(`\\b${trimmed.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i").test(aiTurns[i].text)) {
+      return aiTurns.length - 1 - i;
+    }
+  }
+  return 99;
+}
+
+function namingHint(history: ChatTurn[], profile?: ProfileInput | null) {
+  const name = String(profile?.nickname ?? profile?.name ?? "").trim();
+  if (!name) return "NAMING: No known name yet. Do not invent one.";
+  const since = turnsSinceNameUsed(history, name);
+  if (since < 5) {
+    return `NAMING: Their name is ${name}. You used it recently (${since} AI turn(s) ago). Do NOT use their name this turn.`;
+  }
+  return `NAMING: Their name is ${name}. Optional this turn (not required). Prefer no name unless it feels natural.`;
 }
 
 const GRAMMAR_PATTERNS: { re: RegExp; explanation: string; replace: [RegExp, string] }[] = [
@@ -606,16 +627,14 @@ function looksConfused(text: string) {
 
 function contextualReply(userMessage: string, profile?: ProfileInput | null): ChatApiResponse {
   const spoken = userMessage.replace(/\s+/g, " ").trim();
-  const name = String(profile?.nickname ?? "").trim();
-  const prefix = name ? `${name}, ` : "";
   const quoted = spoken.slice(0, 42);
 
   if (looksConfused(spoken)) {
     return {
       aiResponse: capReply(
-        `${prefix}no problem — I will make it simpler. Want me to say it in Hebrew, or try a smaller English sentence?`,
+        `No problem — I will make it simpler. Want me to say it in Hebrew, or try a smaller English sentence?`,
       ),
-      translation: `${prefix}אין בעיה — נעשה את זה יותר פשוט. רוצה שאגיד בעברית, או ננסה משפט קטן באנגלית?`,
+      translation: `אין בעיה — נעשה את זה יותר פשוט. רוצה שאגיד בעברית, או ננסה משפט קטן באנגלית?`,
       grammarAnalysis: emptyGrammar(spoken),
       suggestedAnswers: ["Say it in Hebrew.", "A smaller sentence, please.", "I understand now."],
       newMemories: [],
@@ -624,8 +643,8 @@ function contextualReply(userMessage: string, profile?: ProfileInput | null): Ch
 
   if (/football|soccer|כדורגל/i.test(spoken)) {
     return {
-      aiResponse: capReply(`${prefix}you play football? That's awesome! Are you a striker or a goalkeeper? ⚽`),
-      translation: `${prefix}אתה משחק כדורגל? איזה כיף! אתה חלוץ או שוער?`,
+      aiResponse: capReply(`You play football? That's awesome! Are you a striker or a goalkeeper? ⚽`),
+      translation: `אתה משחק כדורגל? איזה כיף! אתה חלוץ או שוער?`,
       grammarAnalysis: emptyGrammar(spoken),
       suggestedAnswers: ["I am a striker!", "I am a goalkeeper.", "I play with friends."],
       newMemories: [{ fact: "Plays football", kind: "preference", eventOn: null }],
@@ -637,8 +656,8 @@ function contextualReply(userMessage: string, profile?: ProfileInput | null): Ch
     const gradeHe = spoken.match(/כיתה\s*([א-ו1-9])/)?.[1];
     const gradeBit = grade ? `${grade}th grade` : gradeHe ? `grade ${gradeHe}` : "that grade";
     return {
-      aiResponse: capReply(`${prefix}you're in ${gradeBit}? Nice! What's your favorite subject at school? 🏫`),
-      translation: `${prefix}אתה בכיתה הזאת? מגניב! מה המקצוע האהוב עליך בבית הספר?`,
+      aiResponse: capReply(`You're in ${gradeBit}? Nice! What's your favorite subject at school? 🏫`),
+      translation: `אתה בכיתה הזאת? מגניב! מה המקצוע האהוב עליך בבית הספר?`,
       grammarAnalysis: emptyGrammar(spoken),
       suggestedAnswers: ["I like math.", "I like sport.", "I like English."],
       newMemories: grade
@@ -651,8 +670,8 @@ function contextualReply(userMessage: string, profile?: ProfileInput | null): Ch
 
   if (/לים|הים|לחוף|החוף|beach|swim/i.test(spoken)) {
     return {
-      aiResponse: capReply(`${prefix}I love the beach! Do you like swimming in the sea or making sandcastles? 🏖️`),
-      translation: `${prefix}אני אוהב את החוף! אתה אוהב לשחות בים או לבנות ארמונות חול?`,
+      aiResponse: capReply(`I love the beach! Do you like swimming in the sea or making sandcastles? 🏖️`),
+      translation: `אני אוהב את החוף! אתה אוהב לשחות בים או לבנות ארמונות חול?`,
       grammarAnalysis: emptyGrammar(spoken),
       suggestedAnswers: ["I like swimming.", "I make sandcastles.", "The water is fun!"],
       newMemories: [{ fact: "Likes the beach", kind: "preference", eventOn: null }],
@@ -662,8 +681,8 @@ function contextualReply(userMessage: string, profile?: ProfileInput | null): Ch
   if (/\b(roblox|minecraft|fortnite)\b/i.test(spoken)) {
     const game = spoken.match(/\b(roblox|minecraft|fortnite)\b/i)?.[1] ?? "that game";
     return {
-      aiResponse: capReply(`${prefix}you play ${game}? That's a W! What did you build or win today? 🎮`),
-      translation: `${prefix}אתה משחק ${game}? איזה כיף! מה בנית או ניצחת היום?`,
+      aiResponse: capReply(`You play ${game}? That's a W! What did you build or win today? 🎮`),
+      translation: `אתה משחק ${game}? איזה כיף! מה בנית או ניצחת היום?`,
       grammarAnalysis: emptyGrammar(spoken),
       suggestedAnswers: ["I built a house.", "I won a game.", "I play with friends."],
       newMemories: [{ fact: `Likes playing ${game}`, kind: "preference", eventOn: null }],
@@ -672,10 +691,10 @@ function contextualReply(userMessage: string, profile?: ProfileInput | null): Ch
 
   const detail = quoted || "that";
   return {
-    aiResponse: capReply(`${prefix}I heard you. ${detail}? Tell me one more detail so I can ask a better question.`),
-    translation: `${prefix}שמעתי אותך. ${detail}? תוסיף עוד פרט אחד כדי שאשאל שאלה טובה יותר.`,
+    aiResponse: capReply(`I heard you — ${detail}? Want a would-you-rather about it, or a wild hypothetical?`),
+    translation: `שמעתי אותך — ${detail}? רוצה would-you-rather על זה, או תרחיש משוגע?`,
     grammarAnalysis: emptyGrammar(spoken),
-    suggestedAnswers: ["It is fun!", "I do it a lot.", "I love it!"],
+    suggestedAnswers: ["Would you rather!", "A wild hypothetical!", "I love it!"],
     newMemories: extractFactsFromUtterance(spoken),
   };
 }
@@ -1042,14 +1061,18 @@ async function streamGemini(
 
   const languageHint =
     action === "daily_open" || extras?.isFirstSessionToday
-      ? "FIRST MESSAGE TODAY. Memories exist. Greet them by name like a best friend. Follow up on their latest plan, pet, game, or day. 1-2 short sentences, then a fun question. Do NOT ask their name again. Do NOT restart placement."
+      ? "FIRST MESSAGE TODAY. Memories exist. Greet warmly (name OK once). Follow up on their latest plan, pet, game, or day. One punchy sentence + one fun question under 25 words. Do NOT ask their name again. Do NOT restart placement."
       : placement
         ? `PLACEMENT MODE is ON. Real answers so far: ${userTurns} of 3 (name, grade/age, favorite thing to learn or play). Ask only the next missing step. One short question. If they only said hi/hello/שלום/היי, that is NOT their name — greet warmly and ask their name again.`
         : action === "change_topic"
-          ? "The child asked for a new topic. Follow a memory or what they last said. Keep it A1. Do NOT ask name, age, or favorite color."
+          ? "CHANGE TOPIC: Drop the previous subject completely. Warmly ask what they feel like talking about right now (e.g. \"Sure thing! What do you feel like talking about right now?\"). Do NOT pick a topic for them. Do NOT use their name. Do NOT ask name/age/favorite color."
           : allowScaffold
             ? 'The child asked how to say something, or is stuck. You may give one "You can say: …" hint, then one simple question. English only.'
-            : `PLACEMENT IS COMPLETE. Never ask name, age, or "what is your favorite color?". The child just said: "${userMessage}". Reply to those exact words. Use memories. Ask one specific curious question.${
+            : `PLACEMENT IS COMPLETE. Never ask name, age, or "what is your favorite color?". The child just said: "${userMessage}".
+TOPIC RULE: If they hint at a new topic, abandon the old one instantly and dive in.
+FORMAT: Rotate styles (Would You Rather / hypothetical / playful challenge). Never two generic "Do you like X?" in a row.
+RECAST: If their English/Hebrew is imperfect, model the correct English naturally — never scold.
+Use memories when relevant. One punchy sentence + one open question. Under 25 words.${
                 detected === "he"
                   ? " The child used Hebrew. Reply warmly in simple English only. Do NOT say You can say / בואי ננסה."
                   : " The child used English. One-word answers are great."
@@ -1067,6 +1090,7 @@ async function streamGemini(
     learnerContext,
     formatStructuredUserProfile(profile),
     formatSessionHistory(history),
+    namingHint(history, profile),
     languageHint,
     "When asked about past facts, age, grade, or preferences, consult ### USER PROFILE & MEMORIES. Answer accurately, warmly, and directly.",
     "Keep the FULL conversation history. Never drop earlier turns or memories.",
@@ -1082,7 +1106,7 @@ async function streamGemini(
     action === "daily_open"
       ? "The child just opened the app. Give an instant warm greeting that references their latest memory or asks about their day."
       : action === "change_topic"
-        ? "Please start a new easy topic for a young beginner."
+        ? "The child tapped Change Topic. Immediately and warmly ask what they feel like talking about right now. Do not invent a topic for them."
         : userMessage;
 
   const contents = buildGeminiContents(history, latestText, action);
@@ -1095,6 +1119,7 @@ async function streamGemini(
     generationConfig: {
       temperature: 0.7,
       maxOutputTokens: 600,
+      thinkingConfig: { thinkingBudget: 0 },
     },
   };
 

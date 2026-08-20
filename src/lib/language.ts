@@ -143,7 +143,12 @@ export function normalizeSpeechKey(text: string) {
 }
 
 export function englishSpeechLine(text: string) {
-  return text.replace(/[\u0590-\u05FF][\u0590-\u05FF\s,.'’"!?-]*/g, " ").replace(/\s+/g, " ").trim();
+  return text
+    .replace(/[\u0590-\u05FF][\u0590-\u05FF\s,.'’"!?-]*/g, " ")
+    .replace(/\p{Extended_Pictographic}/gu, " ")
+    .replace(/[\uFE0F\u200D\u20E3]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 export function stripUnsolicitedScaffold(text: string) {

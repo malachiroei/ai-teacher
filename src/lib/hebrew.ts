@@ -89,6 +89,25 @@ export function isCleanHebrewSubtitle(hebrew: string) {
   return hebrewLetters / letters.length >= 0.55;
 }
 
+/** Reject truncations like "היי רועי! איזה" for a long English reply. */
+export function isCompleteHebrewSubtitle(hebrew: string, english: string) {
+  if (!isCleanHebrewSubtitle(hebrew)) return false;
+  const en = english.trim();
+  const he = hebrew.trim();
+  const enWords = en.split(/\s+/).filter(Boolean).length;
+  const heWords = he.split(/\s+/).filter(Boolean).length;
+  if (enWords >= 8 && heWords < Math.max(4, Math.floor(enWords * 0.35))) return false;
+  // Mid-clause cuts often lack end punctuation and are far shorter than the source.
+  if (
+    enWords >= 6 &&
+    heWords < Math.floor(enWords * 0.5) &&
+    !/[.!?…״"']\s*$/.test(he)
+  ) {
+    return false;
+  }
+  return true;
+}
+
 /** Exact / near-exact tutor phrases → instant Hebrew (no LLM). */
 const QUICK_PHRASE_HE: Array<{
   re: RegExp;

@@ -2,7 +2,7 @@
 
 import { useRef, useState, type MouseEvent, type TouchEvent } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { Keyboard, Mic, Send, Volume1, Volume2, VolumeX } from "lucide-react";
+import { Keyboard, Mic, RefreshCw, Send, Volume1, Volume2, VolumeX } from "lucide-react";
 import { MixedBidiText } from "@/components/MixedBidiText";
 import { VoiceWave, type VoiceWaveMode } from "@/components/VoiceWave";
 import { Avatar3DStage } from "@/components/Avatar3DStage";
@@ -27,6 +27,7 @@ interface VoiceStageProps {
   audioLevelRef?: { current: number };
   disabled?: boolean;
   onToggleMic: () => void;
+  onChangeTopic?: () => void;
   onToggleSpeak: () => void;
   onCycleVoiceSpeed: () => void;
   onOpenCharacters: () => void;
@@ -49,6 +50,7 @@ export function VoiceStage({
   audioLevelRef,
   disabled,
   onToggleMic,
+  onChangeTopic,
   onToggleSpeak,
   onCycleVoiceSpeed,
   onOpenCharacters,
@@ -252,6 +254,25 @@ export function VoiceStage({
             </motion.form>
           ) : null}
         </AnimatePresence>
+
+        {onChangeTopic ? (
+          <div className="mb-3 flex justify-center">
+            <button
+              type="button"
+              disabled={Boolean(disabled)}
+              onClick={onChangeTopic}
+              aria-label="Change topic"
+              className="inline-flex items-center gap-2 rounded-full border border-white/14 bg-white/8 px-4 py-2 text-sm font-medium text-white/90 shadow-[0_8px_24px_rgba(0,0,0,0.22)] backdrop-blur-md transition hover:bg-white/12 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              <RefreshCw className="h-3.5 w-3.5 opacity-80" aria-hidden />
+              <span dir="ltr">Change Topic</span>
+              <span className="text-white/35" aria-hidden>
+                ·
+              </span>
+              <span dir="rtl">שנה נושא</span>
+            </button>
+          </div>
+        ) : null}
 
         <div className={cn("relative mx-[-0.5rem]", liveWave && "wave-glow")}>
           <VoiceWave
