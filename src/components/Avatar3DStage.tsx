@@ -17,8 +17,38 @@ type Avatar3DStageProps = {
   modelUrl?: string | null;
 };
 
+const MAX_MOUTH_OPEN = 0.35;
+
 function normMorphName(name: string) {
   return name.toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+type MouthMorphKind = "jaw" | "aa" | "smile" | "funnel" | "other";
+
+function classifyMouthMorph(rawKey: string): MouthMorphKind {
+  const key = normMorphName(rawKey);
+  if (key.includes("jawopen") || key.includes("mouthopen") || key === "jaw" || key.includes("blendshapejaw")) {
+    return "jaw";
+  }
+  if (key.includes("visemeaa") || key === "vaa") return "aa";
+  if (key.includes("mouthsmile")) return "smile";
+  if (key.includes("mouthfunnel") || key.includes("mouthpucker")) return "funnel";
+  return "other";
+}
+
+function mouthTargetForKind(kind: MouthMorphKind, amount: number) {
+  switch (kind) {
+    case "jaw":
+      return amount * 0.92;
+    case "aa":
+      return amount * 0.72;
+    case "smile":
+      return amount * 0.28;
+    case "funnel":
+      return amount * 0.16;
+    default:
+      return amount * 0.5;
+  }
 }
 
 function useVisemeSchedule(spokenText: string | undefined, enabled: boolean) {
@@ -172,11 +202,13 @@ function FallbackAvatar({
 
 function GLTFTalkingAvatar({
   modelUrl,
+  characterId,
   isSpeaking,
   spokenText,
   mouthLevelRef,
 }: {
   modelUrl: string;
+  characterId: "emma" | "alex";
   isSpeaking: boolean;
   spokenText?: string;
   mouthLevelRef?: { current: number };
@@ -184,6 +216,7 @@ function GLTFTalkingAvatar({
   return (
     <GLTFTalkingAvatarInner
       modelUrl={modelUrl}
+      characterId={characterId}
       isSpeaking={isSpeaking}
       spokenText={spokenText}
       mouthLevelRef={mouthLevelRef}
@@ -194,11 +227,13 @@ function GLTFTalkingAvatar({
 // Separate component so hooks are unconditional within this subtree.
 function GLTFTalkingAvatarInner({
   modelUrl,
+  characterId,
   isSpeaking,
   spokenText,
   mouthLevelRef,
 }: {
   modelUrl: string;
+  characterId: "emma" | "alex";
   isSpeaking: boolean;
   spokenText?: string;
   mouthLevelRef?: { current: number };
@@ -211,7 +246,7 @@ function GLTFTalkingAvatarInner({
   // Multi-mesh morph driving:
   // - Collect ALL morphTarget meshes
   // - Precompute mouth+eye morph influence targets to drive every frame
-  const mouthInfluenceEntriesRef = useRef<Array<{ mesh: Mesh; index: number }>>([]);
+  const mouthInfluenceEntriesRef = useRef<Array<{ mesh: Mesh; index: number; kind: MouthMorphKind }>>([]);
   const eyeInfluenceEntriesRef = useRef<Array<{ mesh: Mesh; index: number }>>([]);
   const hasMouthMorphRef = useRef(false);
 
@@ -249,7 +284,7 @@ function GLTFTalkingAvatarInner({
 
     const eyeTargets = new Set(["eyeblinkleft", "eyeblinkright", "eyesclosed"].map((k) => normMorphName(k)));
 
-    const mouthEntries: Array<{ mesh: Mesh; index: number }> = [];
+    const mouthEntries: Array<{ mesh: Mesh; index: number; kind: MouthMorphKind }> = [];
     const eyeEntries: Array<{ mesh: Mesh; index: number }> = [];
     const detected = new Set<string>();
 
@@ -279,7 +314,9 @@ function GLTFTalkingAvatarInner({
       for (const [rawKey, index] of Object.entries(dict)) {
         detected.add(rawKey);
         const normalized = normMorphName(rawKey);
-        if (mouthTargets.has(normalized)) mouthEntries.push({ mesh, index });
+        if (mouthTargets.has(normalized)) {
+          mouthEntries.push({ mesh, index, kind: classifyMouthMorph(rawKey) });
+        }
         if (eyeTargets.has(normalized)) eyeEntries.push({ mesh, index });
       }
     });
@@ -307,7 +344,8 @@ function GLTFTalkingAvatarInner({
     groupRef.current.rotation.y = MathUtils.lerp(groupRef.current.rotation.y, 0, 0.08);
     groupRef.current.rotation.x = MathUtils.lerp(groupRef.current.rotation.x, 0, 0.08);
 
-    const speechWave = isSpeaking ? Math.sin(t * 16) * 0.5 + 0.5 : 0;
+    const speechWave = isSpeaking ? Math.sin(t * 14) * 0.18 + 0.18 : 0;
+    const mouthAmount = Math.min(MAX_MOUTH_OPEN, Math.max(0, speechWave));
 
     // Eye blinking every ~3.5s.
     const blinkPeriodSeconds = 3.5;
@@ -320,45 +358,45 @@ function GLTFTalkingAvatarInner({
       arr[entry.index] = MathUtils.lerp(arr[entry.index], blinkAmt, 0.3);
     }
 
-    // Mouth lip-sync.
+    // Mouth lip-sync — subtle blended visemes, never wide gape.
     if (hasMouthMorphRef.current) {
       for (const entry of mouthInfluenceEntriesRef.current) {
         const arr = entry.mesh.morphTargetInfluences;
         if (!arr) continue;
-        const target = isSpeaking ? speechWave : 0;
-        arr[entry.index] = MathUtils.lerp(arr[entry.index], target, 0.3);
+        const target = mouthTargetForKind(entry.kind, mouthAmount);
+        arr[entry.index] = MathUtils.lerp(arr[entry.index], target, 0.22);
       }
     } else {
       // Physical jaw/head speaking fallback when no mouth morphs exist.
       const node = jawOrHeadNodeRef.current;
       const initial = jawOrHeadInitialRotRef.current;
       if (node && initial) {
-        const targetX = initial.x + (isSpeaking ? speechWave * 0.22 : 0);
-        node.rotation.x = MathUtils.lerp(node.rotation.x, targetX, 0.25);
+        const targetX = initial.x + (isSpeaking ? mouthAmount * 0.1 : 0);
+        node.rotation.x = MathUtils.lerp(node.rotation.x, targetX, 0.22);
       }
-      // Also do a small mesh position nudge if we found a jaw mesh.
       if (jawMeshNodeRef.current && jawMeshInitialPosRef.current) {
-        const targetY = jawMeshInitialPosRef.current.y + (isSpeaking ? speechWave * 0.02 : 0);
-        jawMeshNodeRef.current.position.y = MathUtils.lerp(jawMeshNodeRef.current.position.y, targetY, 0.25);
+        const targetY = jawMeshInitialPosRef.current.y + (isSpeaking ? mouthAmount * 0.012 : 0);
+        jawMeshNodeRef.current.position.y = MathUtils.lerp(jawMeshNodeRef.current.position.y, targetY, 0.22);
       }
     }
 
     if (mouthLevelRef) {
-      mouthLevelRef.current = MathUtils.lerp(mouthLevelRef.current, isSpeaking ? speechWave : 0, 0.18);
+      mouthLevelRef.current = MathUtils.lerp(mouthLevelRef.current, isSpeaking ? mouthAmount : 0, 0.18);
     }
   });
 
+  const modelPosition: [number, number, number] =
+    characterId === "emma" ? [0, -2.6, 0] : [0, -2.85, 0];
+
   return (
     <group ref={groupRef}>
-      <primitive object={scene} position={[0, -2.85, 0]} scale={1.7} rotation={[0, 0, 0]} />
+      <primitive object={scene} position={modelPosition} scale={1.7} rotation={[0, 0, 0]} />
     </group>
   );
 }
 
-function resolveCharacterModelId(characterId: string, gender?: "female" | "male") {
-  const femaleIds = new Set(["emma", "luna", "mia", "zoey"]);
-  if (gender === "female" || femaleIds.has(characterId)) return "emma";
-  return "alex";
+function resolveCharacterModelId(characterId: string) {
+  return characterId === "alex" ? "alex" : "emma";
 }
 
 function ModelLoader() {
@@ -374,8 +412,10 @@ function ModelLoader() {
 }
 
 export function Avatar3DStage({ character, isSpeaking, spokenText, mouthLevelRef }: Avatar3DStageProps) {
-  const characterId = resolveCharacterModelId(character.id, character.voice.gender);
+  const characterId = resolveCharacterModelId(character.id) as "emma" | "alex";
   const modelUrl = `/models/${characterId}.glb`;
+  const cameraPosition: [number, number, number] =
+    characterId === "emma" ? [0, 0.42, 1.28] : [0, 0.4, 1.35];
 
   useEffect(() => {
     try {
@@ -389,7 +429,7 @@ export function Avatar3DStage({ character, isSpeaking, spokenText, mouthLevelRef
     <Canvas
       className="avatar-3d-canvas"
       dpr={[1, 2]}
-      camera={{ position: [0, 0.4, 1.35], fov: 28 }}
+      camera={{ position: cameraPosition, fov: 28 }}
       style={{ width: "100%", height: "100%", pointerEvents: "none" }}
       shadows={false}
       gl={{ antialias: true, alpha: true }}
@@ -403,6 +443,7 @@ export function Avatar3DStage({ character, isSpeaking, spokenText, mouthLevelRef
         <AvatarGLTFErrorBoundary key={characterId} fallback={null}>
           <GLTFTalkingAvatar
             key={characterId}
+            characterId={characterId}
             modelUrl={modelUrl}
             isSpeaking={isSpeaking}
             spokenText={spokenText}

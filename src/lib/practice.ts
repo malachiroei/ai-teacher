@@ -83,15 +83,9 @@ const STOP_WORDS = new Set([
   "thank",
 ]);
 
-const GOAL_CHEERS: Record<CharacterId, string> = {
+const GOAL_CHEERS: Partial<Record<CharacterId, string>> & Record<"emma", string> = {
   emma: "Amazing job! You crushed your {{minutes}} minutes today! 🎉",
-  leo: "GG! You queued a full {{minutes}} minutes of English — that's a win! 🎮",
-  mia: "Yesss! You totally hit your {{minutes}}-minute vibe today! ✨",
-  max: "Mission complete! {{minutes}} minutes of English adventure in the log! 🚀",
   alex: "Champion session — {{minutes}} minutes on the clock! 🏆",
-  luna: "Sugoi! You practiced English for {{minutes}} minutes today! ⭐",
-  nova: "Experiment success: {{minutes}} minutes of English logged in the lab! 🧪",
-  zoey: "Pawsome work! You practiced for {{minutes}} minutes today! 🐾",
 };
 
 export function todayDateKey(date = new Date()) {

@@ -276,6 +276,11 @@ export default function HomePage() {
     setTimeout(() => setNotice(""), 2800);
   }, []);
 
+  const applyLiveCaption = useCallback((caption: string, translation: string) => {
+    setSpokenReply(caption);
+    if (translation.trim()) setSpokenTranslation(translation);
+  }, []);
+
   const bootstrapUser = useCallback(async (nextUser: User | null) => {
     setUser(nextUser);
     setProfile(null);
@@ -592,8 +597,7 @@ export default function HomePage() {
     try {
       const data = await requestReply({ userMessage: text, history, activeProfile }, {
         onCaption: (caption, translation) => {
-          setSpokenReply(caption);
-          setSpokenTranslation(translation);
+          applyLiveCaption(caption, translation);
           setIsLoading(false);
         },
         onSentence: (sentence) => {
@@ -657,10 +661,7 @@ export default function HomePage() {
     let streamedSpeech = false;
     try {
       const data = await requestReply({ action: "change_topic", history: messages }, {
-        onCaption: (caption, translation) => {
-          setSpokenReply(caption);
-          setSpokenTranslation(translation);
-        },
+        onCaption: applyLiveCaption,
         onSentence: (sentence) => {
           if (!autoSpeak) return;
           streamedSpeech = true;
@@ -854,10 +855,7 @@ export default function HomePage() {
     void (async () => {
       try {
         const data = await requestReply({ action: "daily_open", history: messages }, {
-          onCaption: (caption, translation) => {
-            setSpokenReply(caption);
-            setSpokenTranslation(translation);
-          },
+          onCaption: applyLiveCaption,
           onSentence: (sentence) => {
             if (autoSpeak) enqueueSpeak(sentence);
           },

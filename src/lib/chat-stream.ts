@@ -41,7 +41,7 @@ function hasSpeakableLetters(text: string) {
   return /[\p{L}\p{N}]/u.test(text);
 }
 
-export function pullEarlySpeakableChunk(text: string, alreadyConsumed: number, minWords = 3) {
+export function pullEarlySpeakableChunk(text: string, alreadyConsumed: number, minWords = 2) {
   const pending = text.slice(alreadyConsumed);
   if (!pending.trim()) return { chunk: "", consumed: alreadyConsumed };
 
@@ -143,7 +143,8 @@ export async function consumeChatStream(
     try {
       const parsed = JSON.parse(line.slice(5).trim()) as ChatStreamEvent;
       if (parsed.type === "caption") {
-        live?.onCaption?.(collapseRepeatedSpeech(parsed.text), parsed.translation ?? "");
+        const translation = (parsed.translation ?? "").trim();
+        live?.onCaption?.(collapseRepeatedSpeech(parsed.text), translation);
       } else if (parsed.type === "sentence") {
         const clean = collapseRepeatedSpeech(englishSpeechLine(parsed.text));
         if (!clean || isRedundantSpeechChunk(clean, spoken)) return;

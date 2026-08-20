@@ -188,7 +188,7 @@ function ensureVoicePlayer() {
   voicePlayer.setAttribute("preload", "auto");
   voicePlayer.controls = false;
   voicePlayer.autoplay = false;
-  voicePlayer.muted = currentOutputVolume <= 0.001;
+  voicePlayer.muted = false;
   voicePlayer.defaultMuted = false;
   voicePlayer.volume = currentOutputVolume;
   voicePlayer.hidden = true;
@@ -237,30 +237,45 @@ function ensureOutputGain() {
   return outputGain;
 }
 
-function applyOutputVolume(next: number) {
-  const v = Math.max(0, Math.min(1, next));
-  currentOutputVolume = v;
+function sliderToOutputGain(slider: number) {
+  const val = Math.max(0, Math.min(1, slider));
+  if (val === 0) return 0;
+  return Math.pow(val, 2);
+}
+
+function applyOutputVolume(slider: number) {
+  const val = Math.max(0, Math.min(1, slider));
+  const gain = sliderToOutputGain(val);
+  currentOutputVolume = gain;
   const player = ensureVoicePlayer();
   if (player) {
-    player.muted = v <= 0.001;
+    player.muted = val === 0;
     player.defaultMuted = false;
-    player.volume = v;
+    player.volume = gain;
   }
   if (activeUtterance) {
     try {
-      activeUtterance.volume = v;
+      activeUtterance.volume = gain;
     } catch {
       /* some engines freeze volume at speak() time */
     }
   }
-  const gain = ensureOutputGain();
-  if (gain && unlockContext) {
+  if (val === 0 && typeof window !== "undefined" && "speechSynthesis" in window) {
+    try {
+      window.speechSynthesis.cancel();
+    } catch {
+      /* ignore */
+    }
+    activeUtterance = null;
+  }
+  const gainNode = ensureOutputGain();
+  if (gainNode && unlockContext) {
     try {
       const now = unlockContext.currentTime;
-      gain.gain.cancelScheduledValues(now);
-      gain.gain.setTargetAtTime(v, now, 0.02);
+      gainNode.gain.cancelScheduledValues(now);
+      gainNode.gain.setValueAtTime(gain, now);
     } catch {
-      gain.gain.value = v;
+      gainNode.gain.value = gain;
     }
   }
 }
@@ -330,7 +345,7 @@ function primeVoicePlayer() {
   const player = ensureVoicePlayer();
   if (!player) return;
   try {
-    player.muted = currentOutputVolume <= 0.001;
+    player.muted = false;
     player.defaultMuted = false;
     player.volume = currentOutputVolume;
     if (player.src !== SILENT_WAV) player.src = SILENT_WAV;
@@ -832,6 +847,13 @@ export function useSpeech(options?: {
   const playNextUtterance = useCallback((preview?: { rateMultiplier?: number; voiceUri?: string | null }) => {
     if (typeof window === "undefined" || !("speechSynthesis" in window)) return;
     if (ttsBusyRef.current) return;
+    if (volumeRef.current === 0) {
+      speechQueueRef.current = [];
+      ttsBusyRef.current = false;
+      setIsSpeaking(false);
+      setSpeakingText("");
+      return;
+    }
 
     const next = speechQueueRef.current[0];
     if (!next) {
@@ -871,8 +893,9 @@ export function useSpeech(options?: {
       let started = false;
       const male = character?.voice.gender === "male";
       utterance.lang = "en-US";
-      utterance.volume = volumeRef.current;
+      utterance.volume = sliderToOutputGain(volumeRef.current);
       activeUtterance = utterance;
+      currentOutputVolume = sliderToOutputGain(volumeRef.current);
       utterance.rate = Math.min(1.4, Math.max(0.6, (male ? 0.92 : character?.voice.rate ?? 0.95) * speed));
       utterance.pitch = male ? 0.78 : 1.02;
       window.speechSynthesis.resume();
@@ -912,7 +935,7 @@ export function useSpeech(options?: {
         retry.lang = "en-US";
         retry.rate = utterance.rate;
         retry.pitch = utterance.pitch;
-        retry.volume = volumeRef.current;
+        retry.volume = sliderToOutputGain(volumeRef.current);
         if (voice) retry.voice = voice;
         retry.onstart = utterance.onstart;
         retry.onend = utterance.onend;
@@ -940,6 +963,15 @@ export function useSpeech(options?: {
     const v = Math.max(0, Math.min(1, next));
     volumeRef.current = v;
     applyOutputVolume(v);
+    if (v === 0) {
+      ttsGenerationRef.current += 1;
+      speechQueueRef.current = [];
+      ttsBusyRef.current = false;
+      activeUtterance = null;
+      cancelSpeechSynthesis();
+      setIsSpeaking(false);
+      setSpeakingText("");
+    }
   }, []);
 
   const speak = useCallback(
@@ -975,6 +1007,7 @@ export function useSpeech(options?: {
     (text: string, preview?: { rateMultiplier?: number; voiceUri?: string | null }) => {
       const trimmed = text.trim();
       if (!trimmed || typeof window === "undefined" || !("speechSynthesis" in window)) return;
+      if (volumeRef.current <= 0.001) return;
       resumeAudioGraph();
       resumeSpeechSynthesis();
       const spoken = smoothSpokenText(trimmed);

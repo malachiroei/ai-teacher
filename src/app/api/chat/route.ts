@@ -38,7 +38,9 @@ const SSE_HEADERS = {
   "X-Accel-Buffering": "no",
 };
 
-const FAST_MODELS = ["gemini-2.5-flash", "gemini-1.5-flash", "gemini-3.6-flash", "gemini-2.5-flash-lite"];
+const FAST_MODELS = ["gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-2.0-flash"];
+const VOICE_LATENCY_RULE =
+  "VOICE LATENCY: Respond in 1-2 short, natural spoken sentences maximum. Use simple words a child can hear aloud immediately. No long paragraphs. Start with the most important phrase first so speech can begin instantly.";
 const GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta";
 const RESPONSE_SCHEMA = {
   type: "OBJECT",
@@ -874,6 +876,7 @@ function progressFromPartial(
   accumulated: string,
   spoken: number,
   lastCaption: string,
+  lastTranslation: string,
   spokenText: string,
   allowScaffold: boolean,
 ) {
@@ -881,13 +884,14 @@ function progressFromPartial(
   const raw = extractJsonStringField(accumulated, "aiResponse");
   // Delay translation extraction until we actually need it (caption changed),
   // so it can't slow down early sentence streaming for TTS.
-  let translation = "";
+  const translation = extractJsonStringField(accumulated, "translation").trim();
   let nextCaption = lastCaption;
+  let nextTranslation = lastTranslation;
   let nextSpokenText = spokenText;
   const caption = collapseRepeatedSpeech(allowScaffold ? raw : stripUnsolicitedScaffold(raw));
   if (spoken === 0) {
-    // First 3–4 words / first clause — emit before translation so TTS starts instantly.
-    const early = pullEarlySpeakableChunk(raw, spoken, 3);
+    // First 2 words / first clause — emit before translation so TTS starts instantly.
+    const early = pullEarlySpeakableChunk(raw, spoken, 2);
     let earlyText = collapseRepeatedSpeech(englishSpeechLine(early.chunk));
     if (!allowScaffold) earlyText = collapseRepeatedSpeech(stripUnsolicitedScaffold(earlyText));
     if (earlyText && !isRedundantSpeechChunk(earlyText, nextSpokenText)) {
@@ -905,11 +909,22 @@ function progressFromPartial(
     events.push({ type: "sentence", text: clean });
   }
   if (caption && caption !== lastCaption) {
-    translation = extractJsonStringField(accumulated, "translation");
-    events.push({ type: "caption", text: caption, translation });
+    events.push({
+      type: "caption",
+      text: caption,
+      ...(translation ? { translation } : {}),
+    });
     nextCaption = caption;
+    if (translation) nextTranslation = translation;
+  } else if (translation && translation !== lastTranslation && (caption || lastCaption)) {
+    events.push({
+      type: "caption",
+      text: caption || lastCaption,
+      translation,
+    });
+    nextTranslation = translation;
   }
-  return { spoken: pulled.consumed, lastCaption: nextCaption, spokenText: nextSpokenText, events };
+  return { spoken: pulled.consumed, lastCaption: nextCaption, lastTranslation: nextTranslation, spokenText: nextSpokenText, events };
 }
 
 function eventsForCompleteReply(reply: ChatApiResponse): ChatStreamEvent[] {
@@ -1037,32 +1052,42 @@ async function geminiGenerate(
 ) {
   const method = stream ? "streamGenerateContent?alt=sse" : "generateContent";
   const url = `${GEMINI_API_BASE}/models/${encodeURIComponent(model)}:${method}`;
-  const response = await fetch(url, {
-    method: "POST",
-    headers: geminiAuthHeaders(apiKey),
-    body: JSON.stringify(body),
-  });
-  if (!response.ok) {
-    const details = await response.text();
-    throw new Error(`Gemini ${model} ${response.status}: ${details.slice(0, 600)}`);
-  }
-  if (stream) {
-    const contentType = response.headers.get("content-type") ?? "";
-    if (contentType.includes("text/event-stream") || contentType.includes("text/plain")) {
-      return readSseGeminiText(response, onDelta);
+  let lastError: unknown;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const response = await fetch(url, {
+      method: "POST",
+      headers: geminiAuthHeaders(apiKey),
+      body: JSON.stringify(body),
+    });
+    if (!response.ok) {
+      const details = await response.text();
+      const error = new Error(`Gemini ${model} ${response.status}: ${details.slice(0, 600)}`);
+      if (attempt < 2 && (response.status === 503 || response.status === 429)) {
+        lastError = error;
+        await new Promise((resolve) => setTimeout(resolve, 450 * (attempt + 1)));
+        continue;
+      }
+      throw error;
     }
-    const json = (await response.json()) as unknown;
-    const chunks = Array.isArray(json) ? json : [json];
-    let accumulated = "";
-    for (const chunk of chunks) {
-      accumulated += textFromGeminiResponse(chunk);
-      if (accumulated) onDelta(accumulated);
+    if (stream) {
+      const contentType = response.headers.get("content-type") ?? "";
+      if (contentType.includes("text/event-stream") || contentType.includes("text/plain")) {
+        return readSseGeminiText(response, onDelta);
+      }
+      const json = (await response.json()) as unknown;
+      const chunks = Array.isArray(json) ? json : [json];
+      let accumulated = "";
+      for (const chunk of chunks) {
+        accumulated += textFromGeminiResponse(chunk);
+        if (accumulated) onDelta(accumulated);
+      }
+      return accumulated;
     }
-    return accumulated;
+    const text = textFromGeminiResponse(await response.json());
+    if (text) onDelta(text);
+    return text;
   }
-  const text = textFromGeminiResponse(await response.json());
-  if (text) onDelta(text);
-  return text;
+  throw lastError instanceof Error ? lastError : new Error(`Gemini ${model} request failed`);
 }
 
 async function streamGemini(
@@ -1107,6 +1132,7 @@ async function streamGemini(
   const character = getCharacter(characterId ?? profile?.selected_character);
   const system = [
     BASE_TUTOR_RULES,
+    VOICE_LATENCY_RULE,
     character.systemPrompt,
     learnerContext,
     formatStructuredUserProfile(profile),
@@ -1134,8 +1160,8 @@ async function streamGemini(
     systemInstruction: { parts: [{ text: system }] },
     contents,
     generationConfig: {
-      temperature: 0.7,
-      maxOutputTokens: 280,
+      temperature: 0.65,
+      maxOutputTokens: 160,
       responseMimeType: "application/json",
       responseSchema: RESPONSE_SCHEMA,
     },
@@ -1146,11 +1172,13 @@ async function streamGemini(
   for (const model of FAST_MODELS) {
     let spoken = 0;
     let lastCaption = "";
+    let lastTranslation = "";
     let spokenText = "";
     const pushProgress = (accumulated: string) => {
-      const progress = progressFromPartial(accumulated, spoken, lastCaption, spokenText, allowScaffold);
+      const progress = progressFromPartial(accumulated, spoken, lastCaption, lastTranslation, spokenText, allowScaffold);
       spoken = progress.spoken;
       lastCaption = progress.lastCaption;
+      lastTranslation = progress.lastTranslation;
       spokenText = progress.spokenText;
       for (const event of progress.events) onEvent(event);
     };
