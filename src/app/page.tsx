@@ -829,7 +829,7 @@ export default function HomePage() {
       });
       if (data.latency) latencyServerRef.current = data.latency;
       if (!autoSpeak) maybePrintLatencyReport();
-      fetchHebrewTranslation(data.aiResponse, profile?.gender);
+      fetchHebrewTranslation(data.aiResponse, profile?.gender, "(change topic)");
       const aiMessage: Message = {
         id: createId(),
         sender: "ai",
