@@ -355,52 +355,37 @@ function GLTFTalkingAvatarInner({
   );
 }
 
+const LOCAL_CHARACTER_MODELS = new Set(["alex", "max", "emma", "luna"]);
+
+function resolveCharacterModelId(characterId: string) {
+  if (characterId === "luna") return "emma";
+  if (LOCAL_CHARACTER_MODELS.has(characterId)) return characterId;
+  return "alex";
+}
+
+function ModelLoader() {
+  const { progress } = useProgress();
+  return (
+    <Html center>
+      <div className="pointer-events-none flex flex-col items-center gap-2 rounded-2xl border border-cyan-400/20 bg-black/30 px-4 py-3 backdrop-blur-md">
+        <div className="h-8 w-8 rounded-full border border-cyan-400/40 border-t-cyan-300/90 animate-spin" />
+        <div className="text-xs font-semibold text-white/75">{Math.round(progress)}% loaded</div>
+      </div>
+    </Html>
+  );
+}
+
 export function Avatar3DStage({ character, isSpeaking, spokenText, mouthLevelRef }: Avatar3DStageProps) {
-  const fallbackModelUrl = "/models/alex.glb";
-  const candidateCharacterId = character.id === "luna" ? "emma" : character.id;
-  const candidateModelUrl = `/models/${candidateCharacterId}.glb`;
-  const [modelUrlToUse, setModelUrlToUse] = useState<string>(fallbackModelUrl);
+  const characterId = resolveCharacterModelId(character.id);
+  const modelUrl = `/models/${characterId}.glb`;
 
-  // Universal local model resolution:
-  // - Prefer /models/{characterId}.glb
-  // - If missing, fall back to /models/alex.glb
   useEffect(() => {
-    let cancelled = false;
-
-    async function resolve() {
-      // If we already use the fallback, skip the probe.
-      if (candidateModelUrl === fallbackModelUrl) {
-        setModelUrlToUse(fallbackModelUrl);
-        return;
-      }
-
-      try {
-        const res = await fetch(candidateModelUrl, { method: "HEAD" });
-        if (cancelled) return;
-        setModelUrlToUse(res.ok ? candidateModelUrl : fallbackModelUrl);
-      } catch {
-        if (cancelled) return;
-        setModelUrlToUse(fallbackModelUrl);
-      }
+    try {
+      useGLTF.preload(modelUrl);
+    } catch {
+      /* preload is best-effort */
     }
-
-    void resolve();
-    return () => {
-      cancelled = true;
-    };
-  }, [candidateModelUrl]);
-
-  function ModelLoader() {
-    const { progress } = useProgress();
-    return (
-      <Html center>
-        <div className="pointer-events-none flex flex-col items-center gap-2 rounded-2xl border border-cyan-400/20 bg-black/30 px-4 py-3 backdrop-blur-md">
-          <div className="h-8 w-8 rounded-full border border-cyan-400/40 border-t-cyan-300/90 animate-spin" />
-          <div className="text-xs font-semibold text-white/75">{Math.round(progress)}% loaded</div>
-        </div>
-      </Html>
-    );
-  }
+  }, [modelUrl]);
 
   return (
     <Canvas
@@ -417,10 +402,10 @@ export function Avatar3DStage({ character, isSpeaking, spokenText, mouthLevelRef
         <pointLight intensity={1.2} position={[0, 2, 2]} />
         <Environment preset="city" />
 
-        <AvatarGLTFErrorBoundary key={modelUrlToUse} fallback={null}>
+        <AvatarGLTFErrorBoundary key={characterId} fallback={null}>
           <GLTFTalkingAvatar
-            key={candidateCharacterId}
-            modelUrl={modelUrlToUse}
+            key={characterId}
+            modelUrl={modelUrl}
             isSpeaking={isSpeaking}
             spokenText={spokenText}
             mouthLevelRef={mouthLevelRef}
