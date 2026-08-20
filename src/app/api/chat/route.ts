@@ -37,9 +37,10 @@ const SSE_HEADERS = {
 };
 
 const FAST_MODELS = ["gemini-2.5-flash"];
-const GEMINI_REQUEST_TIMEOUT_MS = 4000;
+/** Only wait this long for Gemini response headers — never abort an in-flight stream. */
+const GEMINI_CONNECT_TIMEOUT_MS = 12_000;
 const VOICE_LATENCY_RULE =
-  "OUTPUT FORMAT (CRITICAL): Reply with pure spoken English plaintext ONLY. No JSON. No Hebrew. No markdown. No labels. 1-2 short natural sentences a child can hear aloud immediately. Always finish every sentence with punctuation (. ! or ?). Start with the most important words first.";
+  "OUTPUT FORMAT (CRITICAL): Reply with pure spoken English plaintext ONLY. No JSON. No Hebrew. No markdown. No labels. Reply in exactly ONE concise, complete, friendly conversational sentence followed by a question. Keep the whole reply under 20 words. Never leave a thought incomplete. Always end with punctuation (. ! or ?). Example tone: Hey Roei! Great to hear from you — ready for some tennis practice today?";
 const GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta";
 
 function geminiApiKey() {
@@ -116,7 +117,8 @@ Stage 3 — Memory:
   Also remember new personal facts (name, age, grade, games, family, likes) for later turns.
 
 LANGUAGE / OUTPUT:
-- Speak 1-2 engaging English sentences + 1 direct follow-up question about THEIR last words.
+- Reply in exactly ONE concise, complete, friendly conversational sentence followed by a question about THEIR last words.
+- Keep the whole reply under 20 words. Never leave a thought incomplete.
 - English plaintext ONLY. Never Hebrew in the spoken reply. Never JSON. Never markdown fences.
 - A1 / beginner words unless they clearly speak more. Short. Energetic.
 - If they speak Hebrew: not an error. Reply in simple English.
@@ -124,7 +126,7 @@ LANGUAGE / OUTPUT:
 GREETINGS (hi, hey, hello, שלום, היי): just a hello. Never teach a phrase. Never "You can say".
 If you already know their name, greet by name. Do not ask their name again.
 
-Keep the spoken reply under 32 words.`;
+Keep the spoken reply under 20 words.`;
 
 function formatStructuredUserProfile(profile?: ProfileInput | null) {
   if (!profile) return "";
@@ -957,7 +959,9 @@ async function geminiGenerate(
   const method = stream ? "streamGenerateContent?alt=sse" : "generateContent";
   const url = `${GEMINI_API_BASE}/models/${encodeURIComponent(model)}:${method}`;
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), GEMINI_REQUEST_TIMEOUT_MS);
+  // Abort only if headers never arrive — clear as soon as the response starts so
+  // a long stream is never cut mid-sentence (was causing "What kind of…" truncations).
+  const timer = setTimeout(() => controller.abort(), GEMINI_CONNECT_TIMEOUT_MS);
   try {
     const response = await fetch(url, {
       method: "POST",
@@ -965,6 +969,7 @@ async function geminiGenerate(
       body: JSON.stringify(body),
       signal: controller.signal,
     });
+    clearTimeout(timer);
     if (!response.ok) {
       const details = await response.text();
       throw new Error(`Gemini ${model} ${response.status}: ${details.slice(0, 600)}`);
@@ -988,7 +993,7 @@ async function geminiGenerate(
     return text;
   } catch (error) {
     if (error instanceof Error && error.name === "AbortError") {
-      throw new Error(`Gemini ${model} timed out after ${GEMINI_REQUEST_TIMEOUT_MS}ms`);
+      throw new Error(`Gemini ${model} connect timed out after ${GEMINI_CONNECT_TIMEOUT_MS}ms`);
     }
     throw error;
   } finally {
@@ -1080,7 +1085,7 @@ async function streamGemini(
     contents,
     generationConfig: {
       temperature: 0.7,
-      maxOutputTokens: 300,
+      maxOutputTokens: 600,
     },
   };
 

@@ -598,9 +598,10 @@ export default function HomePage() {
     },
   ): Promise<ChatApiResponse> {
     const activeProfile = payload.activeProfile ?? profile;
-    const placementDone = hasCompletedKidsPlacement(user?.id, payload.history, activeProfile);
-    // Stamp fetch time (not earlier UI work) so Client→Server reflects network/middleware only.
+    const placementCompleted = Boolean(activeProfile?.placement_completed);
+    // Stamp + fire fetch with zero awaits beforehand.
     const clientSendAt = Date.now();
+    console.log(`[latency] T_CLIENT_FETCH ${clientSendAt}`);
     const response = await fetch("/api/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -614,8 +615,8 @@ export default function HomePage() {
         profile: profilePayload(activeProfile),
         characterId: character.id,
         memories: memories.slice(0, 20),
-        placement: isPlacementActive(payload.history, placementDone),
-        placementCompleted: placementDone,
+        placement: !placementCompleted && isPlacementActive(payload.history, placementCompleted),
+        placementCompleted,
         isFirstSessionToday: !payload.history.some(
           (message) => message.sender === "user" && message.timestamp >= startOfLocalDay(),
         ),
@@ -647,16 +648,7 @@ export default function HomePage() {
     if (!text || sendingRef.current || isLoading || !chatUnlocked || !user) return;
 
     sendingRef.current = true;
-    unlockSpeech();
-    stopListening();
-    stopSpeaking();
-    setMenuOpen(false);
-    setInput("");
-    setSpokenReply("");
-    setSpokenTranslation("");
-    beginSpeakStream();
-
-    const { tClientSend, live: latencyLive } = beginLatencyTurn(text);
+    const { live: latencyLive } = beginLatencyTurn(text);
 
     const userMessage: Message = {
       id: createId(),
@@ -664,62 +656,17 @@ export default function HomePage() {
       text,
       timestamp: Date.now(),
     };
-
     const history = [...messages, userMessage];
-    setMessages(history);
-    setIsLoading(true);
+    const profileSnapshot = profile;
     let streamedSpeech = false;
 
-    const placementDoneBefore = hasCompletedKidsPlacement(user.id, messages, profile);
-    const placementTurn = isKidsPlacementSession(history, placementDoneBefore)
-      ? placementAnswerTurns(history)
-      : undefined;
-    let activeProfile = profile;
-    if (!placementDoneBefore && placementAnswerTurns(history) >= 3 && isKidsPlacementSession(history, false)) {
-      markKidsPlacementComplete(user.id);
-      forcePlacementRef.current = false;
-      activeProfile = profile
-        ? { ...profile, placement_completed: true }
-        : profile;
-      if (activeProfile) {
-        writeProgressionLocal(user.id, {
-          placement_completed: true,
-          xp: Number(activeProfile.xp) || 0,
-          level: Number(activeProfile.level) || 1,
-        });
-        void saveProgression(createClient(), user.id, {
-          placement_completed: true,
-          xp: Number(activeProfile.xp) || 0,
-          level: Number(activeProfile.level) || 1,
-        });
-      }
-    }
+    // Prepare speak queue before network — must not include setState / XP / Supabase.
+    beginSpeakStream();
 
-    if (activeProfile) {
-      const gained = xpForUtterance(text);
-      const progressed = applyXp(Number(activeProfile.xp) || 0, gained);
-      activeProfile = {
-        ...activeProfile,
-        xp: progressed.xp,
-        level: progressed.level,
-      };
-      writeProgressionLocal(user.id, {
-        xp: progressed.xp,
-        level: progressed.level,
-        placement_completed: Boolean(activeProfile.placement_completed),
-      });
-      void saveProgression(createClient(), user.id, {
-        xp: progressed.xp,
-        level: progressed.level,
-        placement_completed: Boolean(activeProfile.placement_completed),
-      });
-      if (progressed.leveledUp) {
-        setLevelUp(progressed.info);
-      }
-    }
-
-    try {
-      const data = await requestReply({ userMessage: text, history, activeProfile, clientSendAt: tClientSend }, {
+    // CRITICAL: initiate HTTP immediately on this tick — no state/XP/speech teardown first.
+    const replyPromise = requestReply(
+      { userMessage: text, history, activeProfile: profileSnapshot },
+      {
         ...latencyLive,
         onCaption: (caption, translation) => {
           applyLiveCaption(caption, translation);
@@ -731,14 +678,76 @@ export default function HomePage() {
           streamedSpeech = true;
           enqueueSpeak(sentence);
         },
-      });
-      if (data.latency) latencyServerRef.current = data.latency;
-      if (!autoSpeak) maybePrintLatencyReport();
+      },
+    );
+
+    // Everything below runs after fetch() has already been invoked.
+    unlockSpeech();
+    stopListening();
+    stopSpeaking();
+    setMenuOpen(false);
+    setInput("");
+    setSpokenReply("");
+    setSpokenTranslation("");
+    setMessages(history);
+    setIsLoading(true);
+
+    const placementDoneBefore = hasCompletedKidsPlacement(user.id, messages, profileSnapshot);
+    const placementTurn = isKidsPlacementSession(history, placementDoneBefore)
+      ? placementAnswerTurns(history)
+      : undefined;
+
+    // XP / placement persistence — never await before/during the chat request.
+    void (async () => {
+      let activeProfile = profileSnapshot;
+      if (!placementDoneBefore && placementAnswerTurns(history) >= 3 && isKidsPlacementSession(history, false)) {
+        markKidsPlacementComplete(user.id);
+        forcePlacementRef.current = false;
+        activeProfile = profileSnapshot
+          ? { ...profileSnapshot, placement_completed: true }
+          : profileSnapshot;
+        if (activeProfile) {
+          writeProgressionLocal(user.id, {
+            placement_completed: true,
+            xp: Number(activeProfile.xp) || 0,
+            level: Number(activeProfile.level) || 1,
+          });
+          void saveProgression(createClient(), user.id, {
+            placement_completed: true,
+            xp: Number(activeProfile.xp) || 0,
+            level: Number(activeProfile.level) || 1,
+          });
+        }
+      }
+
       if (activeProfile) {
+        const gained = xpForUtterance(text);
+        const progressed = applyXp(Number(activeProfile.xp) || 0, gained);
+        activeProfile = {
+          ...activeProfile,
+          xp: progressed.xp,
+          level: progressed.level,
+        };
+        writeProgressionLocal(user.id, {
+          xp: progressed.xp,
+          level: progressed.level,
+          placement_completed: Boolean(activeProfile.placement_completed),
+        });
+        void saveProgression(createClient(), user.id, {
+          xp: progressed.xp,
+          level: progressed.level,
+          placement_completed: Boolean(activeProfile.placement_completed),
+        });
+        if (progressed.leveledUp) setLevelUp(progressed.info);
         setProfile(activeProfile);
       }
-      // Hebrew subtitles load in parallel — never delay English TTS.
-      fetchHebrewTranslation(data.aiResponse, activeProfile?.gender ?? profile?.gender);
+    })();
+
+    try {
+      const data = await replyPromise;
+      if (data.latency) latencyServerRef.current = data.latency;
+      if (!autoSpeak) maybePrintLatencyReport();
+      fetchHebrewTranslation(data.aiResponse, profileSnapshot?.gender ?? profile?.gender);
       const grammar: GrammarFeedback = data.grammarAnalysis;
       const aiMessage: Message = {
         id: createId(),
@@ -765,7 +774,6 @@ export default function HomePage() {
       }
 
       void persistMemories(data.newMemories, text, history, placementTurn);
-      // Fire-and-forget so chat persistence never blocks speech start.
       void persistMessages(user.id, [
         { id: userMessage.id, sender: "user", text, grammarFeedback: grammar },
         {

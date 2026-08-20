@@ -47,6 +47,7 @@ export function formatPipelineLatencyReport(
   const streamComplete = server?.streamComplete ?? "NO";
   const streamReason = server?.streamReason || "unknown";
 
+  const clientPrep = ms(client?.tClientSend, server?.clientSendAt);
   const clientToServer = ms(server?.clientSendAt ?? client?.tClientSend, server?.t0ServerStart);
   const promptPrep = ms(server?.t0ServerStart, server?.t1PromptReady);
   const geminiTtft = ms(server?.t2GeminiCall, server?.t3FirstToken);
@@ -61,7 +62,8 @@ export function formatPipelineLatencyReport(
     `User Message: "${userMessage.slice(0, 120)}${userMessage.length > 120 ? "…" : ""}"`,
     `Model Used:   ${model}${server?.usedFallback ? " (fallback)" : ""}`,
     "---------------------------------------------------------",
-    line("1. Client Send -> Server Receive:", clientToServer),
+    line("0. Client Prep (Send -> Fetch):", clientPrep),
+    line("1. Client Fetch -> Server Receive:", clientToServer),
     line("2. Prompt & Context Prep:", promptPrep),
     line("3. Gemini TTFT (Time To First Token):", geminiTtft),
     line("4. Client First Chunk -> TTS Playback:", chunkToAudio),
