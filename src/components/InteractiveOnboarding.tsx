@@ -122,11 +122,10 @@ function StepDots({ total, current }: { total: number; current: number }) {
 }
 
 // ── Main component ─────────────────────────────────────────────────────────────
-export function InteractiveOnboarding({ user, character, initialProfile, onComplete }: InteractiveOnboardingProps) {
-  const initialName = String(initialProfile?.full_name ?? initialProfile?.nickname ?? "").trim();
-
+export function InteractiveOnboarding({ user, character, initialProfile: _initialProfile, onComplete }: InteractiveOnboardingProps) {
+  // Step 1 always asks for the child's name — never pre-fill from profile/auth.
   const [step, setStep] = useState(0);
-  const [name, setName] = useState(initialName);
+  const [name, setName] = useState("");
   const [schoolStage, setSchoolStage] = useState<SchoolStageId | null>(null);
   const [passionIds, setPassionIds] = useState<PassionId[]>([]);
   const [learningStyle, setLearningStyle] = useState<LearningStyleId | null>(null);
