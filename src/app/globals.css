@@ -208,13 +208,7 @@ body {
 }
 
 html[data-tutor="emma"] .avatar-portrait { background-image: url("/characters/emma.png"); }
-html[data-tutor="leo"] .avatar-portrait { background-image: url("/characters/leo.png"); }
-html[data-tutor="mia"] .avatar-portrait { background-image: url("/characters/mia.png"); }
-html[data-tutor="max"] .avatar-portrait { background-image: url("/characters/max.png"); }
 html[data-tutor="alex"] .avatar-portrait { background-image: url("/characters/alex.png"); }
-html[data-tutor="luna"] .avatar-portrait { background-image: url("/characters/luna.png"); }
-html[data-tutor="nova"] .avatar-portrait { background-image: url("/characters/nova.png"); }
-html[data-tutor="zoey"] .avatar-portrait { background-image: url("/characters/zoey.png"); }
 
 @keyframes holo-aura-idle {
   0%,

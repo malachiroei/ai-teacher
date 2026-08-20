@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, Component, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, Component, memo, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { Canvas, useFrame } from "@react-three/fiber";
 import { Environment, Html, useGLTF, useProgress } from "@react-three/drei";
 import type { Group } from "three";
@@ -411,7 +411,7 @@ function ModelLoader() {
   );
 }
 
-export function Avatar3DStage({ character, isSpeaking, spokenText, mouthLevelRef }: Avatar3DStageProps) {
+export const Avatar3DStage = memo(function Avatar3DStage({ character, isSpeaking, spokenText, mouthLevelRef }: Avatar3DStageProps) {
   const characterId = resolveCharacterModelId(character.id) as "emma" | "alex";
   const modelUrl = `/models/${characterId}.glb`;
   const cameraPosition: [number, number, number] =
@@ -453,5 +453,5 @@ export function Avatar3DStage({ character, isSpeaking, spokenText, mouthLevelRef
       </Suspense>
     </Canvas>
   );
-}
+});
 

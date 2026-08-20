@@ -8,9 +8,10 @@ import type { ChatApiResponse } from "@/types/chat";
 export type ChatStreamEvent =
   | { type: "caption"; text: string; translation?: string }
   | { type: "sentence"; text: string }
-  | { type: "done"; payload: ChatApiResponse };
+  | { type: "done"; payload: ChatApiResponse }
+  | { type: "metrics"; metrics: import("@/lib/pipeline-latency").PipelineServerMetrics };
 
-export function extractJsonStringField(partialJson: string, field: string) {
+export function extractJsonStringField(partialJson: string, field: string, requireClosed = false) {
   const key = `"${field}"`;
   const keyIndex = partialJson.indexOf(key);
   if (keyIndex < 0) return "";
@@ -24,7 +25,7 @@ export function extractJsonStringField(partialJson: string, field: string) {
     const char = partialJson[index];
     if (char === "\\") {
       const next = partialJson[index + 1];
-      if (next == null) break;
+      if (next == null) return requireClosed ? "" : out;
       const escapes: Record<string, string> = { n: "\n", r: "\r", t: "\t", '"': '"', "\\": "\\", "/": "/" };
       out += escapes[next] ?? next;
       index += 2;
@@ -34,7 +35,8 @@ export function extractJsonStringField(partialJson: string, field: string) {
     out += char;
     index += 1;
   }
-  return out;
+  // Unclosed string — still streaming. Callers that need a finished caption should skip.
+  return requireClosed ? "" : out;
 }
 
 function hasSpeakableLetters(text: string) {
@@ -45,8 +47,8 @@ export function pullEarlySpeakableChunk(text: string, alreadyConsumed: number, m
   const pending = text.slice(alreadyConsumed);
   if (!pending.trim()) return { chunk: "", consumed: alreadyConsumed };
 
-  // Play as soon as a clause boundary lands, without waiting for a full paragraph.
-  const punctuationIndex = pending.search(/[.!?,…]/);
+  // Prefer a finished clause (. ! ? ,) — otherwise wait for minWords for ultra-low latency.
+  const punctuationIndex = pending.search(/[.!?…]/);
   if (punctuationIndex >= 0) {
     const clause = collapseRepeatedSpeech(pending.slice(0, punctuationIndex + 1).trim());
     if (clause && hasSpeakableLetters(clause)) {
@@ -71,8 +73,8 @@ export function pullSpeakableChunks(text: string, alreadyConsumed: number) {
   const chunks: string[] = [];
   let consumed = alreadyConsumed;
 
-  // Include comma so chunks end as soon as we hit a full clause.
-  const pattern = /[.!?,…](?:["')\]]+)?(?:\s+|$)/g;
+  // Speak only when a full sentence ends — commas alone must not cut mid-thought.
+  const pattern = /[.!?…](?:["')\]]+)?(?:\s+|$)/g;
   let match: RegExpExecArray | null;
   let last = 0;
 
@@ -122,6 +124,8 @@ export async function consumeChatStream(
   live?: {
     onCaption?: (text: string, translation: string) => void;
     onSentence?: (text: string) => void;
+    onFirstChunk?: () => void;
+    onMetrics?: (metrics: import("@/lib/pipeline-latency").PipelineServerMetrics) => void;
   },
 ): Promise<ChatApiResponse> {
   if (!response.body) {
@@ -133,6 +137,14 @@ export async function consumeChatStream(
   let buffer = "";
   let payload: ChatApiResponse | null = null;
   let spoken = "";
+  let lastCaption = "";
+  let sawFirstChunk = false;
+
+  const markFirst = () => {
+    if (sawFirstChunk) return;
+    sawFirstChunk = true;
+    live?.onFirstChunk?.();
+  };
 
   const handleEvent = (raw: string) => {
     const line = raw
@@ -143,19 +155,24 @@ export async function consumeChatStream(
     try {
       const parsed = JSON.parse(line.slice(5).trim()) as ChatStreamEvent;
       if (parsed.type === "caption") {
+        markFirst();
+        lastCaption = collapseRepeatedSpeech(parsed.text);
         const translation = (parsed.translation ?? "").trim();
-        live?.onCaption?.(collapseRepeatedSpeech(parsed.text), translation);
+        live?.onCaption?.(lastCaption, translation);
       } else if (parsed.type === "sentence") {
+        markFirst();
         const clean = collapseRepeatedSpeech(englishSpeechLine(parsed.text));
         if (!clean || isRedundantSpeechChunk(clean, spoken)) return;
         spoken = spoken ? `${spoken} ${clean}` : clean;
         live?.onSentence?.(clean);
+      } else if (parsed.type === "metrics") {
+        live?.onMetrics?.(parsed.metrics);
       } else if (parsed.type === "done") {
+        markFirst();
         payload = parsed.payload;
-        live?.onCaption?.(
-          collapseRepeatedSpeech(parsed.payload.aiResponse),
-          parsed.payload.translation ?? "",
-        );
+        lastCaption = collapseRepeatedSpeech(parsed.payload.aiResponse);
+        live?.onCaption?.(lastCaption, parsed.payload.translation ?? "");
+        if (parsed.payload.latency) live?.onMetrics?.(parsed.payload.latency);
       }
     } catch {
       /* ignore a truncated SSE frame; the next read will complete it */
@@ -173,7 +190,19 @@ export async function consumeChatStream(
     }
   }
 
+  buffer += decoder.decode();
   if (buffer.trim()) handleEvent(buffer);
-  if (!payload) throw new Error("Chat stream ended empty");
+
+  if (!payload) {
+    if (!lastCaption && !spoken) throw new Error("Chat stream ended empty");
+    payload = {
+      aiResponse: lastCaption || spoken,
+      translation: "",
+      grammarAnalysis: { hasError: false, explanation: "", correctedText: "" },
+      suggestedAnswers: [],
+      newMemories: [],
+    };
+    live?.onCaption?.(payload.aiResponse, "");
+  }
   return payload;
 }

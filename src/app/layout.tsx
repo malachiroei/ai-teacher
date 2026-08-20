@@ -1,4 +1,5 @@
 import { Plus_Jakarta_Sans } from "next/font/google";
+import Script from "next/script";
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
 
@@ -45,15 +46,10 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" className={jakarta.variable} suppressHydrationWarning>
-      <head>
-        <script
-          dangerouslySetInnerHTML={{
-            __html:
-              'try{var t=localStorage.getItem("selected_tutor");if(t){document.documentElement.dataset.tutor=t;var l=document.createElement("link");l.rel="preload";l.as="image";l.href="/characters/"+t+".png";document.head.appendChild(l);}}catch(e){}',
-          }}
-        />
-      </head>
       <body className={`${jakarta.className} antialiased`} suppressHydrationWarning>
+        <Script id="tutor-boot" strategy="beforeInteractive">
+          {`try{var t=localStorage.getItem("selected_tutor");if(t){var m={luna:"emma",mia:"emma",zoey:"emma",leo:"alex",max:"alex",nova:"alex"};var id=m[t]||t;if(id!=="emma"&&id!=="alex")id="emma";document.documentElement.dataset.tutor=id;}}catch(e){}`}
+        </Script>
         {children}
         <audio id="ai-voice-player" playsInline preload="auto" hidden />
       </body>

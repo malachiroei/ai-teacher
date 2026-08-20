@@ -2,13 +2,11 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { getCharacter } from "@/lib/characters";
 import { parseTutorNicknames, serializeTutorNicknames } from "@/lib/learner";
 import { normalizeDailyGoal, normalizePracticeTime, normalizeVoiceSpeed } from "@/lib/practice";
-import type { ChatMessageRow, ChatSessionRow, Profile, ProfileInput, UserMemoryRow } from "@/lib/supabase/types";
+import type { ChatMessageRow, ChatSessionRow, Profile, ProfileInput } from "@/lib/supabase/types";
 import type { GrammarFeedback, Message } from "@/types/chat";
 import type { NewMemory, UserMemory } from "@/lib/memory";
 import {
   extractFactsFromUtterance,
-  mapMemoryCategory,
-  normalizeFactText,
   parseFavoriteThing,
   parseSpokenAge,
 } from "@/lib/memory";
@@ -113,13 +111,24 @@ function normalizeProfile(row: Partial<Profile> & Record<string, unknown>, fallb
 }
 
 export async function fetchProfile(supabase: AppSupabaseClient, userId: string) {
-  const { data, error } = await supabase.from("profiles").select("*").eq("id", userId).maybeSingle();
-  if (error) {
+  try {
+    const { data, error } = await supabase
+      .from("profiles")
+      .select(
+        "id, nickname, full_name, name_pronunciation, age, gender, english_level, interests, selected_character, custom_tutor_name, tutor_nicknames, daily_goal_minutes, preferred_practice_time, notifications_enabled, parent_whatsapp, voice_speed, preferred_voice, practice_date, practice_seconds, placement_completed, xp, level, created_at, updated_at",
+      )
+      .eq("id", userId)
+      .maybeSingle();
+    if (error) {
+      console.error("Supabase Profile Fetch Error:", error);
+      return null;
+    }
+    if (!data) return null;
+    return normalizeProfile(data as Profile & Record<string, unknown>, {}, userId);
+  } catch (error) {
     console.error("Supabase Profile Fetch Error:", error);
     return null;
   }
-  if (!data) return null;
-  return normalizeProfile(data as Profile & Record<string, unknown>, {}, userId);
 }
 
 export async function saveProfile(
@@ -405,14 +414,22 @@ export function rowToMessage(row: ChatMessageRow): Message {
 }
 
 export async function loadChatHistory(supabase: AppSupabaseClient, userId: string): Promise<Message[]> {
-  const { data, error } = await supabase
-    .from("chat_messages")
-    .select("*")
-    .eq("user_id", userId)
-    .order("created_at", { ascending: true });
+  try {
+    const { data, error } = await supabase
+      .from("chat_messages")
+      .select("id, sender, text, translation, grammar_feedback, created_at")
+      .eq("user_id", userId)
+      .order("created_at", { ascending: true });
 
-  if (error) throw error;
-  return ((data ?? []) as ChatMessageRow[]).map(rowToMessage);
+    if (error) {
+      console.warn("chat_messages load skipped:", error.message ?? error);
+      return [];
+    }
+    return ((data ?? []) as ChatMessageRow[]).map(rowToMessage);
+  } catch (error) {
+    console.warn("chat_messages load skipped:", error);
+    return [];
+  }
 }
 
 export async function saveMessage(
@@ -447,12 +464,29 @@ export async function saveMessage(
     created_at: createdAt,
   };
 
-  const { error } = await supabase.from("chat_messages").insert(payload);
-  if (error) {
+  try {
+    let { error } = await supabase.from("chat_messages").insert(payload);
+    if (error) {
+      // Retry without grammar_feedback if column/type is missing.
+      const minimal = {
+        id,
+        user_id: userId,
+        sender: message.sender,
+        text: message.text,
+        translation: message.translation ?? null,
+        created_at: createdAt,
+      };
+      ({ error } = await supabase.from("chat_messages").insert(minimal));
+    }
+    if (error) {
+      console.error("Chat Save Error:", error);
+      return { success: false as const, error };
+    }
+    return { success: true as const, id };
+  } catch (error) {
     console.error("Chat Save Error:", error);
     return { success: false as const, error };
   }
-  return { success: true as const, id };
 }
 
 export async function insertChatMessage(
@@ -616,93 +650,21 @@ export async function restoreChatSession(
   return session.messages;
 }
 
-function rowToMemory(
-  row: Pick<UserMemoryRow, "id" | "fact" | "kind" | "created_at"> & {
-    event_on?: UserMemoryRow["event_on"] | null;
-  } & Record<string, unknown>,
-): UserMemory {
-  return {
-    id: row.id,
-    fact: row.fact,
-    kind: (row.kind as UserMemory["kind"]) || "personal",
-    createdAt: Date.parse(String(row.created_at)) || Date.now(),
-  };
-}
-
-function newRowId() {
-  if (typeof crypto !== "undefined" && "randomUUID" in crypto) return crypto.randomUUID();
-  return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
-}
-
-let memoriesUnavailable = false;
+/**
+ * user_memories is disabled until DB migrations add the expected columns
+ * (e.g. `fact`). Real queries caused multi-second 400 roundtrips that blocked
+ * the chat voice pipeline (~6.5s Client→Server lag).
+ */
+const MEMORIES_DISABLED = true;
 
 export async function saveExtractedFact(
-  supabase: AppSupabaseClient,
-  userId: string,
-  fact: string,
-  category: string,
-  eventDate?: string | null,
+  _supabase: AppSupabaseClient,
+  _userId: string,
+  _fact: string,
+  _category: string,
+  _eventDate?: string | null,
 ): Promise<UserMemory | null> {
-  if (!userId || memoriesUnavailable) return null;
-  const clean = normalizeFactText(fact);
-  if (clean.length < 4) return null;
-  const kind = mapMemoryCategory(category);
-  const rawEvent = eventDate ? String(eventDate).trim() : "";
-  const candidate = rawEvent ? rawEvent.slice(0, 10) : null;
-  // PostgREST is strict about date formats; only accept YYYY-MM-DD.
-  const eventOn = candidate && /^\d{4}-\d{2}-\d{2}$/.test(candidate) ? candidate : null;
-  const now = new Date().toISOString();
-
-  try {
-    const existing = await loadUserMemories(supabase, userId);
-    if (memoriesUnavailable) return null;
-    const match = existing.find((item) => item.fact.toLowerCase() === clean.toLowerCase());
-    if (match) {
-      try {
-        const { error } = await supabase
-          .from("user_memories")
-          .update({ kind })
-          .eq("id", match.id)
-          .eq("user_id", userId);
-        if (error) memoriesUnavailable = true;
-      } catch {
-        memoriesUnavailable = true;
-      }
-      return { ...match, kind, eventOn: eventOn ?? match.eventOn ?? null };
-    }
-
-    const row = {
-      id: newRowId(),
-      user_id: userId,
-      fact: clean,
-      kind,
-      created_at: now,
-    };
-
-    const { data, error } = await supabase
-      .from("user_memories")
-      .insert(row as never)
-      .select("id, fact, kind, created_at")
-      .maybeSingle();
-
-    if (error) {
-      memoriesUnavailable = true;
-      return null;
-    }
-
-    const saved = (data ?? row) as Record<string, unknown>;
-    const memory = rowToMemory({
-      id: String(saved.id ?? row.id),
-      fact: String(saved.fact ?? clean),
-      kind: String(saved.kind ?? kind),
-      created_at: String(saved.created_at ?? now),
-      last_mentioned_at: now,
-    });
-    return { ...memory, eventOn };
-  } catch {
-    memoriesUnavailable = true;
-    return null;
-  }
+  return null;
 }
 
 export async function patchKidProfile(
@@ -789,87 +751,28 @@ export async function rememberKidTurn(
 }
 
 export async function seedProfileMemories(
-  supabase: AppSupabaseClient,
-  userId: string,
-  profile: Profile | null | undefined,
+  _supabase: AppSupabaseClient,
+  _userId: string,
+  _profile: Profile | null | undefined,
 ): Promise<UserMemory[]> {
-  if (!userId || !profile) return [];
-  const seeds: Array<{ fact: string; category: string }> = [];
-  if (profile.nickname) seeds.push({ fact: `Child's name is ${profile.nickname}`, category: "personal" });
-  if (profile.age) seeds.push({ fact: `Age is ${profile.age}`, category: "personal" });
-  if (profile.english_level) {
-    seeds.push({ fact: `English comfort level is ${profile.english_level}`, category: "personal" });
-  }
-  for (const interest of profile.interests ?? []) {
-    seeds.push({ fact: `Likes ${interest}`, category: "preference" });
-  }
-  const memories: UserMemory[] = [];
-  for (const seed of seeds) {
-    const saved = await saveExtractedFact(supabase, userId, seed.fact, seed.category);
-    if (saved) memories.push(saved);
-  }
-  return memories;
+  return [];
 }
 
-export async function loadUserMemories(supabase: AppSupabaseClient, userId: string): Promise<UserMemory[]> {
-  if (!userId || memoriesUnavailable) return [];
-
-  try {
-    const { data, error } = await supabase
-      .from("user_memories")
-      .select("id, fact, kind, created_at")
-      .eq("user_id", userId)
-      .limit(40);
-
-    if (error) {
-      memoriesUnavailable = true;
-      return [];
-    }
-
-    const rows = [...((data ?? []) as Array<Record<string, unknown>>) ].sort((a, b) => {
-      const aTime = Date.parse(String(a.created_at ?? "")) || 0;
-      const bTime = Date.parse(String(b.created_at ?? "")) || 0;
-      return bTime - aTime;
-    });
-
-    return rows.map((row) =>
-      rowToMemory({
-        id: String(row.id ?? ""),
-        user_id: userId,
-        fact: String(row.fact ?? ""),
-        kind: String(row.kind ?? "personal"),
-        created_at: String(row.created_at ?? ""),
-        last_mentioned_at: String(row.created_at ?? ""),
-      }),
-    );
-  } catch {
-    memoriesUnavailable = true;
-    return [];
-  }
+export async function loadUserMemories(
+  _supabase?: AppSupabaseClient,
+  _userId?: string,
+): Promise<UserMemory[]> {
+  return [];
 }
 
 export async function upsertUserMemories(
-  supabase: AppSupabaseClient,
-  userId: string,
+  _supabase: AppSupabaseClient,
+  _userId: string,
   existing: UserMemory[],
   incoming: NewMemory[],
 ): Promise<UserMemory[]> {
-  if (incoming.length === 0) return existing;
-
-  try {
-    const next = [...existing];
-    for (const memory of incoming) {
-      const saved = await saveExtractedFact(supabase, userId, memory.fact, memory.kind, memory.eventOn);
-      if (!saved) continue;
-      const index = next.findIndex((item) => item.fact.toLowerCase() === saved.fact.toLowerCase() || item.id === saved.id);
-      if (index >= 0) next[index] = saved;
-      else next.unshift(saved);
-    }
-    return next.slice(0, 24);
-  } catch {
-    memoriesUnavailable = true;
-    return existing;
-  }
+  if (MEMORIES_DISABLED || incoming.length === 0) return existing;
+  return existing;
 }
 
 export async function clearChatHistory(supabase: AppSupabaseClient, userId: string) {

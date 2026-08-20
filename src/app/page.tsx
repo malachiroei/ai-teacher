@@ -39,8 +39,14 @@ import {
 import { getCharacter, isCharacterId, readStoredTutorId, writeStoredTutorId, type CharacterId } from "@/lib/characters";
 import { useDailyPractice } from "@/hooks/useDailyPractice";
 import { preferredSpeechLangFromText } from "@/lib/language";
+import { quickHebrewSubtitle, shouldSkipLlmTranslate } from "@/lib/hebrew";
 import { parseTutorNicknames, profilePayload, withTutorDisplayName } from "@/lib/learner";
 import { consumeChatStream, speakableSentences } from "@/lib/chat-stream";
+import {
+  logPipelineLatencyReport,
+  type PipelineClientMetrics,
+  type PipelineServerMetrics,
+} from "@/lib/pipeline-latency";
 import {
   buildFriendshipOpener,
   buildPlacementOpener,
@@ -130,9 +136,7 @@ export default function HomePage() {
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [selectedTutorId, setSelectedTutorId] = useState<CharacterId | null>(null);
-  const [voiceSpeed, setVoiceSpeed] = useState<VoiceSpeed>(() =>
-    typeof window === "undefined" ? 0.9 : readStoredVoiceSpeed(),
-  );
+  const [voiceSpeed, setVoiceSpeed] = useState<VoiceSpeed>(0.9);
   const [authReady, setAuthReady] = useState(false);
   const [historyReady, setHistoryReady] = useState(false);
   const [profileChecked, setProfileChecked] = useState(false);
@@ -167,6 +171,9 @@ export default function HomePage() {
   const spokenOpenerRef = useRef("");
   const forcePlacementRef = useRef(false);
   const dailyGreetedRef = useRef("");
+  const latencyClientRef = useRef<PipelineClientMetrics | null>(null);
+  const latencyServerRef = useRef<PipelineServerMetrics | null>(null);
+  const latencyReportPrintedRef = useRef(false);
   const [spokenReply, setSpokenReply] = useState("");
   const [spokenTranslation, setSpokenTranslation] = useState("");
   const [awaitingGreeting, setAwaitingGreeting] = useState(false);
@@ -183,6 +190,56 @@ export default function HomePage() {
     ...practiceSettingsFromProfile(profile),
     voice_speed: voiceSpeed,
   };
+
+  const maybePrintLatencyReport = useCallback(() => {
+    if (latencyReportPrintedRef.current) return;
+    const client = latencyClientRef.current;
+    const server = latencyServerRef.current;
+    if (!client || !server) return;
+    if (autoSpeak && client.tTtsStart == null) {
+      window.setTimeout(() => {
+        if (latencyReportPrintedRef.current) return;
+        if (!latencyClientRef.current || !latencyServerRef.current) return;
+        latencyReportPrintedRef.current = true;
+        logPipelineLatencyReport("client", latencyServerRef.current, latencyClientRef.current);
+      }, 2500);
+      return;
+    }
+    latencyReportPrintedRef.current = true;
+    logPipelineLatencyReport("client", server, client);
+  }, [autoSpeak]);
+
+  const beginLatencyTurn = useCallback((userMessage: string) => {
+    const tClientSend = Date.now();
+    latencyReportPrintedRef.current = false;
+    latencyServerRef.current = null;
+    latencyClientRef.current = {
+      tClientSend,
+      tClientFirstChunk: null,
+      tTtsEnqueue: null,
+      tTtsStart: null,
+      tTranslateStart: null,
+      tTranslateEnd: null,
+      userMessage,
+    };
+    console.log(`[latency] T_CLIENT_SEND ${tClientSend} msg="${userMessage.slice(0, 60)}"`);
+    return {
+      tClientSend,
+      live: {
+        onFirstChunk: () => {
+          const turn = latencyClientRef.current;
+          if (!turn || turn.tClientFirstChunk != null) return;
+          turn.tClientFirstChunk = Date.now();
+          console.log(`[latency] T_CLIENT_FIRST_CHUNK +${turn.tClientFirstChunk - turn.tClientSend}ms`);
+        },
+        onMetrics: (metrics: PipelineServerMetrics) => {
+          latencyServerRef.current = metrics;
+          maybePrintLatencyReport();
+        },
+      },
+    };
+  }, [maybePrintLatencyReport]);
+
   const { speak, enqueueSpeak, beginSpeakStream, unlockSpeech, stopSpeaking, setVolume, startListening, stopListening, isListening, transcript, speechSupported, voices, isSpeaking, audioLevel, audioLevelRef, speakingText } = useSpeech({
     character,
     rateMultiplier: voiceSpeed,
@@ -192,6 +249,19 @@ export default function HomePage() {
       const text = reason === "not-allowed" ? MIC_PERMISSION_MESSAGE : SPEECH_UNAVAILABLE_MESSAGE;
       setNotice(text);
       window.setTimeout(() => setNotice(""), 2800);
+    },
+    onUtteranceEnqueue: () => {
+      const turn = latencyClientRef.current;
+      if (!turn || turn.tTtsEnqueue != null) return;
+      turn.tTtsEnqueue = Date.now();
+      console.log(`[latency] T_TTS_ENQUEUE +${turn.tTtsEnqueue - turn.tClientSend}ms`);
+    },
+    onUtteranceStart: () => {
+      const turn = latencyClientRef.current;
+      if (!turn || turn.tTtsStart != null) return;
+      turn.tTtsStart = Date.now();
+      console.log(`[latency] T_TTS_START +${turn.tTtsStart - turn.tClientSend}ms`);
+      maybePrintLatencyReport();
     },
   });
   const userMessageCountToday = countUserMessagesToday(messages);
@@ -280,6 +350,53 @@ export default function HomePage() {
     setSpokenReply(caption);
     if (translation.trim()) setSpokenTranslation(translation);
   }, []);
+
+  const fetchHebrewTranslation = useCallback((english: string, gender?: Profile["gender"] | null) => {
+    const text = english.trim();
+    if (!text) return;
+
+    const local = quickHebrewSubtitle(text, gender);
+    if (local) setSpokenTranslation(local);
+
+    // Short / dictionary-covered lines never wait on Gemini translate.
+    if (shouldSkipLlmTranslate(text, local)) {
+      const turn = latencyClientRef.current;
+      if (turn) {
+        turn.tTranslateStart = Date.now();
+        turn.tTranslateEnd = turn.tTranslateStart;
+        console.log(`[latency] T_TRANSLATE_LOCAL 0ms`);
+        maybePrintLatencyReport();
+      }
+      return;
+    }
+
+    void (async () => {
+      const turn = latencyClientRef.current;
+      if (turn) {
+        turn.tTranslateStart = Date.now();
+        console.log(`[latency] T_TRANSLATE_START +${turn.tTranslateStart - turn.tClientSend}ms`);
+      }
+      try {
+        const response = await fetch("/api/translate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text, gender: gender ?? null }),
+        });
+        if (!response.ok) return;
+        const data = (await response.json()) as { translation?: string };
+        const hebrew = String(data.translation ?? "").trim();
+        if (hebrew) setSpokenTranslation(hebrew);
+      } catch {
+        /* translation is decorative — never block speech */
+      } finally {
+        if (turn) {
+          turn.tTranslateEnd = Date.now();
+          console.log(`[latency] T_TRANSLATE_END +${turn.tTranslateEnd - turn.tClientSend}ms`);
+          maybePrintLatencyReport();
+        }
+      }
+    })();
+  }, [maybePrintLatencyReport]);
 
   const bootstrapUser = useCallback(async (nextUser: User | null) => {
     setUser(nextUser);
@@ -471,32 +588,38 @@ export default function HomePage() {
       action?: "chat" | "change_topic" | "daily_open";
       history: Message[];
       activeProfile?: Profile | null;
+      clientSendAt?: number;
     },
     live?: {
       onCaption?: (text: string, translation: string) => void;
       onSentence?: (text: string) => void;
+      onFirstChunk?: () => void;
+      onMetrics?: (metrics: PipelineServerMetrics) => void;
     },
   ): Promise<ChatApiResponse> {
     const activeProfile = payload.activeProfile ?? profile;
     const placementDone = hasCompletedKidsPlacement(user?.id, payload.history, activeProfile);
+    // Stamp fetch time (not earlier UI work) so Client→Server reflects network/middleware only.
+    const clientSendAt = Date.now();
     const response = await fetch("/api/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         userMessage: payload.userMessage ?? "",
         action: payload.action ?? "chat",
-        messages: payload.history.map(({ sender, text }) => ({
+        messages: payload.history.slice(-12).map(({ sender, text }) => ({
           role: sender === "ai" ? "assistant" : "user",
           content: text,
         })),
         profile: profilePayload(activeProfile),
         characterId: character.id,
-        memories,
+        memories: memories.slice(0, 20),
         placement: isPlacementActive(payload.history, placementDone),
         placementCompleted: placementDone,
         isFirstSessionToday: !payload.history.some(
           (message) => message.sender === "user" && message.timestamp >= startOfLocalDay(),
         ),
+        clientSendAt,
       }),
     });
 
@@ -509,11 +632,13 @@ export default function HomePage() {
       return consumeChatStream(response, live);
     }
 
+    live?.onFirstChunk?.();
     const data = (await response.json()) as ChatApiResponse;
     live?.onCaption?.(data.aiResponse, data.translation ?? "");
     for (const sentence of speakableSentences(data.aiResponse)) {
       live?.onSentence?.(sentence);
     }
+    if (data.latency) live?.onMetrics?.(data.latency);
     return data;
   }
 
@@ -530,6 +655,8 @@ export default function HomePage() {
     setSpokenReply("");
     setSpokenTranslation("");
     beginSpeakStream();
+
+    const { tClientSend, live: latencyLive } = beginLatencyTurn(text);
 
     const userMessage: Message = {
       id: createId(),
@@ -555,7 +682,6 @@ export default function HomePage() {
         ? { ...profile, placement_completed: true }
         : profile;
       if (activeProfile) {
-        setProfile(activeProfile);
         writeProgressionLocal(user.id, {
           placement_completed: true,
           xp: Number(activeProfile.xp) || 0,
@@ -577,7 +703,6 @@ export default function HomePage() {
         xp: progressed.xp,
         level: progressed.level,
       };
-      setProfile(activeProfile);
       writeProgressionLocal(user.id, {
         xp: progressed.xp,
         level: progressed.level,
@@ -590,22 +715,30 @@ export default function HomePage() {
       });
       if (progressed.leveledUp) {
         setLevelUp(progressed.info);
-        if (autoSpeak) enqueueSpeak(levelCheer(progressed.info));
       }
     }
 
     try {
-      const data = await requestReply({ userMessage: text, history, activeProfile }, {
+      const data = await requestReply({ userMessage: text, history, activeProfile, clientSendAt: tClientSend }, {
+        ...latencyLive,
         onCaption: (caption, translation) => {
           applyLiveCaption(caption, translation);
           setIsLoading(false);
         },
         onSentence: (sentence) => {
+          setIsLoading(false);
           if (!autoSpeak) return;
           streamedSpeech = true;
           enqueueSpeak(sentence);
         },
       });
+      if (data.latency) latencyServerRef.current = data.latency;
+      if (!autoSpeak) maybePrintLatencyReport();
+      if (activeProfile) {
+        setProfile(activeProfile);
+      }
+      // Hebrew subtitles load in parallel — never delay English TTS.
+      fetchHebrewTranslation(data.aiResponse, activeProfile?.gender ?? profile?.gender);
       const grammar: GrammarFeedback = data.grammarAnalysis;
       const aiMessage: Message = {
         id: createId(),
@@ -658,16 +791,22 @@ export default function HomePage() {
     if (isLoading || !chatUnlocked || !user) return;
     setIsLoading(true);
     beginSpeakStream();
+    const { tClientSend, live: latencyLive } = beginLatencyTurn("(change topic)");
     let streamedSpeech = false;
     try {
-      const data = await requestReply({ action: "change_topic", history: messages }, {
+      const data = await requestReply({ action: "change_topic", history: messages, clientSendAt: tClientSend }, {
+        ...latencyLive,
         onCaption: applyLiveCaption,
         onSentence: (sentence) => {
+          setIsLoading(false);
           if (!autoSpeak) return;
           streamedSpeech = true;
           enqueueSpeak(sentence);
         },
       });
+      if (data.latency) latencyServerRef.current = data.latency;
+      if (!autoSpeak) maybePrintLatencyReport();
+      fetchHebrewTranslation(data.aiResponse, profile?.gender);
       const aiMessage: Message = {
         id: createId(),
         sender: "ai",
@@ -853,13 +992,19 @@ export default function HomePage() {
     setAwaitingGreeting(true);
     beginSpeakStream();
     void (async () => {
+      const { tClientSend, live: latencyLive } = beginLatencyTurn("(daily open)");
       try {
-        const data = await requestReply({ action: "daily_open", history: messages }, {
+        const data = await requestReply({ action: "daily_open", history: messages, clientSendAt: tClientSend }, {
+          ...latencyLive,
           onCaption: applyLiveCaption,
           onSentence: (sentence) => {
+            setIsLoading(false);
             if (autoSpeak) enqueueSpeak(sentence);
           },
         });
+        if (data.latency) latencyServerRef.current = data.latency;
+        if (!autoSpeak) maybePrintLatencyReport();
+        fetchHebrewTranslation(data.aiResponse, profile?.gender);
         const opener: Message = {
           id: createId(),
           sender: "ai",

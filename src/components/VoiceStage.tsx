@@ -57,12 +57,21 @@ export function VoiceStage({
 }: VoiceStageProps) {
   const [keyboardOpen, setKeyboardOpen] = useState(false);
   const [draft, setDraft] = useState("");
-  const [volume, setVolume] = useState<number>(1.0);
+  // Icon bucket only — never drive the range with React state (that re-renders the 3D canvas).
+  const [volumeIcon, setVolumeIcon] = useState<"mute" | "low" | "high">("high");
   const micTouchRef = useRef(false);
   const speakTouchRef = useRef(false);
   // Avatar3DStage updates this ref in real-time (jawOpen proxy) so the waveform
   // can visually respond to TTS speaking even when the mic is idle.
   const mouthLevelRef3d = useRef(0);
+
+  function applyVolumeLive(raw: number) {
+    const v = Math.max(0, Math.min(1, raw));
+    // Audio first — no controlled React value on the hot path.
+    onSetVolume(v);
+    const nextIcon = v === 0 || !autoSpeak ? "mute" : v < 0.45 ? "low" : "high";
+    setVolumeIcon((current) => (current === nextIcon ? current : nextIcon));
+  }
 
   function bindImmediateTap(fromTouch: { current: boolean }, handler: () => void) {
     return {
@@ -83,7 +92,6 @@ export function VoiceStage({
   }
   const mode: VoiceWaveMode = speaking ? "speaking" : thinking ? "thinking" : listening ? "listening" : "idle";
   const liveWave = speaking || thinking || (listening && audioLevel >= 0.05);
-  const effectiveVolume = autoSpeak ? volume : 0;
   const trimmedTranscript = transcript.trim();
   const statusCaption = thinking && !aiCaption.trim()
     ? `${tutorName} is thinking...`
@@ -287,9 +295,9 @@ export function VoiceStage({
             )}
             {...bindImmediateTap(speakTouchRef, onToggleSpeak)}
           >
-            {effectiveVolume === 0 ? (
+            {!autoSpeak || volumeIcon === "mute" ? (
               <VolumeX className="h-5 w-5" />
-            ) : effectiveVolume < 0.5 ? (
+            ) : volumeIcon === "low" ? (
               <Volume1 className="h-5 w-5" />
             ) : (
               <Volume2 className="h-5 w-5" />
@@ -301,17 +309,10 @@ export function VoiceStage({
               min={0}
               max={1}
               step={0.01}
-              value={volume}
-              onInput={(e) => {
-                const v = Number((e.target as HTMLInputElement).value);
-                setVolume(v);
-                onSetVolume(v);
-              }}
-              onChange={(e) => {
-                const v = Number(e.target.value);
-                setVolume(v);
-                onSetVolume(v);
-              }}
+              defaultValue={1}
+              onPointerDown={(e) => e.stopPropagation()}
+              onInput={(e) => applyVolumeLive(Number((e.target as HTMLInputElement).value))}
+              onChange={(e) => applyVolumeLive(Number(e.target.value))}
               aria-label="Voice volume"
               className="h-2 w-full cursor-pointer accent-amber-400"
             />

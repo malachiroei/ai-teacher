@@ -13,19 +13,17 @@ import {
 } from "@/lib/language";
 import { buildLearnerContext, profilePayload } from "@/lib/learner";
 import { normalizeNewMemories, parseFavoriteThing, extractFactsFromUtterance, type UserMemory } from "@/lib/memory";
-import { polishHebrewTranslation } from "@/lib/hebrew";
 import { guessSpokenName, isPlacementActive, placementAnswerTurns, placementFollowUp } from "@/lib/placement";
 import {
   encodeSse,
-  extractJsonStringField,
-  pullEarlySpeakableChunk,
   pullSpeakableChunks,
   speakableSentences,
   type ChatStreamEvent,
 } from "@/lib/chat-stream";
-import { fetchProfile, loadUserMemories } from "@/lib/chat-history";
+import { fetchProfile } from "@/lib/chat-history";
 import { createClient } from "@/lib/supabase/server";
 import { trustSystemCertificates } from "@/lib/tls";
+import { logPipelineLatencyReport, type PipelineServerMetrics } from "@/lib/pipeline-latency";
 import type { ProfileInput } from "@/lib/supabase/types";
 import type { ChatApiResponse, GrammarFeedback, Message } from "@/types/chat";
 
@@ -38,28 +36,11 @@ const SSE_HEADERS = {
   "X-Accel-Buffering": "no",
 };
 
-const FAST_MODELS = ["gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-2.0-flash"];
+const FAST_MODELS = ["gemini-2.5-flash"];
+const GEMINI_REQUEST_TIMEOUT_MS = 4000;
 const VOICE_LATENCY_RULE =
-  "VOICE LATENCY: Respond in 1-2 short, natural spoken sentences maximum. Use simple words a child can hear aloud immediately. No long paragraphs. Start with the most important phrase first so speech can begin instantly.";
+  "OUTPUT FORMAT (CRITICAL): Reply with pure spoken English plaintext ONLY. No JSON. No Hebrew. No markdown. No labels. 1-2 short natural sentences a child can hear aloud immediately. Always finish every sentence with punctuation (. ! or ?). Start with the most important words first.";
 const GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta";
-const RESPONSE_SCHEMA = {
-  type: "OBJECT",
-  properties: {
-    aiResponse: { type: "STRING" },
-    translation: { type: "STRING" },
-    newMemories: {
-      type: "ARRAY",
-      items: {
-        type: "OBJECT",
-        properties: {
-          fact: { type: "STRING" },
-          kind: { type: "STRING" },
-        },
-      },
-    },
-  },
-  required: ["aiResponse", "translation"],
-};
 
 function geminiApiKey() {
   return (
@@ -97,6 +78,7 @@ interface ChatRequestBody {
   isFirstSessionToday?: boolean;
   placement?: boolean;
   placementCompleted?: boolean;
+  clientSendAt?: number | null;
 }
 
 const BASE_TUTOR_RULES = `You are BuddyAI, a warm, kid-friendly English tutor and enthusiastic companion for children aged 6–13 (Hebrew at home).
@@ -131,27 +113,18 @@ Stage 2 — Deep curiosity (the default after Stage 1):
 Stage 3 — Memory:
   Remember every fact. Use ### USER PROFILE & MEMORIES as ground truth.
   If the child asks "Do you remember how old I am?" or similar, answer with the stored age/grade/interests. Never dodge.
-  Also return newMemories for any new fact (name, age, grade, games, family, likes).
+  Also remember new personal facts (name, age, grade, games, family, likes) for later turns.
 
 LANGUAGE / OUTPUT:
-- aiResponse: 1-2 engaging English sentences + 1 direct follow-up question about THEIR last words. English only.
-- translation: accurate natural Hebrew of that same reply (subtitles). Never mix Hebrew into aiResponse.
+- Speak 1-2 engaging English sentences + 1 direct follow-up question about THEIR last words.
+- English plaintext ONLY. Never Hebrew in the spoken reply. Never JSON. Never markdown fences.
 - A1 / beginner words unless they clearly speak more. Short. Energetic.
-- If they speak Hebrew: not an error. Reply in simple English. Hebrew only in translation.
+- If they speak Hebrew: not an error. Reply in simple English.
 
 GREETINGS (hi, hey, hello, שלום, היי): just a hello. Never teach a phrase. Never "You can say".
 If you already know their name, greet by name. Do not ask their name again.
 
-Return STRICT compact JSON only:
-{"aiResponse":"English reply","translation":"Natural Hebrew","newMemories":[{"fact":"short fact","kind":"personal"}]}
-kind must be one of: personal, preference, plan, event.
-Keep aiResponse under 32 words.
-
-HEBREW TRANSLATION RULES:
-- Speak like people in Israel. No word-for-word translation.
-- NEVER slash forms: אוהב/ת, את/ה, שמח/ה. Choose ONE form.
-- Boy: אתה, אתה אוהב. Girl: את, את אוהבת. Other: avoid gendered verbs.
-- Keep English names intact.`;
+Keep the spoken reply under 32 words.`;
 
 function formatStructuredUserProfile(profile?: ProfileInput | null) {
   if (!profile) return "";
@@ -786,68 +759,53 @@ function mockReply(
   return contextualReply(userMessage, profile);
 }
 
-function polishReply(reply: ChatApiResponse, profile?: ProfileInput | null, userMessage = ""): ChatApiResponse {
+function polishPlainReply(rawText: string, profile?: ProfileInput | null, userMessage = ""): ChatApiResponse {
   const allowScaffold = shouldOfferSayHint(userMessage);
-  let aiResponse = collapseRepeatedSpeech(englishSpeechLine(reply.aiResponse));
+  let aiResponse = collapseRepeatedSpeech(englishSpeechLine(rawText));
   if (!allowScaffold) aiResponse = stripUnsolicitedScaffold(aiResponse);
   aiResponse = collapseRepeatedSpeech(aiResponse);
   if (isBannedGenericReply(aiResponse)) {
     console.error("[Gemini API Call Error]:", "Banned generic template from model", aiResponse);
   }
 
-  let translation = reply.translation;
-  let newMemories = reply.newMemories;
-  if (!allowScaffold) {
-    translation = translation
-      .replace(/באנגלית אפשר להגיד:\s*["']?[^"']*["']?\s*/g, "")
-      .replace(/בואי ננסה:\s*[^.!?]*/g, "")
-      .replace(/אפשר להגיד:\s*["']?[^"']*["']?\s*/g, "");
-  }
-
   return {
-    ...reply,
     aiResponse,
-    translation: polishHebrewTranslation(translation, profile?.gender),
-    grammarAnalysis: {
-      ...reply.grammarAnalysis,
-      explanation: polishHebrewTranslation(reply.grammarAnalysis.explanation, profile?.gender),
-    },
-    newMemories,
+    translation: "",
+    grammarAnalysis: { hasError: false, explanation: "", correctedText: "" },
+    suggestedAnswers: [],
+    newMemories: normalizeNewMemories(extractFactsFromUtterance(userMessage)),
   };
 }
 
-function extractJson(content: string): ChatApiResponse {
-  try {
-    const start = content.indexOf("{");
-    const end = content.lastIndexOf("}");
-    const raw = start >= 0 && end > start ? content.slice(start, end + 1) : content;
-    const parsed = JSON.parse(raw) as ChatApiResponse;
-    const aiResponse = collapseRepeatedSpeech(englishSpeechLine(String(parsed.aiResponse ?? "").trim()));
-    if (!aiResponse) throw new Error("Missing aiResponse");
-    return {
-      aiResponse,
-      translation: parsed.translation ?? "",
-      grammarAnalysis: {
-        hasError: Boolean(parsed.grammarAnalysis?.hasError),
-        explanation: parsed.grammarAnalysis?.explanation ?? "",
-        correctedText: parsed.grammarAnalysis?.correctedText ?? "",
-      },
-      suggestedAnswers: Array.isArray(parsed.suggestedAnswers)
-        ? parsed.suggestedAnswers.slice(0, 3).map(String)
-        : [],
-      newMemories: normalizeNewMemories(parsed.newMemories),
-    };
-  } catch {
-    const aiResponse = collapseRepeatedSpeech(englishSpeechLine(extractJsonStringField(content, "aiResponse").trim()));
-    if (!aiResponse) throw new Error("Empty Gemini response");
-    return {
-      aiResponse,
-      translation: extractJsonStringField(content, "translation"),
-      grammarAnalysis: { hasError: false, explanation: "", correctedText: "" },
-      suggestedAnswers: [],
-      newMemories: [],
-    };
+function progressFromPlaintext(
+  accumulated: string,
+  spoken: number,
+  lastCaption: string,
+  spokenText: string,
+  allowScaffold: boolean,
+) {
+  const events: ChatStreamEvent[] = [];
+  let raw = collapseRepeatedSpeech(englishSpeechLine(accumulated));
+  if (!allowScaffold) raw = collapseRepeatedSpeech(stripUnsolicitedScaffold(raw));
+  let nextCaption = lastCaption;
+  let nextSpokenText = spokenText;
+
+  // Speak only on complete clauses ending in . ! ? — never mid-phrase fragments.
+  const pulled = pullSpeakableChunks(raw, spoken);
+  for (const chunk of pulled.chunks) {
+    const clean = collapseRepeatedSpeech(englishSpeechLine(chunk));
+    if (!clean || isRedundantSpeechChunk(clean, nextSpokenText)) continue;
+    nextSpokenText = nextSpokenText ? `${nextSpokenText} ${clean}` : clean;
+    events.push({ type: "sentence", text: clean });
   }
+
+  const caption = raw.trim();
+  if (caption && caption !== lastCaption) {
+    events.push({ type: "caption", text: caption });
+    nextCaption = caption;
+  }
+
+  return { spoken: pulled.consumed, lastCaption: nextCaption, spokenText: nextSpokenText, events };
 }
 
 function logGeminiError(label: string, error: unknown) {
@@ -872,61 +830,6 @@ function normalizeHistory(messages: ChatRequestBody["messages"]): ChatTurn[] {
     .filter((message) => message.text.length > 0);
 }
 
-function progressFromPartial(
-  accumulated: string,
-  spoken: number,
-  lastCaption: string,
-  lastTranslation: string,
-  spokenText: string,
-  allowScaffold: boolean,
-) {
-  const events: ChatStreamEvent[] = [];
-  const raw = extractJsonStringField(accumulated, "aiResponse");
-  // Delay translation extraction until we actually need it (caption changed),
-  // so it can't slow down early sentence streaming for TTS.
-  const translation = extractJsonStringField(accumulated, "translation").trim();
-  let nextCaption = lastCaption;
-  let nextTranslation = lastTranslation;
-  let nextSpokenText = spokenText;
-  const caption = collapseRepeatedSpeech(allowScaffold ? raw : stripUnsolicitedScaffold(raw));
-  if (spoken === 0) {
-    // First 2 words / first clause — emit before translation so TTS starts instantly.
-    const early = pullEarlySpeakableChunk(raw, spoken, 2);
-    let earlyText = collapseRepeatedSpeech(englishSpeechLine(early.chunk));
-    if (!allowScaffold) earlyText = collapseRepeatedSpeech(stripUnsolicitedScaffold(earlyText));
-    if (earlyText && !isRedundantSpeechChunk(earlyText, nextSpokenText)) {
-      nextSpokenText = earlyText;
-      events.push({ type: "sentence", text: earlyText });
-      spoken = early.consumed;
-    }
-  }
-  const pulled = pullSpeakableChunks(raw, spoken);
-  for (const chunk of pulled.chunks) {
-    let clean = collapseRepeatedSpeech(englishSpeechLine(chunk));
-    if (!allowScaffold) clean = collapseRepeatedSpeech(stripUnsolicitedScaffold(clean));
-    if (!clean || isRedundantSpeechChunk(clean, nextSpokenText)) continue;
-    nextSpokenText = nextSpokenText ? `${nextSpokenText} ${clean}` : clean;
-    events.push({ type: "sentence", text: clean });
-  }
-  if (caption && caption !== lastCaption) {
-    events.push({
-      type: "caption",
-      text: caption,
-      ...(translation ? { translation } : {}),
-    });
-    nextCaption = caption;
-    if (translation) nextTranslation = translation;
-  } else if (translation && translation !== lastTranslation && (caption || lastCaption)) {
-    events.push({
-      type: "caption",
-      text: caption || lastCaption,
-      translation,
-    });
-    nextTranslation = translation;
-  }
-  return { spoken: pulled.consumed, lastCaption: nextCaption, lastTranslation: nextTranslation, spokenText: nextSpokenText, events };
-}
-
 function eventsForCompleteReply(reply: ChatApiResponse): ChatStreamEvent[] {
   const events: ChatStreamEvent[] = [{ type: "caption", text: reply.aiResponse, translation: reply.translation }];
   for (const chunk of speakableSentences(reply.aiResponse)) {
@@ -946,6 +849,7 @@ function formatSessionHistory(history: ChatTurn[]) {
 
 function buildGeminiContents(history: ChatTurn[], latestText: string, action: ChatAction) {
   const turns: Array<{ role: "user" | "model"; parts: Array<{ text: string }> }> = history
+    .slice(-12)
     .map((message) => ({
       role: (message.sender === "ai" ? "model" : "user") as "user" | "model",
       parts: [{ text: message.text }],
@@ -1052,22 +956,18 @@ async function geminiGenerate(
 ) {
   const method = stream ? "streamGenerateContent?alt=sse" : "generateContent";
   const url = `${GEMINI_API_BASE}/models/${encodeURIComponent(model)}:${method}`;
-  let lastError: unknown;
-  for (let attempt = 0; attempt < 3; attempt++) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), GEMINI_REQUEST_TIMEOUT_MS);
+  try {
     const response = await fetch(url, {
       method: "POST",
       headers: geminiAuthHeaders(apiKey),
       body: JSON.stringify(body),
+      signal: controller.signal,
     });
     if (!response.ok) {
       const details = await response.text();
-      const error = new Error(`Gemini ${model} ${response.status}: ${details.slice(0, 600)}`);
-      if (attempt < 2 && (response.status === 503 || response.status === 429)) {
-        lastError = error;
-        await new Promise((resolve) => setTimeout(resolve, 450 * (attempt + 1)));
-        continue;
-      }
-      throw error;
+      throw new Error(`Gemini ${model} ${response.status}: ${details.slice(0, 600)}`);
     }
     if (stream) {
       const contentType = response.headers.get("content-type") ?? "";
@@ -1086,8 +986,14 @@ async function geminiGenerate(
     const text = textFromGeminiResponse(await response.json());
     if (text) onDelta(text);
     return text;
+  } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") {
+      throw new Error(`Gemini ${model} timed out after ${GEMINI_REQUEST_TIMEOUT_MS}ms`);
+    }
+    throw error;
+  } finally {
+    clearTimeout(timer);
   }
-  throw lastError instanceof Error ? lastError : new Error(`Gemini ${model} request failed`);
 }
 
 async function streamGemini(
@@ -1096,10 +1002,20 @@ async function streamGemini(
   action: ChatAction,
   profile: ProfileInput | null | undefined,
   characterId: string | null | undefined,
-  extras: { memories?: UserMemory[]; isFirstSessionToday?: boolean; placement?: boolean; placementCompleted?: boolean } | undefined,
+  extras: {
+    memories?: UserMemory[];
+    isFirstSessionToday?: boolean;
+    placement?: boolean;
+    placementCompleted?: boolean;
+    clientSendAt?: number | null;
+    t0ServerStart?: number;
+  } | undefined,
   onEvent: (event: ChatStreamEvent) => void,
 ): Promise<ChatApiResponse> {
   trustSystemCertificates();
+
+  const t0ServerStart = extras?.t0ServerStart ?? Date.now();
+  console.log(`[latency] T0_SERVER_START ${t0ServerStart}`);
 
   const apiKey = geminiApiKey();
   if (!apiKey) throw new Error("Missing GEMINI_API_KEY");
@@ -1118,10 +1034,10 @@ async function streamGemini(
         : action === "change_topic"
           ? "The child asked for a new topic. Follow a memory or what they last said. Keep it A1. Do NOT ask name, age, or favorite color."
           : allowScaffold
-            ? 'The child asked how to say something, or is stuck. You may give one "You can say: …" hint, then one simple question. English in aiResponse, Hebrew only in translation.'
+            ? 'The child asked how to say something, or is stuck. You may give one "You can say: …" hint, then one simple question. English only.'
             : `PLACEMENT IS COMPLETE. Never ask name, age, or "what is your favorite color?". The child just said: "${userMessage}". Reply to those exact words. Use memories. Ask one specific curious question.${
                 detected === "he"
-                  ? " The child used Hebrew. Reply warmly in simple English. Hebrew meaning only in translation. Do NOT say You can say / בואי ננסה."
+                  ? " The child used Hebrew. Reply warmly in simple English only. Do NOT say You can say / בואי ננסה."
                   : " The child used English. One-word answers are great."
               }`;
 
@@ -1156,71 +1072,109 @@ async function streamGemini(
         : userMessage;
 
   const contents = buildGeminiContents(history, latestText, action);
+  const t1PromptReady = Date.now();
+  console.log(`[latency] T1_PROMPT_READY +${t1PromptReady - t0ServerStart}ms`);
+
   const requestBody = {
     systemInstruction: { parts: [{ text: system }] },
     contents,
     generationConfig: {
-      temperature: 0.65,
-      maxOutputTokens: 160,
-      responseMimeType: "application/json",
-      responseSchema: RESPONSE_SCHEMA,
+      temperature: 0.7,
+      maxOutputTokens: 300,
     },
   };
 
-  let lastError: unknown;
+  const model = FAST_MODELS[0];
+  let spoken = 0;
+  let lastCaption = "";
+  let spokenText = "";
+  let t2GeminiCall = 0;
+  let t3FirstToken: number | null = null;
+  let usedFallback = false;
+  let streamComplete: PipelineServerMetrics["streamComplete"] = "NO";
+  let streamReason = "not started";
 
-  for (const model of FAST_MODELS) {
-    let spoken = 0;
-    let lastCaption = "";
-    let lastTranslation = "";
-    let spokenText = "";
-    const pushProgress = (accumulated: string) => {
-      const progress = progressFromPartial(accumulated, spoken, lastCaption, lastTranslation, spokenText, allowScaffold);
-      spoken = progress.spoken;
-      lastCaption = progress.lastCaption;
-      lastTranslation = progress.lastTranslation;
-      spokenText = progress.spokenText;
-      for (const event of progress.events) onEvent(event);
-    };
-
-    const finish = (accumulated: string) => {
-      const payload = polishReply(extractJson(accumulated), profile, userMessage);
-      payload.newMemories = normalizeNewMemories([
-        ...(payload.newMemories ?? []),
-        ...extractFactsFromUtterance(userMessage),
-      ]);
-      for (const chunk of speakableSentences(payload.aiResponse)) {
-        if (isRedundantSpeechChunk(chunk, spokenText)) continue;
-        spokenText = spokenText ? `${spokenText} ${chunk}` : chunk;
-        onEvent({ type: "sentence", text: chunk });
-      }
-      onEvent({ type: "caption", text: payload.aiResponse, translation: payload.translation });
-      onEvent({ type: "done", payload });
-      return payload;
-    };
-
-    try {
-      const accumulated = await geminiGenerate(apiKey, model, requestBody, true, pushProgress);
-      if (!accumulated.trim()) throw new Error(`Empty Gemini stream from ${model}`);
-      return finish(accumulated);
-    } catch (streamError) {
-      lastError = streamError;
-      console.error("[Gemini API Call Error]:", streamError);
-      logGeminiError(`Gemini stream ${model} failed`, streamError);
+  const pushProgress = (accumulated: string) => {
+    if (t3FirstToken == null && accumulated.trim()) {
+      t3FirstToken = Date.now();
+      console.log(`[latency] T3_FIRST_TOKEN +${t3FirstToken - t2GeminiCall}ms (TTFT) model=${model}`);
     }
+    const progress = progressFromPlaintext(accumulated, spoken, lastCaption, spokenText, allowScaffold);
+    spoken = progress.spoken;
+    lastCaption = progress.lastCaption;
+    spokenText = progress.spokenText;
+    for (const event of progress.events) onEvent(event);
+  };
 
-    try {
-      const accumulated = await geminiGenerate(apiKey, model, requestBody, false, pushProgress);
-      if (!accumulated.trim()) throw new Error(`Empty Gemini generateContent from ${model}`);
-      return finish(accumulated);
-    } catch (syncError) {
-      lastError = syncError;
-      console.error("[Gemini API Call Error]:", syncError);
-      logGeminiError(`Gemini generateContent ${model} failed`, syncError);
+  const buildLatency = (generatedText: string, complete: PipelineServerMetrics["streamComplete"], reason: string): PipelineServerMetrics => ({
+    t0ServerStart,
+    t1PromptReady,
+    t2GeminiCall: t2GeminiCall || Date.now(),
+    t3FirstToken,
+    t4StreamComplete: Date.now(),
+    model,
+    userMessage,
+    generatedText,
+    textLength: generatedText.length,
+    streamComplete: complete,
+    streamReason: reason,
+    usedFallback,
+    clientSendAt: extras?.clientSendAt ?? null,
+  });
+
+  const finish = (accumulated: string, complete: PipelineServerMetrics["streamComplete"], reason: string) => {
+    const payload = polishPlainReply(accumulated, profile, userMessage);
+    for (const chunk of speakableSentences(payload.aiResponse)) {
+      if (isRedundantSpeechChunk(chunk, spokenText)) continue;
+      spokenText = spokenText ? `${spokenText} ${chunk}` : chunk;
+      onEvent({ type: "sentence", text: chunk });
     }
+    onEvent({ type: "caption", text: payload.aiResponse });
+    const latency = buildLatency(payload.aiResponse, complete, reason);
+    payload.latency = latency;
+    onEvent({ type: "metrics", metrics: latency });
+    onEvent({ type: "done", payload });
+    console.log(`[latency] T4_STREAM_COMPLETE +${latency.t4StreamComplete - (t2GeminiCall || t0ServerStart)}ms len=${latency.textLength}`);
+    logPipelineLatencyReport("server", latency, null);
+    return payload;
+  };
+
+  try {
+    t2GeminiCall = Date.now();
+    console.log(`[latency] T2_GEMINI_CALL model=${model}`);
+    const accumulated = await geminiGenerate(apiKey, model, requestBody, true, pushProgress);
+    if (!accumulated.trim()) throw new Error(`Empty Gemini stream from ${model}`);
+    streamComplete = "YES";
+    streamReason = "gemini stream completed";
+    return finish(accumulated, streamComplete, streamReason);
+  } catch (streamError) {
+    usedFallback = true;
+    const errMsg = streamError instanceof Error ? streamError.message : String(streamError);
+    logGeminiError(`Gemini stream ${model} failed — using fast fallback`, streamError);
+    console.log(`[latency] FALLBACK triggered: ${errMsg}`);
+    if (spokenText.trim() || lastCaption.trim()) {
+      streamComplete = "NO";
+      streamReason = `partial stream then error: ${errMsg}`;
+      return finish(lastCaption || spokenText, streamComplete, streamReason);
+    }
+    const fallback = mockReply(
+      userMessage,
+      action,
+      history,
+      profile,
+      placement,
+      extras?.memories ?? [],
+      placementCompleted,
+    );
+    streamComplete = "NO";
+    streamReason = `fallback reply: ${errMsg}`;
+    const latency = buildLatency(fallback.aiResponse, streamComplete, streamReason);
+    fallback.latency = latency;
+    for (const event of eventsForCompleteReply(fallback)) onEvent(event);
+    onEvent({ type: "metrics", metrics: latency });
+    logPipelineLatencyReport("server", latency, null);
+    return fallback;
   }
-
-  throw lastError instanceof Error ? lastError : new Error("Gemini request failed");
 }
 
 function sseResponse(write: (send: (event: ChatStreamEvent) => void) => Promise<void>) {
@@ -1243,31 +1197,17 @@ function sseResponse(write: (send: (event: ChatStreamEvent) => void) => Promise<
   return new Response(stream, { headers: SSE_HEADERS });
 }
 
-function mergeMemories(primary: UserMemory[], extra: UserMemory[]) {
-  const seen = new Set<string>();
-  const out: UserMemory[] = [];
-  for (const memory of [...primary, ...extra]) {
-    const key = String(memory.fact ?? "").toLowerCase().trim();
-    if (!key || seen.has(key)) continue;
-    seen.add(key);
-    out.push(memory);
-  }
-  return out.slice(0, 40);
-}
-
 async function loadStoredLearner(bodyProfile: ProfileInput | null, bodyMemories: UserMemory[]) {
   try {
     const supabase = await createClient();
     const { data } = await supabase.auth.getUser();
     if (!data.user) return { profile: bodyProfile, memories: bodyMemories };
-    const [storedProfile, storedMemories] = await Promise.all([
-      fetchProfile(supabase, data.user.id),
-      loadUserMemories(supabase, data.user.id),
-    ]);
+    // user_memories queries are disabled — never block the chat route on them.
+    const storedProfile = await fetchProfile(supabase, data.user.id);
     const profile = storedProfile
       ? { ...profilePayload(storedProfile), ...bodyProfile }
       : bodyProfile;
-    return { profile, memories: mergeMemories(storedMemories, bodyMemories) };
+    return { profile, memories: bodyMemories };
   } catch (error) {
     console.error("[Gemini API Call Error]:", "memory load failed", error);
     return { profile: bodyProfile, memories: bodyMemories };
@@ -1275,6 +1215,7 @@ async function loadStoredLearner(bodyProfile: ProfileInput | null, bodyMemories:
 }
 
 export async function POST(request: Request) {
+  const t0ServerStart = Date.now();
   try {
     const body = (await request.json()) as ChatRequestBody;
     const action: ChatAction =
@@ -1283,13 +1224,17 @@ export async function POST(request: Request) {
     const history = normalizeHistory(body.messages);
     const bodyProfile = body.profile ?? null;
     const bodyMemories = Array.isArray(body.memories) ? body.memories : [];
+    const clientSendAt = typeof body.clientSendAt === "number" ? body.clientSendAt : null;
 
-    // If the client already provided profile/memories, don't block the first audio chunk
-    // with an extra Supabase roundtrip.
-    const stored = !bodyProfile || bodyMemories.length === 0 ? await loadStoredLearner(bodyProfile, bodyMemories) : { profile: bodyProfile, memories: bodyMemories };
-    const profile = stored.profile;
+    // Never block the SSE stream on Supabase when the client already sent a profile.
+    let profile = bodyProfile;
+    let memories = bodyMemories;
+    if (!profile) {
+      const stored = await loadStoredLearner(bodyProfile, bodyMemories);
+      profile = stored.profile;
+      memories = stored.memories;
+    }
     const characterId = body.characterId ?? profile?.selected_character ?? null;
-    const memories = stored.memories;
     const isFirstSessionToday = Boolean(body.isFirstSessionToday);
     const placementCompleted = Boolean(body.placementCompleted || profile?.placement_completed);
     const placement =
@@ -1301,7 +1246,14 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "userMessage is required" }, { status: 400 });
     }
 
-    const extras = { memories, isFirstSessionToday, placement, placementCompleted };
+    const extras = {
+      memories,
+      isFirstSessionToday,
+      placement,
+      placementCompleted,
+      clientSendAt,
+      t0ServerStart,
+    };
     const apiKey = geminiApiKey();
     if (!apiKey) {
       console.error("[Gemini API Call Error]:", "Missing GEMINI_API_KEY or GOOGLE_GENERATIVE_AI_API_KEY");

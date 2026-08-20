@@ -1,4 +1,5 @@
 import type { NewMemory } from "@/lib/memory";
+import type { PipelineServerMetrics } from "@/lib/pipeline-latency";
 
 export interface GrammarFeedback {
   hasError: boolean;
@@ -23,4 +24,5 @@ export interface ChatApiResponse {
   grammarAnalysis: GrammarFeedback;
   suggestedAnswers: SuggestedResponse;
   newMemories?: NewMemory[];
+  latency?: PipelineServerMetrics;
 }

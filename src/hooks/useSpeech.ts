@@ -15,8 +15,8 @@ export const SPEECH_UNAVAILABLE_MESSAGE =
 
 export const MIC_PERMISSION_MESSAGE = "Please allow microphone access in your browser settings";
 
-const SILENCE_SUBMIT_MS = 700;
-const FINAL_SUBMIT_MS = 700;
+const SILENCE_SUBMIT_MS = 400;
+const FINAL_SUBMIT_MS = 350;
 const ONEND_RESULT_GRACE_MS = 300;
 
 type RecognitionInstance = InstanceType<NonNullable<ReturnType<typeof getRecognitionConstructor>>>;
@@ -240,7 +240,8 @@ function ensureOutputGain() {
 function sliderToOutputGain(slider: number) {
   const val = Math.max(0, Math.min(1, slider));
   if (val === 0) return 0;
-  return Math.pow(val, 2);
+  // Mild perceptual curve — stays audible at low slider positions (unlike val^2).
+  return Math.pow(val, 1.35);
 }
 
 function applyOutputVolume(slider: number) {
@@ -253,11 +254,21 @@ function applyOutputVolume(slider: number) {
     player.defaultMuted = false;
     player.volume = gain;
   }
+  // SpeechSynthesis often freezes volume at speak() — still poke it every drag for browsers that honor live updates.
   if (activeUtterance) {
     try {
       activeUtterance.volume = gain;
     } catch {
-      /* some engines freeze volume at speak() time */
+      /* ignore */
+    }
+  }
+  if (typeof window !== "undefined" && "speechSynthesis" in window) {
+    try {
+      // Re-assert volume on the live utterance queue when supported.
+      const speaking = window.speechSynthesis.speaking;
+      if (speaking && activeUtterance) activeUtterance.volume = gain;
+    } catch {
+      /* ignore */
     }
   }
   if (val === 0 && typeof window !== "undefined" && "speechSynthesis" in window) {
@@ -539,6 +550,8 @@ export function useSpeech(options?: {
   preferredVoiceUri?: string | null;
   onFinalTranscript?: (text: string) => void;
   onListenError?: (reason: "not-allowed" | "unavailable") => void;
+  onUtteranceStart?: (text: string) => void;
+  onUtteranceEnqueue?: (text: string) => void;
 }) {
   const [isListening, setIsListening] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
@@ -558,6 +571,8 @@ export function useSpeech(options?: {
   const preferredVoiceUriRef = useRef(options?.preferredVoiceUri ?? "");
   const onFinalTranscriptRef = useRef(options?.onFinalTranscript);
   const onListenErrorRef = useRef(options?.onListenError);
+  const onUtteranceStartRef = useRef(options?.onUtteranceStart);
+  const onUtteranceEnqueueRef = useRef(options?.onUtteranceEnqueue);
   const shouldListenRef = useRef(false);
   const startingRef = useRef(false);
   const submittedRef = useRef(false);
@@ -577,6 +592,8 @@ export function useSpeech(options?: {
   preferredVoiceUriRef.current = options?.preferredVoiceUri ?? "";
   onFinalTranscriptRef.current = options?.onFinalTranscript;
   onListenErrorRef.current = options?.onListenError;
+  onUtteranceStartRef.current = options?.onUtteranceStart;
+  onUtteranceEnqueueRef.current = options?.onUtteranceEnqueue;
 
   const clearSilenceTimer = useCallback(() => {
     if (silenceTimerRef.current != null) {
@@ -903,10 +920,13 @@ export function useSpeech(options?: {
 
       ttsBusyRef.current = true;
       setIsSpeaking(true);
+      setSpeakingText(next);
+      onUtteranceEnqueueRef.current?.(next);
       utterance.onstart = () => {
         if (generation !== ttsGenerationRef.current) return;
         started = true;
         setIsSpeaking(true);
+        onUtteranceStartRef.current?.(next);
         resumeSpeechSynthesis();
         startResumeWatch();
       };
