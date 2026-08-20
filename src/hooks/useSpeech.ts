@@ -957,9 +957,9 @@ export function useSpeech(options?: {
       return;
     }
 
-    // Chrome freezes SpeechSynthesis volume at speak() — on commit, restart the
-    // current line so the new loudness is actually heard.
-    if (options?.commitMute && Math.abs(v - lastCommittedVolumeRef.current) >= 0.04) {
+    // Chrome freezes SpeechSynthesis volume at speak() — restart ONLY on pointer-up
+    // commit, never during drag (onChange fires continuously and caused avatar flicker).
+    if (options?.commitMute && Math.abs(v - lastCommittedVolumeRef.current) >= 0.08) {
       lastCommittedVolumeRef.current = v;
       const current = speakingTextRef.current.trim();
       if (current && (ttsBusyRef.current || (typeof window !== "undefined" && window.speechSynthesis?.speaking))) {
@@ -969,6 +969,8 @@ export function useSpeech(options?: {
         ttsBusyRef.current = false;
         activeUtterance = null;
         speechQueueRef.current = [current, ...rest];
+        // Keep speaking UI stable during the brief restart.
+        setIsSpeaking(true);
         playNextUtterance();
       }
     } else if (options?.commitMute) {

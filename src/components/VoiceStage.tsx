@@ -127,11 +127,11 @@ export function VoiceStage({
             speaking ? "avatar-portrait-speaking" : "avatar-portrait-idle",
           )}
           style={{
-            // All speaking feedback is a pure border glow — portrait image never moves.
+            // Soft static glow only — no on/off flash between TTS chunks.
             boxShadow: speaking
-              ? `0 0 0 3px color-mix(in srgb, var(--accent) 75%, transparent), 0 0 48px color-mix(in srgb, var(--accent) 40%, transparent)`
-              : undefined,
-            transition: "box-shadow 0.35s ease",
+              ? `0 0 0 2px color-mix(in srgb, var(--accent) 55%, transparent), 0 0 36px color-mix(in srgb, var(--accent) 28%, transparent)`
+              : `0 0 0 1px color-mix(in srgb, var(--accent) 18%, transparent)`,
+            transition: "box-shadow 0.5s ease",
           }}
         >
           <Avatar3DStage
@@ -314,7 +314,7 @@ export function VoiceStage({
               onPointerUp={(e) => applyVolumeLive(Number((e.target as HTMLInputElement).value), true)}
               onTouchEnd={(e) => applyVolumeLive(Number((e.target as HTMLInputElement).value), true)}
               onInput={(e) => applyVolumeLive(Number((e.target as HTMLInputElement).value), false)}
-              onChange={(e) => applyVolumeLive(Number(e.target.value), true)}
+              onChange={(e) => applyVolumeLive(Number(e.target.value), false)}
               aria-label="Voice volume"
               className="voice-volume-slider h-5 w-full cursor-pointer accent-amber-400"
             />

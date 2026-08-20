@@ -1,8 +1,8 @@
 "use client";
 
-import { Suspense, Component, memo, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, Component, memo, type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { Canvas, useFrame } from "@react-three/fiber";
-import { Environment, Html, useGLTF, useProgress } from "@react-three/drei";
+import { useGLTF } from "@react-three/drei";
 import type { Group } from "three";
 import { MathUtils, Mesh, Object3D, Vector3 } from "three";
 import type { Character } from "@/lib/characters";
@@ -50,30 +50,6 @@ function mouthTargetForKind(kind: MouthMorphKind, amount: number) {
   }
 }
 
-function useVisemeSchedule(spokenText: string | undefined, enabled: boolean) {
-  const tokens = useMemo(() => {
-    if (!spokenText) return [];
-    const s = spokenText.toLowerCase();
-    const out: Array<"aa" | "e" | "i" | "o" | "u"> = [];
-    for (const ch of s) {
-      if (ch === "a") out.push("aa");
-      else if (ch === "e") out.push("e");
-      else if (ch === "i" || ch === "y") out.push("i");
-      else if (ch === "o") out.push("o");
-      else if (ch === "u") out.push("u");
-    }
-    return out.slice(0, 70);
-  }, [spokenText]);
-
-  return useMemo(() => {
-    const segmentDurMs = 70;
-    const segments = tokens.length
-      ? tokens.map((t) => ({ t, durationMs: segmentDurMs }))
-      : [{ t: "aa" as const, durationMs: 140 }];
-    return { segments, segmentDurMs };
-  }, [tokens]);
-}
-
 function AvatarGLTFErrorBoundary({
   children,
   fallback,
@@ -97,18 +73,6 @@ class ErrorBoundary extends Component<{ children: ReactNode; fallback: ReactNode
     if (this.state.error) return this.props.fallback;
     return this.props.children;
   }
-}
-
-function ModelLoader() {
-  const { progress } = useProgress();
-  return (
-    <Html center>
-      <div className="pointer-events-none flex flex-col items-center gap-2 rounded-2xl border border-cyan-400/20 bg-black/30 px-4 py-3 backdrop-blur-md">
-        <div className="h-8 w-8 rounded-full border border-cyan-400/40 border-t-cyan-300/90 animate-spin" />
-        <div className="text-xs font-semibold text-white/75">{Math.round(progress)}% loaded</div>
-      </div>
-    </Html>
-  );
 }
 
 function resolveCharacterModelId(characterId: string) {
@@ -141,8 +105,6 @@ function GLTFTalkingAvatar({
   const jawOrHeadInitialRotRef = useRef<{ x: number; y: number; z: number } | null>(null);
   const jawMeshNodeRef = useRef<Object3D | null>(null);
   const jawMeshInitialPosRef = useRef<Vector3 | null>(null);
-  const viseme = useVisemeSchedule(spokenText, isSpeaking);
-  const speakStartedAtRef = useRef(0);
 
   useEffect(() => {
     mouthInfluenceEntriesRef.current = [];
@@ -183,29 +145,23 @@ function GLTFTalkingAvatar({
     });
   }, [scene]);
 
-  useEffect(() => {
-    if (isSpeaking) speakStartedAtRef.current = performance.now();
-  }, [isSpeaking, spokenText]);
-
   useFrame((state) => {
     const t = state.clock.elapsedTime;
     let mouthAmount = 0;
     if (isSpeaking) {
-      const elapsed = performance.now() - speakStartedAtRef.current;
-      const { segments, segmentDurMs } = viseme;
-      const cycle = Math.max(1, segments.length * segmentDurMs);
-      const idx = Math.floor((elapsed % cycle) / segmentDurMs) % segments.length;
-      const pulse = 0.18 + Math.sin(t * 14) * 0.18;
-      mouthAmount = Math.min(MAX_MOUTH_OPEN, pulse + (idx % 2 === 0 ? 0.06 : 0));
+      // Smooth continuous jaw — avoid hard on/off pulses that look like flickering.
+      const pulse = 0.14 + Math.sin(t * 10) * 0.1 + Math.sin(t * 17) * 0.05;
+      mouthAmount = Math.min(MAX_MOUTH_OPEN, Math.max(0.06, pulse));
     }
 
     for (const entry of eyeInfluenceEntriesRef.current) {
       const arr = entry.mesh.morphTargetInfluences;
       if (!arr) continue;
-      const blinkPeriodSeconds = 3.5;
+      const blinkPeriodSeconds = 4.2;
       const blinkPhase = t % blinkPeriodSeconds;
-      const blinkAmt = blinkPhase < 0.12 ? 1 : 0;
-      arr[entry.index] = MathUtils.lerp(arr[entry.index], blinkAmt, 0.3);
+      // Soft blink — never slam morph to 1.0 (that flashes the whole face).
+      const blinkAmt = blinkPhase < 0.1 ? Math.sin((blinkPhase / 0.1) * Math.PI) * 0.85 : 0;
+      arr[entry.index] = MathUtils.lerp(arr[entry.index], blinkAmt, 0.35);
     }
 
     if (hasMouthMorphRef.current) {
@@ -213,23 +169,23 @@ function GLTFTalkingAvatar({
         const arr = entry.mesh.morphTargetInfluences;
         if (!arr) continue;
         const target = mouthTargetForKind(entry.kind, mouthAmount);
-        arr[entry.index] = MathUtils.lerp(arr[entry.index], target, 0.22);
+        arr[entry.index] = MathUtils.lerp(arr[entry.index], target, 0.18);
       }
     } else {
       const node = jawOrHeadNodeRef.current;
       const initial = jawOrHeadInitialRotRef.current;
       if (node && initial) {
         const targetX = initial.x + (isSpeaking ? mouthAmount * 0.1 : 0);
-        node.rotation.x = MathUtils.lerp(node.rotation.x, targetX, 0.22);
+        node.rotation.x = MathUtils.lerp(node.rotation.x, targetX, 0.18);
       }
       if (jawMeshNodeRef.current && jawMeshInitialPosRef.current) {
         const targetY = jawMeshInitialPosRef.current.y + (isSpeaking ? mouthAmount * 0.012 : 0);
-        jawMeshNodeRef.current.position.y = MathUtils.lerp(jawMeshNodeRef.current.position.y, targetY, 0.22);
+        jawMeshNodeRef.current.position.y = MathUtils.lerp(jawMeshNodeRef.current.position.y, targetY, 0.18);
       }
     }
 
     if (mouthLevelRef) {
-      mouthLevelRef.current = MathUtils.lerp(mouthLevelRef.current, isSpeaking ? mouthAmount : 0, 0.18);
+      mouthLevelRef.current = MathUtils.lerp(mouthLevelRef.current, isSpeaking ? mouthAmount : 0, 0.14);
     }
   });
 
@@ -258,11 +214,12 @@ export const Avatar3DStage = memo(function Avatar3DStage({
   const remountTimer = useRef<number | null>(null);
 
   const recoverContext = useCallback(() => {
+    // Cooldown prevents remount loops that make the avatar flash on/off.
     if (remountTimer.current != null) return;
     remountTimer.current = window.setTimeout(() => {
       remountTimer.current = null;
       setContextKey((key) => key + 1);
-    }, 250);
+    }, 1800);
   }, []);
 
   useEffect(() => {
@@ -283,35 +240,32 @@ export const Avatar3DStage = memo(function Avatar3DStage({
     <Canvas
       key={`${characterId}-${contextKey}-${compact ? "c" : "f"}`}
       className="avatar-3d-canvas"
-      dpr={compact ? 1 : [1, 1.5]}
+      dpr={1}
       camera={{ position: cameraPosition, fov: compact ? 30 : 28 }}
-      style={{ width: "100%", height: "100%", pointerEvents: "none" }}
+      style={{ width: "100%", height: "100%", pointerEvents: "none", background: "transparent" }}
       shadows={false}
       gl={{
-        antialias: !compact,
+        antialias: false,
         alpha: true,
-        powerPreference: "default",
+        powerPreference: "high-performance",
         failIfMajorPerformanceCaveat: false,
+        preserveDrawingBuffer: false,
       }}
       onCreated={({ gl }) => {
         const canvas = gl.domElement;
         const onLost = (event: Event) => {
           event.preventDefault();
-          console.warn("[Avatar3D] WebGL context lost — remounting");
+          console.warn("[Avatar3D] WebGL context lost — remounting once");
           recoverContext();
         };
-        const onRestored = () => {
-          console.warn("[Avatar3D] WebGL context restored");
-        };
         canvas.addEventListener("webglcontextlost", onLost, false);
-        canvas.addEventListener("webglcontextrestored", onRestored, false);
       }}
     >
-      <Suspense fallback={compact ? null : <ModelLoader />}>
-        <ambientLight intensity={1.5} />
-        <directionalLight intensity={2.0} position={[0, 5, 5]} />
-        <pointLight intensity={1.2} position={[0, 2, 2]} />
-        {!compact ? <Environment preset="city" /> : null}
+      <Suspense fallback={null}>
+        <ambientLight intensity={1.35} />
+        <directionalLight intensity={1.7} position={[0, 5, 5]} />
+        <pointLight intensity={0.9} position={[0, 2, 2]} />
+        {/* Skip HDR Environment — it spikes GPU and triggers context-loss flicker. */}
 
         <AvatarGLTFErrorBoundary key={characterId} fallback={null}>
           <GLTFTalkingAvatar
