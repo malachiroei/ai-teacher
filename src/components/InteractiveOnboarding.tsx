@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import type { User } from "@supabase/supabase-js";
+import { Avatar3DStage } from "@/components/Avatar3DStage";
 import type { Character } from "@/lib/characters";
 import type { Profile } from "@/lib/supabase/types";
 import { cn } from "@/lib/utils";
@@ -135,7 +136,6 @@ export function InteractiveOnboarding({ user, character, initialProfile, onCompl
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
-  const avatarSrc = character.portraitUrl ?? character.avatarUrl;
   const accentColor = character.accentColor;
 
   const selectedInterests = useMemo(() => {
@@ -274,16 +274,12 @@ export function InteractiveOnboarding({ user, character, initialProfile, onCompl
           {/* Avatar + bubble */}
           <div className="mb-5 flex flex-col items-center gap-3">
             <div
-              className="relative h-24 w-24 rounded-full border-2 border-cyan-400/50"
+              className="relative h-28 w-28 overflow-hidden rounded-full border-2 border-cyan-400/50 bg-black/40"
               style={{ boxShadow: `0 0 28px color-mix(in srgb, ${accentColor} 45%, rgba(34,211,238,0.3))` }}
             >
-              <img
-                src={avatarSrc}
-                alt={character.name}
-                className="h-full w-full rounded-full object-cover object-[center_18%]"
-                draggable={false}
-              />
-              {/* Neon ring */}
+              <div className="absolute inset-[-18%_-8%_-6%]">
+                <Avatar3DStage character={character} isSpeaking={false} compact />
+              </div>
               <span
                 className="absolute inset-[-3px] rounded-full border border-cyan-300/20 pointer-events-none"
                 style={{ boxShadow: "inset 0 0 12px rgba(34,211,238,0.15)" }}

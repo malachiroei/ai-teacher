@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { Avatar3DStage } from "@/components/Avatar3DStage";
 import type { Character } from "@/lib/characters";
 import { cn } from "@/lib/utils";
 
@@ -10,17 +10,17 @@ interface CharacterAvatarProps {
   online?: boolean;
   eager?: boolean;
   framed?: boolean;
+  /** Show the live GLB tutor instead of the retired PNG portraits. */
+  live3d?: boolean;
 }
 
 export function CharacterAvatar({
   character,
   className,
   online = false,
-  eager = false,
   framed = true,
+  live3d = false,
 }: CharacterAvatarProps) {
-  const [failed, setFailed] = useState(false);
-
   return (
     <div className={cn("relative shrink-0", className)}>
       <div
@@ -32,7 +32,13 @@ export function CharacterAvatar({
           background: `linear-gradient(145deg, ${character.accentColor}2b, ${character.accentColor}55)`,
         }}
       >
-        {failed ? (
+        {live3d ? (
+          <div className="relative h-full w-full bg-black/35">
+            <div className="absolute inset-[-22%_-10%_-8%]">
+              <Avatar3DStage character={character} isSpeaking={false} compact />
+            </div>
+          </div>
+        ) : (
           <div
             className="flex h-full w-full items-center justify-center text-[45%] font-bold text-white"
             style={{ backgroundColor: character.accentColor }}
@@ -40,15 +46,6 @@ export function CharacterAvatar({
           >
             {character.name.charAt(0)}
           </div>
-        ) : (
-          <img
-            src={character.avatarUrl}
-            alt={character.name}
-            className="block h-full w-full rounded-full object-cover object-top"
-            loading={eager ? "eager" : "lazy"}
-            decoding="async"
-            onError={() => setFailed(true)}
-          />
         )}
       </div>
       {online ? (

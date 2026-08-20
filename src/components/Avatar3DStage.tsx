@@ -15,6 +15,8 @@ type Avatar3DStageProps = {
   mouthLevelRef?: { current: number };
   // Optional glTF URL. If absent, we render a stylized fallback avatar.
   modelUrl?: string | null;
+  /** Smaller canvas / lighter GPU for onboarding & picker thumbnails. */
+  compact?: boolean;
 };
 
 const MAX_MOUTH_OPEN = 0.35;
@@ -411,7 +413,13 @@ function ModelLoader() {
   );
 }
 
-export const Avatar3DStage = memo(function Avatar3DStage({ character, isSpeaking, spokenText, mouthLevelRef }: Avatar3DStageProps) {
+export const Avatar3DStage = memo(function Avatar3DStage({
+  character,
+  isSpeaking,
+  spokenText,
+  mouthLevelRef,
+  compact = false,
+}: Avatar3DStageProps) {
   const characterId = resolveCharacterModelId(character.id) as "emma" | "alex";
   const modelUrl = `/models/${characterId}.glb`;
   const cameraPosition: [number, number, number] =
@@ -428,17 +436,17 @@ export const Avatar3DStage = memo(function Avatar3DStage({ character, isSpeaking
   return (
     <Canvas
       className="avatar-3d-canvas"
-      dpr={[1, 2]}
-      camera={{ position: cameraPosition, fov: 28 }}
+      dpr={compact ? [1, 1.25] : [1, 2]}
+      camera={{ position: cameraPosition, fov: compact ? 30 : 28 }}
       style={{ width: "100%", height: "100%", pointerEvents: "none" }}
       shadows={false}
-      gl={{ antialias: true, alpha: true }}
+      gl={{ antialias: !compact, alpha: true, powerPreference: compact ? "low-power" : "default" }}
     >
-      <Suspense fallback={<ModelLoader />}>
+      <Suspense fallback={compact ? null : <ModelLoader />}>
         <ambientLight intensity={1.5} />
         <directionalLight intensity={2.0} position={[0, 5, 5]} />
         <pointLight intensity={1.2} position={[0, 2, 2]} />
-        <Environment preset="city" />
+        {!compact ? <Environment preset="city" /> : null}
 
         <AvatarGLTFErrorBoundary key={characterId} fallback={null}>
           <GLTFTalkingAvatar
