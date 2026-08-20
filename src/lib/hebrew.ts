@@ -65,18 +65,28 @@ export function hebrewGenderForms(gender: Gender | string | undefined) {
 export function polishHebrewTranslation(text: string, gender?: Gender | string | null) {
   if (!text) return text;
   const form = gender === "girl" ? "girl" : gender === "other" ? "other" : "boy";
-  let next = text;
+  let next = text.trim();
 
+  // Only normalize slash gender forms — never rewrite Latin tokens inside Hebrew
+  // (that produced gibberish like "common less) ?אותך").
   for (const slash of SLASH_FORMS) {
     next = next.replace(slash.re, slash[form]);
   }
 
-  next = next.replace(/\b[A-Za-z][A-Za-z']*\b/g, (word) => {
-    const translated = INTEREST_HEBREW[word.toLowerCase()];
-    return translated || word;
-  });
-
   return next.replace(/\s{2,}/g, " ").trim();
+}
+
+/** Reject mangled / partial subtitle strings. */
+export function isCleanHebrewSubtitle(hebrew: string) {
+  const he = hebrew.trim();
+  if (!he || !/[\u0590-\u05FF]/.test(he)) return false;
+  if (/[)\](]/.test(he) && /[A-Za-z]{2,}/.test(he)) return false;
+  if (/\b(common|less|what|kind|ready|great|from)\b/i.test(he)) return false;
+  // Require mostly Hebrew letters among letters present.
+  const letters = he.match(/[\u0590-\u05FFa-zA-Z]/g) ?? [];
+  if (letters.length === 0) return false;
+  const hebrewLetters = (he.match(/[\u0590-\u05FF]/g) ?? []).length;
+  return hebrewLetters / letters.length >= 0.55;
 }
 
 /** Exact / near-exact tutor phrases → instant Hebrew (no LLM). */
@@ -174,7 +184,9 @@ export function extractHebrewHint(text: string) {
 
 export function splitCaptionLines(english: string, translation?: string | null) {
   const source = english.trim();
-  const hebrew = (translation ?? "").trim() || extractHebrewHint(source);
+  const hebrewRaw = (translation ?? "").trim();
+  // Never scrape English caption for Hebrew fragments — that yields broken subtitles.
+  const hebrew = isCleanHebrewSubtitle(hebrewRaw) ? hebrewRaw : "";
   return {
     english: stripHebrewScript(source),
     hebrew,

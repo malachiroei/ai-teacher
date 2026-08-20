@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { polishHebrewTranslation, quickHebrewSubtitle, shouldSkipLlmTranslate } from "@/lib/hebrew";
+import { polishHebrewTranslation, quickHebrewSubtitle, shouldSkipLlmTranslate, isCleanHebrewSubtitle } from "@/lib/hebrew";
 import { trustSystemCertificates } from "@/lib/tls";
 
 export const dynamic = "force-dynamic";
@@ -115,7 +115,8 @@ export async function POST(request: Request) {
       return NextResponse.json({ translation: "", source: "empty" });
     }
 
-    const local = quickHebrewSubtitle(text, body.gender);
+    const localRaw = quickHebrewSubtitle(text, body.gender);
+    const local = isCleanHebrewSubtitle(localRaw) ? localRaw : "";
     if (shouldSkipLlmTranslate(text, local)) {
       return NextResponse.json({ translation: local, source: "local" });
     }
@@ -126,7 +127,8 @@ export async function POST(request: Request) {
     }
 
     try {
-      const translation = await translateWithGemini(apiKey, text, body.gender);
+      const translationRaw = await translateWithGemini(apiKey, text, body.gender);
+      const translation = isCleanHebrewSubtitle(translationRaw) ? translationRaw : "";
       return NextResponse.json({
         translation: translation || local,
         source: translation ? "gemini" : "local",

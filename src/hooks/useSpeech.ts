@@ -225,7 +225,7 @@ function applyOutputVolume(slider: number) {
     player.defaultMuted = false;
     player.volume = gain;
   }
-  // SpeechSynthesis often freezes volume at speak() — still poke it every drag for browsers that honor live updates.
+  // Update live utterance volume only — never cancel/resume the synth here.
   if (activeUtterance) {
     try {
       activeUtterance.volume = gain;
@@ -233,31 +233,17 @@ function applyOutputVolume(slider: number) {
       /* ignore */
     }
   }
-  if (typeof window !== "undefined" && "speechSynthesis" in window) {
-    try {
-      // Re-assert volume on the live utterance queue when supported.
-      const speaking = window.speechSynthesis.speaking;
-      if (speaking && activeUtterance) activeUtterance.volume = gain;
-    } catch {
-      /* ignore */
-    }
-  }
-  if (val === 0 && typeof window !== "undefined" && "speechSynthesis" in window) {
-    try {
-      window.speechSynthesis.cancel();
-    } catch {
-      /* ignore */
-    }
-    activeUtterance = null;
-  }
   const gainNode = ensureOutputGain();
   if (gainNode && unlockContext) {
     try {
       const now = unlockContext.currentTime;
-      gainNode.gain.cancelScheduledValues(now);
       gainNode.gain.setValueAtTime(gain, now);
     } catch {
-      gainNode.gain.value = gain;
+      try {
+        gainNode.gain.value = gain;
+      } catch {
+        /* ignore */
+      }
     }
   }
 }
@@ -950,11 +936,14 @@ export function useSpeech(options?: {
     setIsSpeaking(false);
   }, []);
 
-  const setVolume = useCallback((next: number) => {
+  const setVolume = useCallback((next: number, options?: { commitMute?: boolean }) => {
     const v = Math.max(0, Math.min(1, next));
     volumeRef.current = v;
+    // Live drag: only adjust gain/utterance.volume — never cancel playback.
     applyOutputVolume(v);
-    if (v === 0) {
+    // Interrupt only when the user commits mute at exactly 0 (pointer up / change),
+    // not while touch-dragging across near-zero values.
+    if (v === 0 && options?.commitMute) {
       ttsGenerationRef.current += 1;
       speechQueueRef.current = [];
       ttsBusyRef.current = false;

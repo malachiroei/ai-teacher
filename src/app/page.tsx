@@ -38,7 +38,8 @@ import {
 } from "@/lib/chat-history";
 import { getCharacter, isCharacterId, readStoredTutorId, writeStoredTutorId, type CharacterId } from "@/lib/characters";
 import { useDailyPractice } from "@/hooks/useDailyPractice";
-import { quickHebrewSubtitle, shouldSkipLlmTranslate } from "@/lib/hebrew";
+import { quickHebrewSubtitle, shouldSkipLlmTranslate, isCleanHebrewSubtitle } from "@/lib/hebrew";
+import { logConversationPedagogyReport } from "@/lib/conversation-pedagogy";
 import { parseTutorNicknames, profilePayload, withTutorDisplayName } from "@/lib/learner";
 import { consumeChatStream, speakableSentences } from "@/lib/chat-stream";
 import {
@@ -350,23 +351,32 @@ export default function HomePage() {
     if (translation.trim()) setSpokenTranslation(translation);
   }, []);
 
-  const fetchHebrewTranslation = useCallback((english: string, gender?: Profile["gender"] | null) => {
+  const fetchHebrewTranslation = useCallback((english: string, gender?: Profile["gender"] | null, userInput = "") => {
     const text = english.trim();
     if (!text) return;
 
-    // Optimistic phrase-dictionary hit only (exact greetings). Full sentences always use Gemini.
-    const local = quickHebrewSubtitle(text, gender);
-    if (local) setSpokenTranslation(local);
+    const finishPedagogy = (hebrew: string) => {
+      logConversationPedagogyReport({
+        userInput,
+        tutorResponse: text,
+        hebrewSubtitle: hebrew,
+      });
+    };
 
-    if (shouldSkipLlmTranslate(text, local)) {
-      const turn = latencyClientRef.current;
-      if (turn) {
-        turn.tTranslateStart = Date.now();
-        turn.tTranslateEnd = turn.tTranslateStart;
-        console.log(`[latency] T_TRANSLATE_LOCAL 0ms`);
-        maybePrintLatencyReport();
+    const local = quickHebrewSubtitle(text, gender);
+    if (local && isCleanHebrewSubtitle(local)) {
+      setSpokenTranslation(local);
+      if (shouldSkipLlmTranslate(text, local)) {
+        const turn = latencyClientRef.current;
+        if (turn) {
+          turn.tTranslateStart = Date.now();
+          turn.tTranslateEnd = turn.tTranslateStart;
+          console.log(`[latency] T_TRANSLATE_LOCAL 0ms`);
+          maybePrintLatencyReport();
+        }
+        finishPedagogy(local);
+        return;
       }
-      return;
     }
 
     void (async () => {
@@ -375,17 +385,20 @@ export default function HomePage() {
         turn.tTranslateStart = Date.now();
         console.log(`[latency] T_TRANSLATE_START +${turn.tTranslateStart - turn.tClientSend}ms`);
       }
+      let hebrew = local && isCleanHebrewSubtitle(local) ? local : "";
       try {
         const response = await fetch("/api/translate", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ text, gender: gender ?? null }),
         });
-        if (!response.ok) return;
-        const data = (await response.json()) as { translation?: string };
-        const hebrew = String(data.translation ?? "").trim();
-        if (hebrew && /[\u0590-\u05FF]/.test(hebrew)) {
-          setSpokenTranslation(hebrew);
+        if (response.ok) {
+          const data = (await response.json()) as { translation?: string };
+          const next = String(data.translation ?? "").trim();
+          if (isCleanHebrewSubtitle(next)) {
+            hebrew = next;
+            setSpokenTranslation(next);
+          }
         }
       } catch {
         /* translation is decorative — never block speech */
@@ -395,6 +408,7 @@ export default function HomePage() {
           console.log(`[latency] T_TRANSLATE_END +${turn.tTranslateEnd - turn.tClientSend}ms`);
           maybePrintLatencyReport();
         }
+        finishPedagogy(hebrew);
       }
     })();
   }, [maybePrintLatencyReport]);
@@ -748,7 +762,7 @@ export default function HomePage() {
       const data = await replyPromise;
       if (data.latency) latencyServerRef.current = data.latency;
       if (!autoSpeak) maybePrintLatencyReport();
-      fetchHebrewTranslation(data.aiResponse, profileSnapshot?.gender ?? profile?.gender);
+      fetchHebrewTranslation(data.aiResponse, profileSnapshot?.gender ?? profile?.gender, text);
       const grammar: GrammarFeedback = data.grammarAnalysis;
       const aiMessage: Message = {
         id: createId(),
@@ -1010,7 +1024,7 @@ export default function HomePage() {
         });
         if (data.latency) latencyServerRef.current = data.latency;
         if (!autoSpeak) maybePrintLatencyReport();
-        fetchHebrewTranslation(data.aiResponse, profile?.gender);
+        fetchHebrewTranslation(data.aiResponse, profile?.gender, "(daily open)");
         const opener: Message = {
           id: createId(),
           sender: "ai",

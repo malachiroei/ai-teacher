@@ -22,7 +22,7 @@ interface VoiceStageProps {
   speakingText?: string;
   autoSpeak: boolean;
   voiceSpeed: string;
-  onSetVolume: (volume: number) => void;
+  onSetVolume: (volume: number, options?: { commitMute?: boolean }) => void;
   audioLevel?: number;
   audioLevelRef?: { current: number };
   disabled?: boolean;
@@ -65,10 +65,10 @@ export function VoiceStage({
   // can visually respond to TTS speaking even when the mic is idle.
   const mouthLevelRef3d = useRef(0);
 
-  function applyVolumeLive(raw: number) {
+  function applyVolumeLive(raw: number, commitMute = false) {
     const v = Math.max(0, Math.min(1, raw));
     // Audio first — no controlled React value on the hot path.
-    onSetVolume(v);
+    onSetVolume(v, { commitMute });
     const nextIcon = v === 0 || !autoSpeak ? "mute" : v < 0.45 ? "low" : "high";
     setVolumeIcon((current) => (current === nextIcon ? current : nextIcon));
   }
@@ -303,7 +303,7 @@ export function VoiceStage({
               <Volume2 className="h-5 w-5" />
             )}
           </button>
-          <div className="flex h-12 w-[6.5rem] items-center gap-2 rounded-full bg-white/8 px-3 ring-1 ring-white/12 backdrop-blur-md">
+          <div className="flex h-12 w-28 items-center gap-2 rounded-full bg-white/8 px-2.5 ring-1 ring-white/12 backdrop-blur-md sm:w-32">
             <input
               type="range"
               min={0}
@@ -311,10 +311,12 @@ export function VoiceStage({
               step={0.01}
               defaultValue={1}
               onPointerDown={(e) => e.stopPropagation()}
-              onInput={(e) => applyVolumeLive(Number((e.target as HTMLInputElement).value))}
-              onChange={(e) => applyVolumeLive(Number(e.target.value))}
+              onPointerUp={(e) => applyVolumeLive(Number((e.target as HTMLInputElement).value), true)}
+              onTouchEnd={(e) => applyVolumeLive(Number((e.target as HTMLInputElement).value), true)}
+              onInput={(e) => applyVolumeLive(Number((e.target as HTMLInputElement).value), false)}
+              onChange={(e) => applyVolumeLive(Number(e.target.value), true)}
               aria-label="Voice volume"
-              className="h-2 w-full cursor-pointer accent-amber-400"
+              className="voice-volume-slider h-5 w-full cursor-pointer accent-amber-400"
             />
           </div>
           <button
