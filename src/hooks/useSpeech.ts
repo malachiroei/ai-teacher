@@ -1,13 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import {
-  englishWordRatio,
-  hasHebrewScript,
-  inferBrowserSpeechLang,
-  looksLikeGibberishEnglish,
-  type SpeechLang,
-} from "@/lib/language";
+import { hasHebrewScript, type SpeechLang } from "@/lib/language";
 import { findVoiceByUri, isVoiceLikelyFemale, isVoiceLikelyMale, listEnglishVoices, pickCharacterVoice, type Character } from "@/lib/characters";
 
 export const SPEECH_UNAVAILABLE_MESSAGE =
@@ -45,12 +39,6 @@ function isMobileDevice() {
   return isAppleTouchDevice() || /Android|webOS|Mobile/i.test(navigator.userAgent);
 }
 
-function resolveRecognitionLang(preferred?: SpeechLang) {
-  const fallback = typeof navigator !== "undefined" ? navigator.language || "en-US" : "en-US";
-  if (isAppleTouchDevice()) return "en-US";
-  return preferred || fallback || "en-US";
-}
-
 function emptyStreams(): Record<SpeechLang, LangStream> {
   return {
     "en-US": { text: "", confidence: 0, running: false },
@@ -58,29 +46,12 @@ function emptyStreams(): Record<SpeechLang, LangStream> {
   };
 }
 
-function scoreStream(lang: SpeechLang, stream: LangStream) {
-  const text = stream.text.trim();
-  if (!text) return -1;
-
-  const confidence = Number.isFinite(stream.confidence) && stream.confidence > 0 ? stream.confidence : 0.45;
-  const hebrewCount = (text.match(/[\u0590-\u05FF]/g) ?? []).length;
-
-  if (lang === "he-IL") {
-    if (hebrewCount > 0) return 3 + confidence + hebrewCount * 0.04;
-    if (!looksLikeGibberishEnglish(text)) return confidence + 0.15;
-    return confidence * 0.2;
-  }
-
-  if (hebrewCount > 0) return 3 + confidence;
-  if (looksLikeGibberishEnglish(text)) return confidence * 0.12;
-  return confidence + 0.4 + englishWordRatio(text);
-}
-
 function pickBestTranscript(streams: Record<SpeechLang, LangStream>) {
-  const englishScore = scoreStream("en-US", streams["en-US"]);
-  const hebrewScore = scoreStream("he-IL", streams["he-IL"]);
-  if (hebrewScore <= 0 && englishScore <= 0) return "";
-  return hebrewScore > englishScore ? streams["he-IL"].text.trim() : streams["en-US"].text.trim();
+  // Prefer English-only transcripts for this English-practice product.
+  const english = streams["en-US"].text.trim();
+  if (english && !hasHebrewScript(english)) return english;
+  if (english) return english;
+  return streams["he-IL"].text.trim();
 }
 
 function readResultChunk(event: {
@@ -688,7 +659,7 @@ export function useSpeech(options?: {
   );
 
   const startRecognizer = useCallback(
-    (lang?: SpeechLang) => {
+    (_lang?: SpeechLang) => {
       const Recognition = getRecognitionConstructor();
       if (!Recognition || !shouldListenRef.current) return false;
 
@@ -699,9 +670,9 @@ export function useSpeech(options?: {
         recognition.continuous = !mobile;
         recognition.interimResults = true;
         recognition.maxAlternatives = 1;
-        recognition.lang = resolveRecognitionLang(lang);
-        activeLangRef.current = recognition.lang.startsWith("he") ? "he-IL" : "en-US";
-        const activeLang = activeLangRef.current;
+        recognition.lang = "en-US";
+        activeLangRef.current = "en-US";
+        const activeLang: SpeechLang = "en-US";
 
         recognition.onstart = () => {
           if (session !== listenGenerationRef.current) return;
@@ -733,7 +704,7 @@ export function useSpeech(options?: {
                 running: true,
               };
               setTranscript(currentText);
-              setSpeechLang(hasHebrewScript(currentText) ? "he-IL" : "en-US");
+              setSpeechLang("en-US");
               armSilenceSubmit(isFinal ? FINAL_SUBMIT_MS : SILENCE_SUBMIT_MS);
             } else {
               // No speech yet — gently pulse the meter so the waveform looks alive.
@@ -799,7 +770,7 @@ export function useSpeech(options?: {
     const tts = typeof window !== "undefined" && "speechSynthesis" in window;
     const stt = Boolean(getRecognitionConstructor());
     setSpeechSupported({ tts, stt });
-    setSpeechLang(inferBrowserSpeechLang());
+    setSpeechLang("en-US");
 
     if (!tts) {
       return () => {
@@ -1070,13 +1041,13 @@ export function useSpeech(options?: {
         latestTranscriptRef.current = "";
         committedTranscriptRef.current = "";
         setTranscript("");
-        setSpeechLang(resolveRecognitionLang(preferredLang).startsWith("he") ? "he-IL" : "en-US");
+        setSpeechLang("en-US");
 
         submittedRef.current = false;
         shouldListenRef.current = true;
         setIsListening(true);
 
-        const started = startRecognizer(preferredLang);
+        const started = startRecognizer("en-US");
         startingRef.current = false;
         if (!started) {
           submittedRef.current = true;

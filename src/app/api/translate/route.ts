@@ -6,7 +6,7 @@ export const dynamic = "force-dynamic";
 
 const MODEL = "gemini-2.5-flash";
 const GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta";
-const TIMEOUT_MS = 2500;
+const TIMEOUT_MS = 4000;
 
 function geminiApiKey() {
   return (
@@ -41,6 +41,14 @@ function textFromGeminiResponse(payload: unknown) {
   return parts.map((part) => part.text ?? "").join("").trim();
 }
 
+function cleanHebrewOutput(text: string) {
+  return text
+    .replace(/^["'`]+|["'`]+$/g, "")
+    .replace(/^(Hebrew|Translation|תרגום)\s*[:\-–]\s*/i, "")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+}
+
 async function translateWithGemini(apiKey: string, english: string, gender?: string | null) {
   trustSystemCertificates();
   const genderHint =
@@ -56,9 +64,12 @@ async function translateWithGemini(apiKey: string, english: string, gender?: str
         role: "user",
         parts: [
           {
-            text: `Translate this spoken English tutor reply into natural Israeli Hebrew subtitles for a child.
-Rules: natural spoken Hebrew, not word-for-word. No slash forms. ${genderHint}
-Keep English names intact. Return Hebrew only — no quotes, no labels, no English.
+            text: `Translate the entire English tutor reply below into one natural Israeli Hebrew subtitle for a child.
+Rules:
+- Natural spoken Hebrew for the FULL sentence(s), not word-by-word.
+- No slash forms (אוהב/ת). ${genderHint}
+- Keep English personal names intact (Roei, Emma, Alex).
+- Return Hebrew only — no quotes, labels, JSON, or English leftover.
 
 English:
 ${english}`,
@@ -68,7 +79,7 @@ ${english}`,
     ],
     generationConfig: {
       temperature: 0.2,
-      maxOutputTokens: 200,
+      maxOutputTokens: 220,
     },
   };
 
@@ -85,8 +96,8 @@ ${english}`,
       const details = await response.text();
       throw new Error(`Gemini ${MODEL} ${response.status}: ${details.slice(0, 400)}`);
     }
-    const text = textFromGeminiResponse(await response.json());
-    if (!text) return "";
+    const text = cleanHebrewOutput(textFromGeminiResponse(await response.json()));
+    if (!text || !/[\u0590-\u05FF]/.test(text)) return "";
     return polishHebrewTranslation(
       text,
       gender === "girl" || gender === "boy" || gender === "other" ? gender : null,

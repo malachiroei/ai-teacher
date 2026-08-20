@@ -117,90 +117,6 @@ const QUICK_PHRASE_HE: Array<{
   { re: /^what would you like to (?:talk|learn) about\??$/i, he: (g) => `על מה ${g.you} ${g.want} לדבר?` },
 ];
 
-const WORD_HE: Record<string, string> = {
-  hi: "היי",
-  hello: "שלום",
-  hey: "היי",
-  yes: "כן",
-  no: "לא",
-  please: "בבקשה",
-  thanks: "תודה",
-  thank: "תודה",
-  you: "אתה",
-  your: "שלך",
-  name: "שם",
-  friend: "חבר",
-  fun: "כיף",
-  today: "היום",
-  tomorrow: "מחר",
-  school: "בית ספר",
-  game: "משחק",
-  games: "משחקים",
-  play: "לשחק",
-  like: "אוהב",
-  love: "אוהב",
-  want: "רוצה",
-  can: "יכול",
-  great: "מעולה",
-  awesome: "מדהים",
-  cool: "מגניב",
-  good: "טוב",
-  morning: "בוקר",
-  night: "לילה",
-  what: "מה",
-  who: "מי",
-  where: "איפה",
-  when: "מתי",
-  why: "למה",
-  how: "איך",
-  are: "",
-  is: "",
-  am: "",
-  a: "",
-  an: "",
-  the: "",
-  to: "",
-  of: "של",
-  and: "ו",
-  or: "או",
-  my: "שלי",
-  i: "אני",
-  we: "אנחנו",
-  "let's": "בואו",
-  lets: "בואו",
-  talk: "נדבר",
-  chat: "נדבר",
-  practice: "נתאמן",
-  again: "שוב",
-  more: "עוד",
-  about: "על",
-  favorite: "הכי אהוב",
-  colour: "צבע",
-  color: "צבע",
-  age: "גיל",
-  old: "בן",
-  nice: "נחמד",
-  meet: "להכיר",
-  happy: "שמח",
-  see: "לראות",
-  say: "להגיד",
-  try: "לנסות",
-  well: "יפה",
-  done: "עשית",
-  job: "עבודה",
-  wow: "וואו",
-  okay: "בסדר",
-  ok: "בסדר",
-  sure: "בטח",
-  sorry: "סליחה",
-  help: "עזרה",
-  question: "שאלה",
-  answer: "תשובה",
-  english: "אנגלית",
-  hebrew: "עברית",
-  ...INTEREST_HEBREW,
-};
-
 function normalizeForQuickTranslate(text: string) {
   return text
     .replace(/[\u2018\u2019]/g, "'")
@@ -209,8 +125,8 @@ function normalizeForQuickTranslate(text: string) {
 }
 
 /**
- * Instant local Hebrew subtitle for short tutor lines.
- * Returns "" when the line is too complex for the dictionary path.
+ * Instant local Hebrew for exact/near-exact tutor phrases only.
+ * Does NOT word-swap free text (that produced broken subtitles).
  */
 export function quickHebrewSubtitle(english: string, gender?: Gender | string | null): string {
   const raw = normalizeForQuickTranslate(english);
@@ -222,44 +138,12 @@ export function quickHebrewSubtitle(english: string, gender?: Gender | string | 
     if (!match) continue;
     return polishHebrewTranslation(entry.he(g, match), gender);
   }
-
-  const words = raw.split(/\s+/);
-  if (words.length > 18 || raw.length > 140) return "";
-
-  const parts: string[] = [];
-  for (const token of words) {
-    const punct = token.match(/^([A-Za-z']+)([!?.,]*)$/);
-    const core = (punct?.[1] ?? token).toLowerCase();
-    const tail = punct?.[2] ?? "";
-    if (/^[A-Z][a-z]+$/.test(punct?.[1] ?? "") && !WORD_HE[core]) {
-      parts.push((punct?.[1] ?? token) + tail);
-      continue;
-    }
-    const he = WORD_HE[core];
-    if (he === undefined) {
-      if (/^[A-Za-z']+$/.test(core) && core.length > 2) {
-        parts.push((punct?.[1] ?? token) + tail);
-        continue;
-      }
-      if (tail) parts.push(tail);
-      continue;
-    }
-    if (!he) continue;
-    parts.push(he + tail);
-  }
-
-  const joined = parts.join(" ").replace(/\s{2,}/g, " ").trim();
-  if (!joined || !/[\u0590-\u05FF]/.test(joined)) return "";
-  return polishHebrewTranslation(joined, gender);
+  return "";
 }
 
-/** Prefer local subtitles for short replies; skip slow LLM translate. */
-export function shouldSkipLlmTranslate(english: string, localHebrew: string) {
-  const text = normalizeForQuickTranslate(english);
-  if (!text) return true;
-  if (localHebrew.trim()) return true;
-  const words = text.split(/\s+/).length;
-  return words <= 12 || text.length <= 90;
+/** Skip Gemini only when the phrase dictionary produced a clean match. */
+export function shouldSkipLlmTranslate(_english: string, localHebrew: string) {
+  return Boolean(localHebrew.trim());
 }
 
 export function hebrewTranslationGuide(gender?: Gender | string | null) {

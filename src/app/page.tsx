@@ -38,7 +38,6 @@ import {
 } from "@/lib/chat-history";
 import { getCharacter, isCharacterId, readStoredTutorId, writeStoredTutorId, type CharacterId } from "@/lib/characters";
 import { useDailyPractice } from "@/hooks/useDailyPractice";
-import { preferredSpeechLangFromText } from "@/lib/language";
 import { quickHebrewSubtitle, shouldSkipLlmTranslate } from "@/lib/hebrew";
 import { parseTutorNicknames, profilePayload, withTutorDisplayName } from "@/lib/learner";
 import { consumeChatStream, speakableSentences } from "@/lib/chat-stream";
@@ -355,10 +354,10 @@ export default function HomePage() {
     const text = english.trim();
     if (!text) return;
 
+    // Optimistic phrase-dictionary hit only (exact greetings). Full sentences always use Gemini.
     const local = quickHebrewSubtitle(text, gender);
     if (local) setSpokenTranslation(local);
 
-    // Short / dictionary-covered lines never wait on Gemini translate.
     if (shouldSkipLlmTranslate(text, local)) {
       const turn = latencyClientRef.current;
       if (turn) {
@@ -385,7 +384,9 @@ export default function HomePage() {
         if (!response.ok) return;
         const data = (await response.json()) as { translation?: string };
         const hebrew = String(data.translation ?? "").trim();
-        if (hebrew) setSpokenTranslation(hebrew);
+        if (hebrew && /[\u0590-\u05FF]/.test(hebrew)) {
+          setSpokenTranslation(hebrew);
+        }
       } catch {
         /* translation is decorative — never block speech */
       } finally {
@@ -851,10 +852,7 @@ export default function HomePage() {
     stopSpeaking();
     setSpokenReply("");
     setSpokenTranslation("");
-    const lastUserText = [...messages].reverse().find((message) => message.sender === "user")?.text ?? "";
-    const started = startListening(
-      preferredSpeechLangFromText(input) ?? preferredSpeechLangFromText(lastUserText),
-    );
+    const started = startListening("en-US");
     if (!started) flash(SPEECH_UNAVAILABLE_MESSAGE);
   }
 
