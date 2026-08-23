@@ -1,10 +1,11 @@
 "use client";
 
-import { Suspense, Component, memo, type ReactNode, useCallback, useEffect, useRef, useState } from "react";
+import { Suspense, Component, memo, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Canvas, useFrame } from "@react-three/fiber";
 import { useGLTF } from "@react-three/drei";
 import type { Group, Material } from "three";
 import { Box3, MathUtils, Mesh, Object3D, SkinnedMesh, Vector3 } from "three";
+import * as SkeletonUtils from "three/examples/jsm/utils/SkeletonUtils.js";
 import type { Character } from "@/lib/characters";
 
 type Avatar3DStageProps = {
@@ -100,6 +101,37 @@ function resolveCharacterModelId(characterId: string) {
   return characterId === "alex" ? "alex" : "emma";
 }
 
+/** Clone GPU-owned geo/materials so cleanup can dispose them without nuking the GLTF cache. */
+function cloneAvatarScene(source: Object3D) {
+  const clone = SkeletonUtils.clone(source);
+  clone.traverse((obj: Object3D) => {
+    const mesh = obj as Mesh;
+    if (!mesh.isMesh) return;
+    if (mesh.geometry) mesh.geometry = mesh.geometry.clone();
+    if (Array.isArray(mesh.material)) {
+      mesh.material = mesh.material.map((material) => material.clone());
+    } else if (mesh.material) {
+      mesh.material = mesh.material.clone();
+    }
+  });
+  return clone;
+}
+
+function disposeAvatarScene(root: Object3D) {
+  root.traverse((obj: Object3D) => {
+    const mesh = obj as Mesh;
+    if (!mesh.isMesh) return;
+    if (mesh.geometry) mesh.geometry.dispose();
+    const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+    for (const material of materials) {
+      if (!material) continue;
+      // Cloned materials still share cache textures — do not dispose maps.
+      material.dispose();
+    }
+  });
+  root.clear();
+}
+
 // Keep the heavy GLTF talking avatar implementation from the existing file by reading
 // the rest of the original component logic via a partial rewrite of only the Canvas wrapper.
 // The GLTFTalkingAvatar below is copied from the previous implementation (simplified logging).
@@ -118,6 +150,7 @@ function GLTFTalkingAvatar({
   mouthLevelRef?: { current: number };
 }) {
   const { scene } = useGLTF(modelUrl);
+  const avatarScene = useMemo(() => cloneAvatarScene(scene), [scene]);
   const groupRef = useRef<Group>(null);
   const mouthInfluenceEntriesRef = useRef<Array<{ mesh: Mesh; index: number; kind: MouthMorphKind }>>([]);
   const eyeInfluenceEntriesRef = useRef<Array<{ mesh: Mesh; index: number }>>([]);
@@ -138,7 +171,7 @@ function GLTFTalkingAvatar({
     jawMeshInitialPosRef.current = null;
     skinnedMeshesRef.current = [];
 
-    scene.traverse((obj) => {
+    avatarScene.traverse((obj) => {
       const mesh = obj as Mesh;
       if (!mesh.isMesh) return;
       setMaterialHighp(mesh);
@@ -187,7 +220,14 @@ function GLTFTalkingAvatar({
         jawMeshInitialPosRef.current = mesh.position.clone();
       }
     });
-  }, [characterId, scene]);
+
+    return () => {
+      mouthInfluenceEntriesRef.current = [];
+      eyeInfluenceEntriesRef.current = [];
+      skinnedMeshesRef.current = [];
+      disposeAvatarScene(avatarScene);
+    };
+  }, [characterId, avatarScene]);
 
   useFrame((state) => {
     // Lock unused skinned bones to bind pose so mobile GPUs don't stretch beard/neck verts.
@@ -243,7 +283,7 @@ function GLTFTalkingAvatar({
 
   return (
     <group ref={groupRef}>
-      <primitive object={scene} position={modelPosition} scale={1.7} rotation={[0, 0, 0]} />
+      <primitive object={avatarScene} position={modelPosition} scale={1.7} rotation={[0, 0, 0]} />
     </group>
   );
 }
@@ -272,11 +312,12 @@ export const Avatar3DStage = memo(function Avatar3DStage({
 
   useEffect(() => {
     try {
-      useGLTF.preload(modelUrl);
+      useGLTF.preload("/models/emma.glb");
+      useGLTF.preload("/models/alex.glb");
     } catch {
       /* preload is best-effort */
     }
-  }, [modelUrl]);
+  }, []);
 
   useEffect(() => {
     return () => {
@@ -286,7 +327,7 @@ export const Avatar3DStage = memo(function Avatar3DStage({
 
   return (
     <Canvas
-      key={`${characterId}-${contextKey}-${compact ? "c" : "f"}`}
+      key={`stage-${contextKey}`}
       className="avatar-3d-canvas"
       dpr={[1, 1]}
       frameloop="always"
