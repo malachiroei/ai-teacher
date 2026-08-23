@@ -98,7 +98,7 @@ function CharacterCard({
           <Check className="h-3 w-3" strokeWidth={3} />
         </span>
       ) : null}
-      <CharacterAvatar character={character} className="h-24 w-24 shrink-0" eager />
+      <CharacterAvatar character={character} className="h-24 w-24 shrink-0" eager live3d />
       <p className="mt-3 w-full text-[15px] font-semibold leading-snug tracking-tight text-white">
         {displayName}
       </p>
