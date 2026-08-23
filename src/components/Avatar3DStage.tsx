@@ -18,10 +18,10 @@ type Avatar3DStageProps = {
 };
 
 const MAX_MOUTH_OPEN = 0.35;
-const ALEX_MODEL_URL = "/models/alex.glb?v=fixed_bake_1";
+const ALEX_MODEL_URL = "/models/alex.glb?v=head_only_1";
 const EMMA_MODEL_URL = "/models/emma.glb";
-const HIDDEN_ALEX_MESH_RE = /tie|strap|bottom|footwear|body|shirt|collar|inner|accessory|underwear/i;
-const ALEX_KEEP_MESH_RE = /head|hair|eye|teeth|outfit_top/i;
+const HIDDEN_ALEX_MESH_RE = /tie|strap|bottom|footwear|body|shirt|collar|inner|accessory|underwear|outfit_top/i;
+const ALEX_KEEP_MESH_RE = /head|hair|eye|teeth/i;
 const ALEX_BEARD_MESH_RE = /^(wolf3d_)?(beard|facewear)$/i;
 
 function setMaterialHighp(mesh: Mesh) {
@@ -180,6 +180,7 @@ function GLTFTalkingAvatar({
           ALEX_BEARD_MESH_RE.test(mesh.name) ||
           n.includes("beard") ||
           n.includes("facewear") ||
+          n.includes("outfit_top") ||
           HIDDEN_ALEX_MESH_RE.test(n) ||
           n.includes("outfit_bottom") ||
           !keepVisible
