@@ -564,6 +564,8 @@ export function useSpeech(options?: {
   const sendTranscriptRef = useRef<(text?: string) => void>(() => {});
   const audioLevelRef = useRef(0);
   const volumeRef = useRef(1);
+  const lastSpokenVolumeRef = useRef(1);
+  const volumeRestartTimerRef = useRef<number | null>(null);
   const speakingTextRef = useRef("");
   const spokeThisTurnRef = useRef(false);
 
@@ -856,6 +858,10 @@ export function useSpeech(options?: {
   const playNextUtterance = useCallback((preview?: { rateMultiplier?: number; voiceUri?: string | null }) => {
     if (typeof window === "undefined" || !("speechSynthesis" in window)) return;
     if (ttsBusyRef.current) return;
+    if (volumeRef.current <= 0.001) {
+      setIsSpeaking(false);
+      return;
+    }
 
     const next = speechQueueRef.current[0];
     if (!next) {
@@ -902,6 +908,7 @@ export function useSpeech(options?: {
       utterance.volume = volume;
       activeUtterance = utterance;
       currentOutputVolume = volume;
+      lastSpokenVolumeRef.current = volume;
       utterance.rate = Math.min(1.4, Math.max(0.6, (male ? 0.92 : character?.voice.rate ?? 0.95) * speed));
       utterance.pitch = male ? 0.78 : 1.02;
       window.speechSynthesis.resume();
@@ -983,8 +990,62 @@ export function useSpeech(options?: {
     const v = Math.max(0, Math.min(1, next));
     volumeRef.current = v;
     applyOutputVolume(v);
-    // Never cancel/restart TTS here — slider must only mutate gain on the live utterance.
-  }, []);
+
+    const clearVolumeRestart = () => {
+      if (volumeRestartTimerRef.current != null) {
+        window.clearTimeout(volumeRestartTimerRef.current);
+        volumeRestartTimerRef.current = null;
+      }
+    };
+
+    const parkCurrentChunk = () => {
+      const current = speakingTextRef.current.trim();
+      if (!current) return;
+      if (speechQueueRef.current[0] !== current) {
+        speechQueueRef.current = [current, ...speechQueueRef.current];
+      }
+    };
+
+    if (v <= 0.001) {
+      clearVolumeRestart();
+      parkCurrentChunk();
+      ttsGenerationRef.current += 1;
+      ttsBusyRef.current = false;
+      activeUtterance = null;
+      cancelSpeechSynthesis();
+      setIsSpeaking(false);
+      return;
+    }
+
+    const speakingNow =
+      ttsBusyRef.current ||
+      (typeof window !== "undefined" && Boolean(window.speechSynthesis?.speaking));
+
+    if (speakingNow) {
+      if (Math.abs(v - lastSpokenVolumeRef.current) < 0.04) return;
+      clearVolumeRestart();
+      // speechSynthesis locks volume at speak() — replay only the current chunk
+      // so loudness changes immediately without dropping the rest of the queue.
+      volumeRestartTimerRef.current = window.setTimeout(() => {
+        volumeRestartTimerRef.current = null;
+        if (volumeRef.current <= 0.001) return;
+        const current = speakingTextRef.current.trim();
+        if (!current) return;
+        parkCurrentChunk();
+        ttsGenerationRef.current += 1;
+        cancelSpeechSynthesis();
+        ttsBusyRef.current = false;
+        activeUtterance = null;
+        setIsSpeaking(true);
+        playNextUtterance();
+      }, 140);
+      return;
+    }
+
+    if (speechQueueRef.current.length > 0) {
+      playNextUtterance();
+    }
+  }, [playNextUtterance]);
 
   const speak = useCallback(
     (text: string, preview?: { rateMultiplier?: number; voiceUri?: string | null }) => {
@@ -1019,7 +1080,6 @@ export function useSpeech(options?: {
     (text: string, preview?: { rateMultiplier?: number; voiceUri?: string | null }) => {
       const trimmed = text.trim();
       if (!trimmed || typeof window === "undefined" || !("speechSynthesis" in window)) return;
-      if (volumeRef.current <= 0.001) return;
       resumeAudioGraph();
       resumeSpeechSynthesis();
       const spoken = smoothSpokenText(trimmed);
