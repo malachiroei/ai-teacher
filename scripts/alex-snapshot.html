@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <style>
+      html, body { margin: 0; background: #0a1210; overflow: hidden; }
+      canvas { display: block; width: 1024px; height: 1024px; }
+    </style>
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "/node_modules/three/build/three.module.js",
+          "three/addons/": "/node_modules/three/examples/jsm/"
+        }
+      }
+    </script>
+  </head>
+  <body>
+    <script type="module">
+      import * as THREE from "three";
+      import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+
+      const SIZE = 1024;
+      const scene = new THREE.Scene();
+      scene.background = new THREE.Color(0x0a1210);
+
+      const camera = new THREE.PerspectiveCamera(32, 1, 0.05, 20);
+      camera.position.set(0, 0.1, 0.78);
+      camera.lookAt(0, 0.06, 0);
+
+      const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false, preserveDrawingBuffer: true });
+      renderer.setSize(SIZE, SIZE);
+      renderer.setPixelRatio(1);
+      renderer.outputColorSpace = THREE.SRGBColorSpace;
+      document.body.appendChild(renderer.domElement);
+
+      scene.add(new THREE.AmbientLight(0xffffff, 1.28));
+      const key = new THREE.DirectionalLight(0xffffff, 1.45);
+      key.position.set(0.4, 4.2, 4.6);
+      scene.add(key);
+      const fill = new THREE.DirectionalLight(0xffffff, 0.35);
+      fill.position.set(-1.2, 1.4, 2.2);
+      scene.add(fill);
+
+      const loader = new GLTFLoader();
+      loader.load(
+        "/public/models/alex.glb",
+        (gltf) => {
+        const model = gltf.scene;
+        model.traverse((obj) => {
+          if (!obj.isMesh) return;
+          const n = obj.name.toLowerCase();
+          if (n === "wolf3d_body" || n.includes("bottom") || n.includes("footwear")) {
+            obj.visible = false;
+            return;
+          }
+          obj.frustumCulled = false;
+        });
+        // Same placement as Avatar3DStage for Alex.
+        model.position.set(0, -2.85, 0);
+        model.scale.setScalar(1.7);
+        scene.add(model);
+        renderer.render(scene, camera);
+        requestAnimationFrame(() => {
+          renderer.render(scene, camera);
+          document.documentElement.dataset.ready = "1";
+        });
+      },
+      undefined,
+      (err) => {
+        document.documentElement.dataset.error = String(err?.message || err);
+      },
+      );
+    </script>
+  </body>
+</html>

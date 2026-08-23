@@ -6,3 +6,5 @@ out
 .env*.local
 *.tsbuildinfo
 next-env.d.ts
+scripts/.chrome-snap
+tmp-glb-tex
