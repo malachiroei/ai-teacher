@@ -18,11 +18,44 @@ type Avatar3DStageProps = {
 };
 
 const MAX_MOUTH_OPEN = 0.35;
-const ALEX_MODEL_URL = "/models/alex.glb?v=clean_final";
+const ALEX_MODEL_URL = "/models/alex.glb?v=slice_fix_1";
 const EMMA_MODEL_URL = "/models/emma.glb";
 const HIDDEN_ALEX_MESH_RE = /tie|strap|bottom|footwear|body|shirt|collar|inner|accessory|underwear/i;
 const ALEX_KEEP_MESH_RE = /head|hair|eye|teeth|outfit_top/i;
 const ALEX_BEARD_MESH_RE = /^(wolf3d_)?(beard|facewear)$/i;
+
+function collapseAlexTieVertices(mesh: Mesh) {
+  const geometry = mesh.geometry;
+  const position = geometry?.attributes.position;
+  if (!position) return;
+
+  const name = mesh.name.toLowerCase();
+  const isHeadOrTop = name.includes("head") || name.includes("outfit_top");
+  let changed = false;
+
+  for (let i = 0; i < position.count; i += 1) {
+    const x = position.getX(i);
+    const y = position.getY(i);
+    const z = position.getZ(i);
+
+    // Local-space dangling strip (requested box).
+    const localSpike = Math.abs(x) < 0.08 && z > 0.02 && y < -0.05 && y > -0.6;
+    // RPM bind-pose necktie strip on the sweater, below the chin (~1.52) and in front.
+    const rpmTie =
+      isHeadOrTop && Math.abs(x) < 0.055 && z > 0.11 && y < 1.56 && y > 1.18;
+
+    if (localSpike || rpmTie) {
+      position.setXYZ(i, x, localSpike ? -0.02 : 1.56, localSpike ? 0.01 : 0.04);
+      changed = true;
+    }
+  }
+
+  if (!changed) return;
+  position.needsUpdate = true;
+  geometry.computeBoundingBox();
+  geometry.computeBoundingSphere();
+  if (!mesh.morphTargetInfluences?.length) geometry.computeVertexNormals();
+}
 
 function setMaterialHighp(mesh: Mesh) {
   const materials = (Array.isArray(mesh.material) ? mesh.material : [mesh.material]).filter(Boolean) as Material[];
@@ -189,6 +222,7 @@ function GLTFTalkingAvatar({
           return;
         }
         alexMeshNames[alexMeshNames.length - 1] = `${mesh.name || "(unnamed)"} [${mesh.type}] kept`;
+        collapseAlexTieVertices(mesh);
       }
       mesh.frustumCulled = skinned.isSkinnedMesh ? false : true;
       const dict = mesh.morphTargetDictionary;
