@@ -4,7 +4,7 @@ import { Suspense, Component, memo, type ReactNode, useCallback, useEffect, useM
 import { Canvas, useFrame } from "@react-three/fiber";
 import { useGLTF } from "@react-three/drei";
 import type { Group, Material } from "three";
-import { Bone, FrontSide, MathUtils, Mesh, Object3D, Quaternion, SkinnedMesh, Vector3 } from "three";
+import { Box3, MathUtils, Mesh, Object3D, SkinnedMesh, Vector3 } from "three";
 import * as SkeletonUtils from "three/examples/jsm/utils/SkeletonUtils.js";
 import type { Character } from "@/lib/characters";
 
@@ -18,27 +18,8 @@ type Avatar3DStageProps = {
 };
 
 const MAX_MOUTH_OPEN = 0.35;
-const ALEX_MODEL_URL = "/models/alex.glb?v=outfit_restore_1";
-const EMMA_MODEL_URL = "/models/emma.glb";
-const HIDDEN_ALEX_MESH_RE = /strap|bottom|footwear|body|shirt|collar|inner|accessory|underwear/i;
-const ALEX_KEEP_MESH_RE = /head|hair|eye|teeth|outfit_top/i;
-const ALEX_HEAD_ARTIFACT_MESH_RE = /beard|facewear|neck|tie/i;
-const ALEX_PINNED_BONE_RE = /^(mixamorig[:|_])?(spine2?|spine1|chest|neck)$/i;
-const ALEX_HEAD_BONE_RE = /^(mixamorig[:|_])?(head)$/i;
-const AXIS_X = new Vector3(1, 0, 0);
-
-function isMobileViewport() {
-  return typeof window !== "undefined" && window.innerWidth < 768;
-}
-
-function boneBaseName(name: string) {
-  return name.replace(/^(mixamorig|wolf3d)[:|_]?/i, "");
-}
-
-function isAlexSpeechMesh(mesh: Mesh) {
-  const n = mesh.name;
-  return n === "Wolf3D_Head" || n === "Wolf3D_Teeth";
-}
+const ALEX_MODEL_URL = "/models/alex.glb?v=v_final_new";
+const EMMA_MODEL_URL = "/models/emma.glb?v=v_final_new";
 
 function setMaterialHighp(mesh: Mesh) {
   const materials = (Array.isArray(mesh.material) ? mesh.material : [mesh.material]).filter(Boolean) as Material[];
@@ -134,16 +115,11 @@ function disposeAvatarScene(root: Object3D) {
     const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
     for (const material of materials) {
       if (!material) continue;
-      // Cloned materials still share cache textures — do not dispose maps.
       material.dispose();
     }
   });
   root.clear();
 }
-
-// Keep the heavy GLTF talking avatar implementation from the existing file by reading
-// the rest of the original component logic via a partial rewrite of only the Canvas wrapper.
-// The GLTFTalkingAvatar below is copied from the previous implementation (simplified logging).
 
 function GLTFTalkingAvatar({
   characterId,
@@ -168,9 +144,6 @@ function GLTFTalkingAvatar({
   const jawOrHeadInitialRotRef = useRef<{ x: number; y: number; z: number } | null>(null);
   const jawMeshNodeRef = useRef<Object3D | null>(null);
   const jawMeshInitialPosRef = useRef<Vector3 | null>(null);
-  const pinnedBoneRestsRef = useRef<Array<{ bone: Bone; position: Vector3; quaternion: Quaternion }>>([]);
-  const headBoneRestRef = useRef<{ bone: Bone; position: Vector3; quaternion: Quaternion } | null>(null);
-  const headTalkQuatRef = useRef(new Quaternion());
 
   useEffect(() => {
     mouthInfluenceEntriesRef.current = [];
@@ -180,11 +153,7 @@ function GLTFTalkingAvatar({
     jawOrHeadInitialRotRef.current = null;
     jawMeshNodeRef.current = null;
     jawMeshInitialPosRef.current = null;
-    pinnedBoneRestsRef.current = [];
-    headBoneRestRef.current = null;
 
-    const alexMeshNames: string[] = [];
-    let collectedAlexSkeleton = false;
     avatarScene.traverse((obj) => {
       const mesh = obj as Mesh;
       if (!mesh.isMesh) return;
@@ -192,51 +161,9 @@ function GLTFTalkingAvatar({
       const skinned = obj as SkinnedMesh;
       if (skinned.isSkinnedMesh && skinned.skeleton) {
         skinned.frustumCulled = false;
-        if (characterId === "alex" && !collectedAlexSkeleton) {
-          collectedAlexSkeleton = true;
-          for (const bone of skinned.skeleton.bones) {
-            const base = boneBaseName(bone.name);
-            if (ALEX_PINNED_BONE_RE.test(base)) {
-              pinnedBoneRestsRef.current.push({
-                bone,
-                position: bone.position.clone(),
-                quaternion: bone.quaternion.clone(),
-              });
-            } else if (ALEX_HEAD_BONE_RE.test(base) && !headBoneRestRef.current) {
-              headBoneRestRef.current = {
-                bone,
-                position: bone.position.clone(),
-                quaternion: bone.quaternion.clone(),
-              };
-            }
-          }
-        }
-      }
-      if (characterId === "alex") {
-        const n = mesh.name.toLowerCase();
-        alexMeshNames.push(`${mesh.name || "(unnamed)"} [${mesh.type}] visible=?`);
-        const isOutfitTop = n.includes("outfit_top");
-        if (isOutfitTop) {
-          mesh.visible = true;
-        }
-        const hideArtifact = ALEX_HEAD_ARTIFACT_MESH_RE.test(n);
-        const keepVisible = ALEX_KEEP_MESH_RE.test(n) && !n.includes("outfit_bottom");
-        if (!n || hideArtifact || (!isOutfitTop && (HIDDEN_ALEX_MESH_RE.test(n) || n.includes("outfit_bottom") || !keepVisible))) {
-          mesh.visible = false;
-          alexMeshNames[alexMeshNames.length - 1] = `${mesh.name || "(unnamed)"} [${mesh.type}] hidden`;
-          return;
-        }
-        if (mesh.name === "Wolf3D_Head") {
-          const materials = (Array.isArray(mesh.material) ? mesh.material : [mesh.material]).filter(Boolean) as Material[];
-          for (const material of materials) {
-            material.side = FrontSide;
-            material.depthWrite = true;
-            material.needsUpdate = true;
-          }
-        }
-        alexMeshNames[alexMeshNames.length - 1] = `${mesh.name || "(unnamed)"} [${mesh.type}] kept`;
       }
       mesh.frustumCulled = skinned.isSkinnedMesh ? false : true;
+      if (mesh.name.toLowerCase().includes("transparent")) mesh.visible = false;
       const dict = mesh.morphTargetDictionary;
       const influences = mesh.morphTargetInfluences;
       if (dict && influences) {
@@ -266,8 +193,24 @@ function GLTFTalkingAvatar({
         jawMeshInitialPosRef.current = mesh.position.clone();
       }
     });
+
     if (characterId === "alex") {
-      console.info("[Avatar3D] alex.glb meshes", alexMeshNames);
+      avatarScene.updateMatrixWorld(true);
+      const box = new Box3().setFromObject(avatarScene, true);
+      const size = new Vector3();
+      box.getSize(size);
+      const s = 1.7 / Math.max(size.y, 0.001);
+      avatarScene.scale.setScalar(s);
+      avatarScene.updateMatrixWorld(true);
+      box.setFromObject(avatarScene, true);
+      const center = new Vector3();
+      box.getCenter(center);
+      avatarScene.position.x -= center.x;
+      avatarScene.position.z -= center.z;
+      avatarScene.position.y += 0.38 - box.max.y;
+    } else {
+      avatarScene.position.set(0, -2.6, 0);
+      avatarScene.scale.setScalar(1.7);
     }
 
     return () => {
@@ -281,49 +224,27 @@ function GLTFTalkingAvatar({
     const t = state.clock.elapsedTime;
     let mouthAmount = 0;
     if (isSpeaking) {
-      // Smooth continuous jaw — avoid hard on/off pulses that look like flickering.
       const pulse = 0.14 + Math.sin(t * 10) * 0.1 + Math.sin(t * 17) * 0.05;
       mouthAmount = Math.min(MAX_MOUTH_OPEN, Math.max(0.06, pulse));
     }
 
-    const pinAlexSpine = characterId === "alex" && isMobileViewport();
-    if (pinAlexSpine) {
-      for (const entry of pinnedBoneRestsRef.current) {
-        entry.bone.position.copy(entry.position);
-        entry.bone.quaternion.copy(entry.quaternion);
-      }
-      const headRest = headBoneRestRef.current;
-      if (headRest) {
-        headRest.bone.position.copy(headRest.position);
-        headRest.bone.quaternion.copy(headRest.quaternion);
-        if (isSpeaking && mouthAmount > 0) {
-          headRest.bone.quaternion.multiply(
-            headTalkQuatRef.current.setFromAxisAngle(AXIS_X, mouthAmount * 0.06),
-          );
-        }
-      }
-    }
-
     for (const entry of eyeInfluenceEntriesRef.current) {
-      if (pinAlexSpine && !isAlexSpeechMesh(entry.mesh)) continue;
       const arr = entry.mesh.morphTargetInfluences;
       if (!arr) continue;
       const blinkPeriodSeconds = 4.2;
       const blinkPhase = t % blinkPeriodSeconds;
-      // Soft blink — never slam morph to 1.0 (that flashes the whole face).
       const blinkAmt = blinkPhase < 0.1 ? Math.sin((blinkPhase / 0.1) * Math.PI) * 0.85 : 0;
       arr[entry.index] = MathUtils.lerp(arr[entry.index], blinkAmt, 0.35);
     }
 
     if (hasMouthMorphRef.current) {
       for (const entry of mouthInfluenceEntriesRef.current) {
-        if (pinAlexSpine && !isAlexSpeechMesh(entry.mesh)) continue;
         const arr = entry.mesh.morphTargetInfluences;
         if (!arr) continue;
         const target = mouthTargetForKind(entry.kind, mouthAmount);
         arr[entry.index] = MathUtils.lerp(arr[entry.index], target, 0.18);
       }
-    } else if (!pinAlexSpine) {
+    } else {
       const node = jawOrHeadNodeRef.current;
       const initial = jawOrHeadInitialRotRef.current;
       if (node && initial) {
@@ -341,12 +262,9 @@ function GLTFTalkingAvatar({
     }
   });
 
-  const modelPosition: [number, number, number] =
-    characterId === "emma" ? [0, -2.6, 0] : [0, -2.85, 0];
-
   return (
     <group ref={groupRef}>
-      <primitive object={avatarScene} position={modelPosition} scale={1.7} rotation={[0, 0, 0]} />
+      <primitive object={avatarScene} />
     </group>
   );
 }
@@ -360,12 +278,12 @@ export const Avatar3DStage = memo(function Avatar3DStage({
 }: Avatar3DStageProps) {
   const characterId = resolveCharacterModelId(character.id) as "emma" | "alex";
   const modelUrl = characterId === "alex" ? ALEX_MODEL_URL : EMMA_MODEL_URL;
-  const cameraPosition: [number, number, number] = [0, 0, 1.2];
+  const cameraPosition: [number, number, number] =
+    characterId === "alex" ? [0, 0.28, 0.65] : [0, 0, 1.2];
   const [contextKey, setContextKey] = useState(0);
   const remountTimer = useRef<number | null>(null);
 
   const recoverContext = useCallback(() => {
-    // Cooldown prevents remount loops that make the avatar flash on/off.
     if (remountTimer.current != null) return;
     remountTimer.current = window.setTimeout(() => {
       remountTimer.current = null;
@@ -418,7 +336,6 @@ export const Avatar3DStage = memo(function Avatar3DStage({
       <Suspense fallback={null}>
         <ambientLight intensity={1.28} />
         <directionalLight intensity={1.45} position={[0.4, 4.2, 4.6]} />
-        {/* Skip HDR Environment — it spikes GPU and triggers context-loss flicker. */}
 
         <AvatarGLTFErrorBoundary key={characterId} fallback={null}>
           <GLTFTalkingAvatar

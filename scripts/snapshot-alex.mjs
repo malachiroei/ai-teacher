@@ -153,7 +153,8 @@ try {
     deviceScaleFactor: 1,
     mobile: false,
   });
-  await send("Page.navigate", { url: `http://127.0.0.1:${staticPort}/scripts/alex-snapshot.html` });
+  const character = process.argv[2] === "emma" ? "emma" : "alex";
+  await send("Page.navigate", { url: `http://127.0.0.1:${staticPort}/scripts/alex-snapshot.html?model=${character}` });
   await waitEvent("Page.loadEventFired");
 
   let ready = false;
@@ -165,6 +166,11 @@ try {
     const value = result?.result?.value ?? "";
     if (value === "1") {
       ready = true;
+      const bbox = await send("Runtime.evaluate", {
+        expression: `document.documentElement.dataset.bbox || ""`,
+        returnByValue: true,
+      });
+      console.log("bbox", bbox?.result?.value);
       break;
     }
     if (value && value !== "1") throw new Error(`Snapshot failed: ${value}`);
@@ -173,7 +179,7 @@ try {
   if (!ready) throw new Error("Timed out waiting for GLB render");
 
   const shot = await send("Page.captureScreenshot", { format: "png", fromSurface: true });
-  const outPng = path.join(root, "public", "avatars", "alex.png");
+  const outPng = path.join(root, "public", "avatars", `${character}.png`);
   fs.writeFileSync(outPng, Buffer.from(shot.data, "base64"));
   console.log(`Wrote ${outPng} (${fs.statSync(outPng).size} bytes)`);
   ws.close();
