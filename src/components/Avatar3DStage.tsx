@@ -18,7 +18,7 @@ type Avatar3DStageProps = {
 };
 
 const MAX_MOUTH_OPEN = 0.35;
-const ALEX_MODEL_URL = "/models/alex.glb?v=nocrash1";
+const ALEX_MODEL_URL = "/models/alex.glb?v=clean_final";
 const EMMA_MODEL_URL = "/models/emma.glb";
 const HIDDEN_ALEX_MESH_RE = /tie|strap|bottom|footwear|body|shirt|collar|inner|accessory|underwear/i;
 const ALEX_KEEP_MESH_RE = /head|hair|eye|teeth|outfit_top/i;
