@@ -100,7 +100,11 @@ LANGUAGE / OUTPUT:
 - English plaintext ONLY. Never Hebrew in the spoken reply. Never JSON. Never markdown fences.
 - If they speak Hebrew: not an error. Reply in simple English. Recast their idea in correct English naturally.
 
-GREETINGS (hi, hey, hello, שלום, היי): warm hello; name allowed once. Never teach a phrase. Never "You can say".
+GREETINGS (hi, hey, hello, שלום, היי):
+- Warm hello; name allowed once. Never teach a phrase. Never "You can say".
+- Do NOT default to sports (or any one hobby) every time they say hi.
+- Vary the opener: how their day is going, something fun they did, a game / movie / song they like.
+- Examples: "Hey! Awesome to chat with you! How's your day going so far?" / "Hey there! What's something fun you did today?"
 Do not ask their name again if you already know it.`;
 
 const GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta";
@@ -491,22 +495,42 @@ function emptyGrammar(correctedText = ""): GrammarFeedback {
   return { hasError: false, explanation: "", correctedText };
 }
 
+const GREETING_OPENERS: Array<{ en: string; he: string; suggestions: string[] }> = [
+  {
+    en: "Hey! Awesome to chat with you! How's your day going so far?",
+    he: "היי! איזה כיף לדבר איתך! איך היום שלך עד עכשיו?",
+    suggestions: ["It was good!", "A little tired.", "I had fun!"],
+  },
+  {
+    en: "Hey there! What's something fun you did today?",
+    he: "היי! מה משהו כיף שעשית היום?",
+    suggestions: ["I played a game.", "I watched a movie.", "I hung out."],
+  },
+  {
+    en: "Hi! Great to see you! What game, movie, or song are you into lately?",
+    he: "היי! איזה כיף לראות אותך! איזה משחק, סרט או שיר אתה אוהב עכשיו?",
+    suggestions: ["A fun game!", "A movie!", "A song I like."],
+  },
+];
+
 function naturalGreetingReply(profile?: ProfileInput | null, askName = false): ChatApiResponse {
   const name = String(profile?.nickname ?? "").trim();
-  if (!askName && name) {
+  if (askName && !name) {
     return {
-      aiResponse: `Hey ${name}! Great to see you! How are you today? 👋`,
-      translation: `היי ${name}! איזה כיף לראות אותך! מה שלומך היום?`,
+      aiResponse: "Hey there! Great to see you! What is your name? 👋",
+      translation: "היי! איזה כיף לראות אותך! איך קוראים לך?",
       grammarAnalysis: emptyGrammar(),
-      suggestedAnswers: ["I'm great!", "I am happy.", "A little tired."],
+      suggestedAnswers: ["My name is Tom.", "I'm Maya.", "I am Alex."],
     };
   }
 
+  const pick = GREETING_OPENERS[Math.floor(Date.now() / 1000) % GREETING_OPENERS.length];
+  const hello = name ? pick.en.replace("Hey!", `Hey ${name}!`).replace("Hey there!", `Hey ${name}!`).replace("Hi!", `Hi ${name}!`) : pick.en;
   return {
-    aiResponse: "Hey there! Great to see you! What is your name? 👋",
-    translation: "היי! איזה כיף לראות אותך! איך קוראים לך?",
+    aiResponse: hello,
+    translation: pick.he,
     grammarAnalysis: emptyGrammar(),
-    suggestedAnswers: ["My name is Tom.", "I'm Maya.", "I am Alex."],
+    suggestedAnswers: pick.suggestions,
   };
 }
 
@@ -1064,10 +1088,13 @@ async function streamGemini(
   const placement = !placementCompleted && Boolean(extras?.placement || isPlacementActive(history, placementCompleted));
   const userTurns = placementAnswerTurns(history);
   const allowScaffold = shouldOfferSayHint(userMessage);
+  const simpleHi = isSimpleGreeting(userMessage);
 
   const languageHint =
     action === "daily_open" || extras?.isFirstSessionToday
-      ? "FIRST MESSAGE TODAY. Memories exist. Greet warmly (name OK once). Follow up on their latest plan, pet, game, or day. One punchy sentence + one fun question under 25 words. Do NOT ask their name again. Do NOT restart placement."
+      ? "FIRST MESSAGE TODAY. Memories exist. Greet warmly (name OK once). Follow up on their latest plan, pet, game, or day. One punchy sentence + one fun question under 25 words. Do NOT ask their name again. Do NOT restart placement. Do NOT default to sports."
+      : simpleHi && !placement
+        ? "SIMPLE GREETING only (hi/hello/hey). Warm varied hello. Ask about their day, something fun they did, or a game/movie/song — pick a different angle each time. NEVER default to sports. Do not restart placement. One sentence + one question, under 25 words."
       : placement
         ? `PLACEMENT MODE is ON. Real answers so far: ${userTurns} of 3 (name, grade/age, favorite thing to learn or play). Ask only the next missing step. One short question. If they only said hi/hello/שלום/היי, that is NOT their name — greet warmly and ask their name again.`
         : action === "change_topic"

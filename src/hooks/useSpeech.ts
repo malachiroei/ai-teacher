@@ -209,38 +209,34 @@ function ensureOutputGain() {
   return outputGain;
 }
 
-function sliderToOutputGain(slider: number) {
-  const val = Math.max(0, Math.min(1, slider));
-  if (val === 0) return 0;
-  // Stronger perceptual curve so mid/low slider positions are clearly quieter.
-  return Math.pow(val, 2.2);
-}
-
 function applyOutputVolume(slider: number) {
   const val = Math.max(0, Math.min(1, slider));
-  const gain = sliderToOutputGain(val);
-  currentOutputVolume = gain;
-  const player = ensureVoicePlayer();
-  if (player) {
-    player.muted = val === 0;
-    player.defaultMuted = false;
-    player.volume = gain;
-  }
+  // SpeechSynthesis plays through the OS mixer, not our AudioContext.
+  // Keep a linear 0–1 value for utterance.volume — a steep gain curve
+  // made mid-slider positions sound muted.
+  currentOutputVolume = val;
   if (activeUtterance) {
     try {
-      activeUtterance.volume = gain;
+      activeUtterance.volume = val;
+    } catch {
+      /* Chrome often ignores mid-utterance volume; next chunk will pick it up. */
+    }
+  }
+  if (voicePlayer) {
+    try {
+      voicePlayer.muted = val === 0;
+      voicePlayer.defaultMuted = false;
+      voicePlayer.volume = val;
     } catch {
       /* ignore */
     }
   }
-  const gainNode = ensureOutputGain();
-  if (gainNode && unlockContext) {
+  if (outputGain && unlockContext?.state === "running") {
     try {
-      const now = unlockContext.currentTime;
-      gainNode.gain.setValueAtTime(gain, now);
+      outputGain.gain.setValueAtTime(val, unlockContext.currentTime);
     } catch {
       try {
-        gainNode.gain.value = gain;
+        outputGain.gain.value = val;
       } catch {
         /* ignore */
       }
@@ -330,7 +326,8 @@ function primeVoicePlayer() {
 }
 
 function resumeAudioGraph() {
-  unlockAudioContext();
+  // Do not create/resume AudioContext here — Chrome ducks speechSynthesis
+  // when an unrelated AudioContext starts while TTS is playing.
   applyOutputVolume(currentOutputVolume);
 }
 
@@ -400,9 +397,8 @@ function kickUtterance(
   if (typeof window === "undefined" || !("speechSynthesis" in window)) return;
   if (generation !== generationRef.current) return;
   try {
-    resumeAudioGraph();
     utterance.lang = "en-US";
-    utterance.volume = currentOutputVolume;
+    utterance.volume = Math.max(0, Math.min(1, currentOutputVolume));
     activeUtterance = utterance;
     if (interrupt && (window.speechSynthesis.speaking || window.speechSynthesis.pending)) {
       window.speechSynthesis.cancel();
@@ -860,13 +856,6 @@ export function useSpeech(options?: {
   const playNextUtterance = useCallback((preview?: { rateMultiplier?: number; voiceUri?: string | null }) => {
     if (typeof window === "undefined" || !("speechSynthesis" in window)) return;
     if (ttsBusyRef.current) return;
-    if (volumeRef.current === 0) {
-      speechQueueRef.current = [];
-      ttsBusyRef.current = false;
-      setIsSpeaking(false);
-      setSpeakingText("");
-      return;
-    }
 
     const next = speechQueueRef.current[0];
     if (!next) {
@@ -900,7 +889,6 @@ export function useSpeech(options?: {
     speechQueueRef.current.shift();
 
     try {
-      resumeAudioGraph();
       resumeSpeechSynthesis();
       const character = characterRef.current;
       const voice = pickStreamingVoice(voices, character, preview?.voiceUri ?? preferredVoiceUriRef.current);
@@ -909,10 +897,11 @@ export function useSpeech(options?: {
       const generation = ttsGenerationRef.current;
       let started = false;
       const male = character?.voice.gender === "male";
+      const volume = Math.max(0, Math.min(1, volumeRef.current));
       utterance.lang = "en-US";
-      utterance.volume = sliderToOutputGain(volumeRef.current);
+      utterance.volume = volume;
       activeUtterance = utterance;
-      currentOutputVolume = sliderToOutputGain(volumeRef.current);
+      currentOutputVolume = volume;
       utterance.rate = Math.min(1.4, Math.max(0.6, (male ? 0.92 : character?.voice.rate ?? 0.95) * speed));
       utterance.pitch = male ? 0.78 : 1.02;
       window.speechSynthesis.resume();
@@ -964,7 +953,7 @@ export function useSpeech(options?: {
         retry.lang = "en-US";
         retry.rate = utterance.rate;
         retry.pitch = utterance.pitch;
-        retry.volume = sliderToOutputGain(volumeRef.current);
+        retry.volume = Math.max(0, Math.min(1, volumeRef.current));
         if (voice) retry.voice = voice;
         retry.onstart = utterance.onstart;
         retry.onend = utterance.onend;
