@@ -4,7 +4,7 @@ import { Suspense, Component, memo, type ReactNode, useCallback, useEffect, useM
 import { Canvas, useFrame } from "@react-three/fiber";
 import { useGLTF } from "@react-three/drei";
 import type { Group, Material } from "three";
-import { FrontSide, MathUtils, Mesh, Object3D, SkinnedMesh, Vector3 } from "three";
+import { Bone, FrontSide, MathUtils, Mesh, Object3D, Quaternion, SkinnedMesh, Vector3 } from "three";
 import * as SkeletonUtils from "three/examples/jsm/utils/SkeletonUtils.js";
 import type { Character } from "@/lib/characters";
 
@@ -23,6 +23,22 @@ const EMMA_MODEL_URL = "/models/emma.glb";
 const HIDDEN_ALEX_MESH_RE = /strap|bottom|footwear|body|shirt|collar|inner|accessory|underwear/i;
 const ALEX_KEEP_MESH_RE = /head|hair|eye|teeth|outfit_top/i;
 const ALEX_HEAD_ARTIFACT_MESH_RE = /beard|facewear|neck|tie/i;
+const ALEX_PINNED_BONE_RE = /^(mixamorig[:|_])?(spine2?|spine1|chest|neck)$/i;
+const ALEX_HEAD_BONE_RE = /^(mixamorig[:|_])?(head)$/i;
+const AXIS_X = new Vector3(1, 0, 0);
+
+function isMobileViewport() {
+  return typeof window !== "undefined" && window.innerWidth < 768;
+}
+
+function boneBaseName(name: string) {
+  return name.replace(/^(mixamorig|wolf3d)[:|_]?/i, "");
+}
+
+function isAlexSpeechMesh(mesh: Mesh) {
+  const n = mesh.name;
+  return n === "Wolf3D_Head" || n === "Wolf3D_Teeth";
+}
 
 function setMaterialHighp(mesh: Mesh) {
   const materials = (Array.isArray(mesh.material) ? mesh.material : [mesh.material]).filter(Boolean) as Material[];
@@ -152,6 +168,9 @@ function GLTFTalkingAvatar({
   const jawOrHeadInitialRotRef = useRef<{ x: number; y: number; z: number } | null>(null);
   const jawMeshNodeRef = useRef<Object3D | null>(null);
   const jawMeshInitialPosRef = useRef<Vector3 | null>(null);
+  const pinnedBoneRestsRef = useRef<Array<{ bone: Bone; position: Vector3; quaternion: Quaternion }>>([]);
+  const headBoneRestRef = useRef<{ bone: Bone; position: Vector3; quaternion: Quaternion } | null>(null);
+  const headTalkQuatRef = useRef(new Quaternion());
 
   useEffect(() => {
     mouthInfluenceEntriesRef.current = [];
@@ -161,8 +180,11 @@ function GLTFTalkingAvatar({
     jawOrHeadInitialRotRef.current = null;
     jawMeshNodeRef.current = null;
     jawMeshInitialPosRef.current = null;
+    pinnedBoneRestsRef.current = [];
+    headBoneRestRef.current = null;
 
     const alexMeshNames: string[] = [];
+    let collectedAlexSkeleton = false;
     avatarScene.traverse((obj) => {
       const mesh = obj as Mesh;
       if (!mesh.isMesh) return;
@@ -170,6 +192,25 @@ function GLTFTalkingAvatar({
       const skinned = obj as SkinnedMesh;
       if (skinned.isSkinnedMesh && skinned.skeleton) {
         skinned.frustumCulled = false;
+        if (characterId === "alex" && !collectedAlexSkeleton) {
+          collectedAlexSkeleton = true;
+          for (const bone of skinned.skeleton.bones) {
+            const base = boneBaseName(bone.name);
+            if (ALEX_PINNED_BONE_RE.test(base)) {
+              pinnedBoneRestsRef.current.push({
+                bone,
+                position: bone.position.clone(),
+                quaternion: bone.quaternion.clone(),
+              });
+            } else if (ALEX_HEAD_BONE_RE.test(base) && !headBoneRestRef.current) {
+              headBoneRestRef.current = {
+                bone,
+                position: bone.position.clone(),
+                quaternion: bone.quaternion.clone(),
+              };
+            }
+          }
+        }
       }
       if (characterId === "alex") {
         const n = mesh.name.toLowerCase();
@@ -245,7 +286,26 @@ function GLTFTalkingAvatar({
       mouthAmount = Math.min(MAX_MOUTH_OPEN, Math.max(0.06, pulse));
     }
 
+    const pinAlexSpine = characterId === "alex" && isMobileViewport();
+    if (pinAlexSpine) {
+      for (const entry of pinnedBoneRestsRef.current) {
+        entry.bone.position.copy(entry.position);
+        entry.bone.quaternion.copy(entry.quaternion);
+      }
+      const headRest = headBoneRestRef.current;
+      if (headRest) {
+        headRest.bone.position.copy(headRest.position);
+        headRest.bone.quaternion.copy(headRest.quaternion);
+        if (isSpeaking && mouthAmount > 0) {
+          headRest.bone.quaternion.multiply(
+            headTalkQuatRef.current.setFromAxisAngle(AXIS_X, mouthAmount * 0.06),
+          );
+        }
+      }
+    }
+
     for (const entry of eyeInfluenceEntriesRef.current) {
+      if (pinAlexSpine && !isAlexSpeechMesh(entry.mesh)) continue;
       const arr = entry.mesh.morphTargetInfluences;
       if (!arr) continue;
       const blinkPeriodSeconds = 4.2;
@@ -257,12 +317,13 @@ function GLTFTalkingAvatar({
 
     if (hasMouthMorphRef.current) {
       for (const entry of mouthInfluenceEntriesRef.current) {
+        if (pinAlexSpine && !isAlexSpeechMesh(entry.mesh)) continue;
         const arr = entry.mesh.morphTargetInfluences;
         if (!arr) continue;
         const target = mouthTargetForKind(entry.kind, mouthAmount);
         arr[entry.index] = MathUtils.lerp(arr[entry.index], target, 0.18);
       }
-    } else {
+    } else if (!pinAlexSpine) {
       const node = jawOrHeadNodeRef.current;
       const initial = jawOrHeadInitialRotRef.current;
       if (node && initial) {
