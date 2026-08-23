@@ -18,27 +18,11 @@ type Avatar3DStageProps = {
 };
 
 const MAX_MOUTH_OPEN = 0.35;
-const ALEX_MODEL_URL = "/models/alex.glb?v=clean_male_v1";
+const ALEX_MODEL_URL = "/models/alex.glb?v=fixed_bake_1";
 const EMMA_MODEL_URL = "/models/emma.glb";
 const HIDDEN_ALEX_MESH_RE = /tie|strap|bottom|footwear|body|shirt|collar|inner|accessory|underwear/i;
 const ALEX_KEEP_MESH_RE = /head|hair|eye|teeth|outfit_top/i;
 const ALEX_BEARD_MESH_RE = /^(wolf3d_)?(beard|facewear)$/i;
-
-function freezeAlexOutfitSkinning(skinned: SkinnedMesh) {
-  const parent = skinned.parent;
-  if (!parent) return;
-  skinned.skeleton?.pose();
-  skinned.updateMatrixWorld(true);
-  const frozen = new Mesh(skinned.geometry, skinned.material);
-  frozen.name = skinned.name;
-  frozen.frustumCulled = false;
-  frozen.matrixAutoUpdate = false;
-  frozen.matrix.copy(skinned.matrix);
-  frozen.matrixWorld.copy(skinned.matrixWorld);
-  parent.add(frozen);
-  skinned.visible = false;
-  parent.remove(skinned);
-}
 
 function setMaterialHighp(mesh: Mesh) {
   const materials = (Array.isArray(mesh.material) ? mesh.material : [mesh.material]).filter(Boolean) as Material[];
@@ -179,7 +163,6 @@ function GLTFTalkingAvatar({
     jawMeshInitialPosRef.current = null;
 
     const alexMeshNames: string[] = [];
-    const alexOutfitsToFreeze: SkinnedMesh[] = [];
     avatarScene.traverse((obj) => {
       const mesh = obj as Mesh;
       if (!mesh.isMesh) return;
@@ -206,9 +189,6 @@ function GLTFTalkingAvatar({
           return;
         }
         alexMeshNames[alexMeshNames.length - 1] = `${mesh.name || "(unnamed)"} [${mesh.type}] kept`;
-        if (skinned.isSkinnedMesh && n.includes("outfit_top")) {
-          alexOutfitsToFreeze.push(skinned);
-        }
       }
       mesh.frustumCulled = skinned.isSkinnedMesh ? false : true;
       const dict = mesh.morphTargetDictionary;
@@ -237,7 +217,6 @@ function GLTFTalkingAvatar({
       }
     });
     if (characterId === "alex") {
-      for (const outfit of alexOutfitsToFreeze) freezeAlexOutfitSkinning(outfit);
       console.info("[Avatar3D] alex.glb meshes", alexMeshNames);
     }
 
