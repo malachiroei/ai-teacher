@@ -13,6 +13,12 @@ interface ChatTopBarProps {
   onOpenCharacters: () => void;
   onOpenVoiceSettings: () => void;
   onOpenHistory: () => void;
+  onOpenTranscript: () => void;
+  recording?: boolean;
+  recorderSupported?: boolean;
+  hasRecordingClip?: boolean;
+  onToggleRecording?: () => void;
+  onDownloadRecording?: () => void;
   menuOpen: boolean;
   onToggleMenu: () => void;
   onClearChat: () => void;
@@ -31,6 +37,12 @@ export function ChatTopBar({
   onOpenCharacters,
   onOpenVoiceSettings,
   onOpenHistory,
+  onOpenTranscript,
+  recording,
+  recorderSupported,
+  hasRecordingClip,
+  onToggleRecording,
+  onDownloadRecording,
   menuOpen,
   onToggleMenu,
   onClearChat,
@@ -104,6 +116,12 @@ export function ChatTopBar({
         onOpenSettings={onOpenSettings}
         onOpenVoiceSettings={onOpenVoiceSettings}
         onOpenHistory={onOpenHistory}
+        onOpenTranscript={onOpenTranscript}
+        recording={recording}
+        recorderSupported={recorderSupported}
+        hasRecordingClip={hasRecordingClip}
+        onToggleRecording={onToggleRecording}
+        onDownloadRecording={onDownloadRecording}
         onClearChat={onClearChat}
         onSignOut={onSignOut}
       />

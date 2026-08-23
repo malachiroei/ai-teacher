@@ -40,7 +40,7 @@ const LEGACY_CHARACTER_MAP: Record<string, CharacterId> = {
 };
 
 function portrait(id: CharacterId) {
-  return `/characters/${id}.png`;
+  return `/avatars/${id}.png`;
 }
 
 export const CHARACTERS: Character[] = [

@@ -1,7 +1,7 @@
 "use client";
 
 import { AnimatePresence, motion } from "framer-motion";
-import { AudioLines, History, LogOut, Settings2, Sparkles, Users, Volume2, VolumeX, X } from "lucide-react";
+import { AudioLines, Circle, Download, History, LogOut, ScrollText, Settings2, Sparkles, Users, Volume2, VolumeX, X } from "lucide-react";
 import { BuddyAIMark } from "@/components/BuddyAIMark";
 import type { Character } from "@/lib/characters";
 import { cn } from "@/lib/utils";
@@ -23,6 +23,12 @@ interface SideDrawerProps {
   onOpenSettings: () => void;
   onOpenVoiceSettings: () => void;
   onOpenHistory: () => void;
+  onOpenTranscript: () => void;
+  recording?: boolean;
+  recorderSupported?: boolean;
+  hasRecordingClip?: boolean;
+  onToggleRecording?: () => void;
+  onDownloadRecording?: () => void;
   onClearChat: () => void;
   onSignOut?: () => void;
 }
@@ -44,6 +50,12 @@ export function SideDrawer({
   onOpenSettings,
   onOpenVoiceSettings,
   onOpenHistory,
+  onOpenTranscript,
+  recording = false,
+  recorderSupported = false,
+  hasRecordingClip = false,
+  onToggleRecording,
+  onDownloadRecording,
   onClearChat,
   onSignOut,
 }: SideDrawerProps) {
@@ -134,6 +146,17 @@ export function SideDrawer({
                 onClick={onToggleSpeak}
               />
               <DrawerItem icon={History} label="Previous chats" onClick={onOpenHistory} />
+              <DrawerItem icon={ScrollText} label="Transcript History / היסטוריית שיחה" onClick={onOpenTranscript} />
+              {recorderSupported && onToggleRecording ? (
+                <DrawerItem
+                  icon={Circle}
+                  label={recording ? "Stop recording" : "Record conversation"}
+                  onClick={onToggleRecording}
+                />
+              ) : null}
+              {recorderSupported && hasRecordingClip && onDownloadRecording ? (
+                <DrawerItem icon={Download} label="Download audio (.webm)" onClick={onDownloadRecording} />
+              ) : null}
               <DrawerItem icon={Sparkles} label="New chat" onClick={onClearChat} />
             </nav>
 

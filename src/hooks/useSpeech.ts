@@ -9,8 +9,9 @@ export const SPEECH_UNAVAILABLE_MESSAGE =
 
 export const MIC_PERMISSION_MESSAGE = "Please allow microphone access in your browser settings";
 
-const SILENCE_SUBMIT_MS = 400;
-const FINAL_SUBMIT_MS = 350;
+const SILENCE_SUBMIT_MS = 1800;
+const FINAL_SUBMIT_MS = 900;
+const IDLE_LISTEN_CLOSE_MS = 3000;
 const ONEND_RESULT_GRACE_MS = 300;
 
 type RecognitionInstance = InstanceType<NonNullable<ReturnType<typeof getRecognitionConstructor>>>;
@@ -416,10 +417,12 @@ function kickUtterance(
 }
 
 const MALE_VOICE_NEEDLES = [
+  "google us english male",
+  "google uk english male",
+  "microsoft david",
+  "en-us-standard-b",
   "en-us-neural2-d",
   "en-us-wavenet-d",
-  "google uk english male",
-  "google us english male",
   "uk english male",
   "us english male",
   "en-us-x-sfg",
@@ -436,15 +439,16 @@ const MALE_VOICE_NEEDLES = [
 ];
 
 const FEMALE_VOICE_NEEDLES = [
-  "en-us-neural2-f",
-  "en-us-wavenet-f",
   "google us english female",
   "google uk english female",
-  "google us english",
+  "microsoft zira",
+  "en-us-neural2-f",
+  "en-us-wavenet-f",
   "samantha",
   "victoria",
   "karen",
   "moira",
+  "zira",
   "female",
 ];
 
@@ -470,8 +474,9 @@ function rankVoicesByNeedles(voices: SpeechSynthesisVoice[], needles: string[], 
     .sort((a, b) => b.score - a.score);
 }
 
-function pickStreamingVoice(voices: SpeechSynthesisVoice[], character?: Character | null, preferredUri?: string | null) {
+function pickPreferredVoice(voices: SpeechSynthesisVoice[], character?: Character | null, preferredUri?: string | null) {
   const gender = character?.voice.gender ?? "female";
+  const english = listEnglishVoices(voices);
   const preferred = findVoiceByUri(voices, preferredUri);
   if (preferred) {
     const mismatch =
@@ -480,16 +485,30 @@ function pickStreamingVoice(voices: SpeechSynthesisVoice[], character?: Characte
   }
 
   const ranked = rankVoicesByNeedles(
-    voices,
+    english,
     gender === "male" ? MALE_VOICE_NEEDLES : FEMALE_VOICE_NEEDLES,
     gender,
   );
   if (ranked[0]) return ranked[0].voice;
 
+  const strict =
+    gender === "male"
+      ? english.find((voice) => isVoiceLikelyMale(voice) && !isVoiceLikelyFemale(voice))
+      : english.find((voice) => isVoiceLikelyFemale(voice) && !isVoiceLikelyMale(voice));
+  if (strict) return strict;
+
   const picked = pickCharacterVoice(voices, character);
   if (gender === "male" && picked && isVoiceLikelyFemale(picked)) return null;
   if (gender === "female" && picked && isVoiceLikelyMale(picked)) return null;
   return picked;
+}
+
+function pickStreamingVoice(
+  voices: SpeechSynthesisVoice[],
+  character?: Character | null,
+  preferredUri?: string | null,
+) {
+  return pickPreferredVoice(voices, character, preferredUri);
 }
 
 function smoothSpokenText(text: string) {
@@ -511,6 +530,7 @@ export function useSpeech(options?: {
   onListenError?: (reason: "not-allowed" | "unavailable") => void;
   onUtteranceStart?: (text: string) => void;
   onUtteranceEnqueue?: (text: string) => void;
+  onSpeakEnd?: () => void;
 }) {
   const [isListening, setIsListening] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
@@ -532,6 +552,7 @@ export function useSpeech(options?: {
   const onListenErrorRef = useRef(options?.onListenError);
   const onUtteranceStartRef = useRef(options?.onUtteranceStart);
   const onUtteranceEnqueueRef = useRef(options?.onUtteranceEnqueue);
+  const onSpeakEndRef = useRef(options?.onSpeakEnd);
   const shouldListenRef = useRef(false);
   const startingRef = useRef(false);
   const submittedRef = useRef(false);
@@ -539,6 +560,8 @@ export function useSpeech(options?: {
   const latestTranscriptRef = useRef("");
   const committedTranscriptRef = useRef("");
   const silenceTimerRef = useRef<number | null>(null);
+  const idleListenTimerRef = useRef<number | null>(null);
+  const heardSpeechRef = useRef(false);
   const speechQueueRef = useRef<string[]>([]);
   const ttsBusyRef = useRef(false);
   const ttsGenerationRef = useRef(0);
@@ -547,6 +570,7 @@ export function useSpeech(options?: {
   const volumeRef = useRef(1);
   const speakingTextRef = useRef("");
   const lastCommittedVolumeRef = useRef(1);
+  const spokeThisTurnRef = useRef(false);
 
   characterRef.current = options?.character ?? null;
   rateMultiplierRef.current = options?.rateMultiplier ?? 1;
@@ -555,11 +579,19 @@ export function useSpeech(options?: {
   onListenErrorRef.current = options?.onListenError;
   onUtteranceStartRef.current = options?.onUtteranceStart;
   onUtteranceEnqueueRef.current = options?.onUtteranceEnqueue;
+  onSpeakEndRef.current = options?.onSpeakEnd;
 
   const clearSilenceTimer = useCallback(() => {
     if (silenceTimerRef.current != null) {
       window.clearTimeout(silenceTimerRef.current);
       silenceTimerRef.current = null;
+    }
+  }, []);
+
+  const clearIdleListenTimer = useCallback(() => {
+    if (idleListenTimerRef.current != null) {
+      window.clearTimeout(idleListenTimerRef.current);
+      idleListenTimerRef.current = null;
     }
   }, []);
 
@@ -575,13 +607,15 @@ export function useSpeech(options?: {
     shouldListenRef.current = false;
     startingRef.current = false;
     clearSilenceTimer();
+    clearIdleListenTimer();
+    heardSpeechRef.current = false;
     streamsRef.current["en-US"].running = false;
     streamsRef.current["he-IL"].running = false;
     stopMicMeter();
     audioLevelRef.current = 0;
     setAudioLevel(0);
     setIsListening(false);
-  }, [clearSilenceTimer]);
+  }, [clearIdleListenTimer, clearSilenceTimer]);
 
   const stopRecognizer = useCallback(() => {
     const recognition = recognizerRef.current;
@@ -684,6 +718,8 @@ export function useSpeech(options?: {
             }
             const currentText = `${committedTranscriptRef.current} ${interim}`.trim() || (final || interim).trim();
             if (currentText) {
+              heardSpeechRef.current = true;
+              clearIdleListenTimer();
               // Bump the level indicator so the waveform reacts to voice activity.
               // We decay it slowly; the rAF loop in startMicMeter emits it.
               audioLevelRef.current = Math.min(1, audioLevelRef.current + 0.45);
@@ -753,7 +789,7 @@ export function useSpeech(options?: {
         return false;
       }
     },
-    [armSilenceSubmit, resetListeningState, snapshotSpokenText],
+    [armSilenceSubmit, clearIdleListenTimer, resetListeningState, snapshotSpokenText],
   );
 
   useEffect(() => {
@@ -838,6 +874,10 @@ export function useSpeech(options?: {
       stopResumeWatch();
       setIsSpeaking(false);
       setSpeakingText("");
+      if (spokeThisTurnRef.current) {
+        spokeThisTurnRef.current = false;
+        onSpeakEndRef.current?.();
+      }
       return;
     }
 
@@ -887,6 +927,7 @@ export function useSpeech(options?: {
       utterance.onstart = () => {
         if (generation !== ttsGenerationRef.current) return;
         started = true;
+        spokeThisTurnRef.current = true;
         setIsSpeaking(true);
         onUtteranceStartRef.current?.(next);
         resumeSpeechSynthesis();
@@ -940,6 +981,7 @@ export function useSpeech(options?: {
 
   const stopSpeaking = useCallback(() => {
     ttsGenerationRef.current += 1;
+    spokeThisTurnRef.current = false;
     speechQueueRef.current = [];
     ttsBusyRef.current = false;
     activeUtterance = null;
@@ -1067,6 +1109,7 @@ export function useSpeech(options?: {
         setSpeechLang("en-US");
 
         submittedRef.current = false;
+        heardSpeechRef.current = false;
         shouldListenRef.current = true;
         setIsListening(true);
 
@@ -1077,6 +1120,15 @@ export function useSpeech(options?: {
           resetListeningState();
           return false;
         }
+        const session = listenGenerationRef.current;
+        clearIdleListenTimer();
+        idleListenTimerRef.current = window.setTimeout(() => {
+          if (session !== listenGenerationRef.current || submittedRef.current) return;
+          if (heardSpeechRef.current || snapshotSpokenText()) return;
+          submittedRef.current = true;
+          stopRecognizer();
+          resetListeningState();
+        }, IDLE_LISTEN_CLOSE_MS);
         return true;
       } catch {
         submittedRef.current = true;
@@ -1085,7 +1137,7 @@ export function useSpeech(options?: {
         return false;
       }
     },
-    [isListening, resetListeningState, startRecognizer, stopRecognizer],
+    [clearIdleListenTimer, isListening, resetListeningState, snapshotSpokenText, startRecognizer, stopRecognizer],
   );
 
   const toggleListening = useCallback(

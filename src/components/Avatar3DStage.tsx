@@ -118,6 +118,21 @@ function GLTFTalkingAvatar({
     scene.traverse((obj) => {
       const mesh = obj as Mesh;
       if (!mesh.isMesh) return;
+      if (characterId === "alex") {
+        const n = mesh.name.toLowerCase();
+        // RPM leftover collar / inner body often pokes through the beard line.
+        if (
+          n === "wolf3d_body" ||
+          n.includes("collar") ||
+          n.includes("tie") ||
+          n.includes("strap") ||
+          n.includes("accessory")
+        ) {
+          mesh.visible = false;
+          return;
+        }
+      }
+      mesh.frustumCulled = true;
       const dict = mesh.morphTargetDictionary;
       const influences = mesh.morphTargetInfluences;
       if (dict && influences) {
@@ -143,7 +158,7 @@ function GLTFTalkingAvatar({
         jawMeshInitialPosRef.current = mesh.position.clone();
       }
     });
-  }, [scene]);
+  }, [characterId, scene]);
 
   useFrame((state) => {
     const t = state.clock.elapsedTime;
@@ -240,7 +255,8 @@ export const Avatar3DStage = memo(function Avatar3DStage({
     <Canvas
       key={`${characterId}-${contextKey}-${compact ? "c" : "f"}`}
       className="avatar-3d-canvas"
-      dpr={1}
+      dpr={[1, 1]}
+      frameloop="always"
       camera={{ position: cameraPosition, fov: compact ? 30 : 28 }}
       style={{ width: "100%", height: "100%", pointerEvents: "none", background: "transparent" }}
       shadows={false}
@@ -262,9 +278,8 @@ export const Avatar3DStage = memo(function Avatar3DStage({
       }}
     >
       <Suspense fallback={null}>
-        <ambientLight intensity={1.35} />
-        <directionalLight intensity={1.7} position={[0, 5, 5]} />
-        <pointLight intensity={0.9} position={[0, 2, 2]} />
+        <ambientLight intensity={1.28} />
+        <directionalLight intensity={1.45} position={[0.4, 4.2, 4.6]} />
         {/* Skip HDR Environment — it spikes GPU and triggers context-loss flicker. */}
 
         <AvatarGLTFErrorBoundary key={characterId} fallback={null}>

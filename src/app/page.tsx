@@ -6,6 +6,7 @@ import { AuthModal } from "@/components/AuthModal";
 import { CharacterSelectorModal } from "@/components/CharacterSelectorModal";
 import { ChatTopBar } from "@/components/ChatTopBar";
 import { PreviousChatsModal } from "@/components/PreviousChatsModal";
+import { TranscriptHistoryModal } from "@/components/TranscriptHistoryModal";
 import { DocumentTitle } from "@/components/DocumentTitle";
 import { GoalCelebrationModal } from "@/components/GoalCelebrationModal";
 import { LevelUpBurst } from "@/components/LevelUpBurst";
@@ -15,6 +16,7 @@ import { InteractiveOnboarding } from "@/components/InteractiveOnboarding";
 import { SettingsModal } from "@/components/SettingsModal";
 import { VoiceStage } from "@/components/VoiceStage";
 import { useSpeech, SPEECH_UNAVAILABLE_MESSAGE, MIC_PERMISSION_MESSAGE } from "@/hooks/useSpeech";
+import { useSessionRecorder } from "@/hooks/useSessionRecorder";
 import { useVisualViewport } from "@/hooks/useVisualViewport";
 import {
   archiveCurrentChat,
@@ -156,6 +158,7 @@ export default function HomePage() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsFocusVoice, setSettingsFocusVoice] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [transcriptOpen, setTranscriptOpen] = useState(false);
   const [sessions, setSessions] = useState<ArchivedChatSession[]>([]);
   const [sessionsLoading, setSessionsLoading] = useState(false);
   const [sessionsError, setSessionsError] = useState("");
@@ -168,10 +171,11 @@ export default function HomePage() {
 
   const sendingRef = useRef(false);
   const sendSpokenRef = useRef<(text: string) => void>(() => {});
+  const startListeningRef = useRef<(lang?: "en-US" | "he-IL") => boolean>(() => false);
   const spokenOpenerRef = useRef("");
   const forcePlacementRef = useRef(false);
   const dailyGreetedRef = useRef("");
-  const listenAfterTopicRef = useRef(false);
+  const canAutoListenRef = useRef(false);
   const latencyClientRef = useRef<PipelineClientMetrics | null>(null);
   const latencyServerRef = useRef<PipelineServerMetrics | null>(null);
   const latencyReportPrintedRef = useRef(false);
@@ -264,7 +268,18 @@ export default function HomePage() {
       console.log(`[latency] T_TTS_START +${turn.tTtsStart - turn.tClientSend}ms`);
       maybePrintLatencyReport();
     },
+    onSpeakEnd: () => {
+      if (!canAutoListenRef.current) return;
+      window.setTimeout(() => {
+        if (!canAutoListenRef.current) return;
+        startListeningRef.current("en-US");
+      }, 140);
+    },
   });
+  const recorder = useSessionRecorder();
+  startListeningRef.current = startListening;
+  canAutoListenRef.current =
+    chatUnlocked && !isLoading && !awaitingGreeting && !sendingRef.current && speechSupported.stt;
   const userMessageCountToday = countUserMessagesToday(messages);
   const lastUserMessageAt = [...messages].reverse().find((message) => message.sender === "user")?.timestamp ?? 0;
   const {
@@ -296,6 +311,14 @@ export default function HomePage() {
     setSettingsError("");
     setSettingsFocusVoice(focusVoice);
     setSettingsOpen(true);
+  }
+
+  function openTranscript() {
+    setMenuOpen(false);
+    setCharacterPickerOpen(false);
+    setSettingsOpen(false);
+    setHistoryOpen(false);
+    setTranscriptOpen(true);
   }
 
   function openHistory() {
@@ -346,25 +369,6 @@ export default function HomePage() {
     setNotice(text);
     setTimeout(() => setNotice(""), 2800);
   }, []);
-
-  useEffect(() => {
-    if (!listenAfterTopicRef.current) return;
-    if (isLoading || awaitingGreeting || isSpeaking || isListening) return;
-    listenAfterTopicRef.current = false;
-    if (!speechSupported.stt) return;
-    unlockSpeech();
-    const started = startListening("en-US");
-    if (!started) flash(SPEECH_UNAVAILABLE_MESSAGE);
-  }, [
-    awaitingGreeting,
-    flash,
-    isListening,
-    isLoading,
-    isSpeaking,
-    speechSupported.stt,
-    startListening,
-    unlockSpeech,
-  ]);
 
   const applyLiveCaption = useCallback((caption: string, translation: string) => {
     setSpokenReply(caption);
@@ -418,6 +422,17 @@ export default function HomePage() {
           if (isCompleteHebrewSubtitle(next, text)) {
             hebrew = next;
             setSpokenTranslation(next);
+            setMessages((current) => {
+              for (let i = current.length - 1; i >= 0; i -= 1) {
+                if (current[i].sender === "ai") {
+                  if (current[i].translation === next) return current;
+                  const copy = current.slice();
+                  copy[i] = { ...copy[i], translation: next };
+                  return copy;
+                }
+              }
+              return current;
+            });
           } else if (!hebrew) {
             // Avoid leaving a truncated optimistic subtitle on screen.
             setSpokenTranslation("");
@@ -835,7 +850,6 @@ export default function HomePage() {
 
   async function handleAnotherQuestion() {
     if (isLoading || !chatUnlocked || !user) return;
-    listenAfterTopicRef.current = false;
     setIsLoading(true);
     stopListening();
     stopSpeaking();
@@ -868,12 +882,9 @@ export default function HomePage() {
       setSpokenReply(data.aiResponse);
       if (data.translation?.trim()) setSpokenTranslation(data.translation);
       if (autoSpeak && !streamedSpeech) speak(data.aiResponse);
-      // Open the mic after the tutor finishes asking what they want to talk about.
-      listenAfterTopicRef.current = true;
       void persistMemories(data.newMemories);
       void persistMessages(user.id, [{ id: aiMessage.id, sender: "ai", text: data.aiResponse, translation: data.translation }]);
     } catch {
-      listenAfterTopicRef.current = false;
       flash("Couldn't switch topics right now.");
     } finally {
       setIsLoading(false);
@@ -1310,6 +1321,23 @@ export default function HomePage() {
           onOpenCharacters={openCharacterPicker}
           onOpenVoiceSettings={() => openSettings(true)}
           onOpenHistory={openHistory}
+          onOpenTranscript={openTranscript}
+          recording={recorder.recording}
+          recorderSupported={recorder.supported}
+          hasRecordingClip={recorder.hasClip}
+          onToggleRecording={() => {
+            void (async () => {
+              if (recorder.recording) {
+                recorder.stop();
+                return;
+              }
+              const ok = await recorder.start();
+              if (!ok) flash("Couldn't start recording. Check microphone permission.");
+            })();
+          }}
+          onDownloadRecording={() => {
+            if (!recorder.download()) flash("No recorded audio yet.");
+          }}
           menuOpen={menuOpen}
           onToggleMenu={() => setMenuOpen((value) => !value)}
           onClearChat={handleClearChat}
@@ -1406,6 +1434,15 @@ export default function HomePage() {
             restoringId={restoringId}
             onRestore={(session) => void handleRestoreSession(session)}
             onClose={() => setHistoryOpen(false)}
+          />
+        ) : null}
+
+        {transcriptOpen ? (
+          <TranscriptHistoryModal
+            messages={messages}
+            tutorName={character.name}
+            childName={profile?.nickname || "You"}
+            onClose={() => setTranscriptOpen(false)}
           />
         ) : null}
 

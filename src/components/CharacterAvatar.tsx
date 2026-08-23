@@ -39,13 +39,13 @@ export function CharacterAvatar({
             </div>
           </div>
         ) : (
-          <div
-            className="flex h-full w-full items-center justify-center text-[45%] font-bold text-white"
-            style={{ backgroundColor: character.accentColor }}
-            aria-hidden
-          >
-            {character.name.charAt(0)}
-          </div>
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={character.portraitUrl || character.avatarUrl || `/avatars/${character.id}.png`}
+            alt=""
+            className="h-full w-full object-cover object-[center_18%]"
+            draggable={false}
+          />
         )}
       </div>
       {online ? (
