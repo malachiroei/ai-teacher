@@ -4,7 +4,7 @@ import { Suspense, Component, memo, type ReactNode, useCallback, useEffect, useM
 import { Canvas, useFrame } from "@react-three/fiber";
 import { useGLTF } from "@react-three/drei";
 import type { Group, Material } from "three";
-import { Box3, MathUtils, Mesh, Object3D, SkinnedMesh, Vector3 } from "three";
+import { MathUtils, Mesh, Object3D, SkinnedMesh, Vector3 } from "three";
 import * as SkeletonUtils from "three/examples/jsm/utils/SkeletonUtils.js";
 import type { Character } from "@/lib/characters";
 
@@ -18,7 +18,7 @@ type Avatar3DStageProps = {
 };
 
 const MAX_MOUTH_OPEN = 0.35;
-const ALEX_MODEL_URL = "/models/alex.glb?v=v_final_new";
+const ALEX_MODEL_URL = "/models/alex.glb?v=human_male_v2";
 const EMMA_MODEL_URL = "/models/emma.glb?v=v_final_new";
 
 function setMaterialHighp(mesh: Mesh) {
@@ -195,19 +195,8 @@ function GLTFTalkingAvatar({
     });
 
     if (characterId === "alex") {
-      avatarScene.updateMatrixWorld(true);
-      const box = new Box3().setFromObject(avatarScene, true);
-      const size = new Vector3();
-      box.getSize(size);
-      const s = 1.7 / Math.max(size.y, 0.001);
-      avatarScene.scale.setScalar(s);
-      avatarScene.updateMatrixWorld(true);
-      box.setFromObject(avatarScene, true);
-      const center = new Vector3();
-      box.getCenter(center);
-      avatarScene.position.x -= center.x;
-      avatarScene.position.z -= center.z;
-      avatarScene.position.y += 0.38 - box.max.y;
+      avatarScene.position.set(0, -0.95, 0);
+      avatarScene.scale.setScalar(1.7);
     } else {
       avatarScene.position.set(0, -2.6, 0);
       avatarScene.scale.setScalar(1.7);
@@ -278,8 +267,7 @@ export const Avatar3DStage = memo(function Avatar3DStage({
 }: Avatar3DStageProps) {
   const characterId = resolveCharacterModelId(character.id) as "emma" | "alex";
   const modelUrl = characterId === "alex" ? ALEX_MODEL_URL : EMMA_MODEL_URL;
-  const cameraPosition: [number, number, number] =
-    characterId === "alex" ? [0, 0.28, 0.65] : [0, 0, 1.2];
+  const cameraPosition: [number, number, number] = [0, 0, 1.2];
   const [contextKey, setContextKey] = useState(0);
   const remountTimer = useRef<number | null>(null);
 

@@ -58,27 +58,12 @@
         if (modelFile === "emma.glb") {
           model.position.set(0, -2.6, 0);
           model.scale.setScalar(1.7);
-          camera.position.set(0, 0.1, 0.78);
-          camera.lookAt(0, 0.06, 0);
         } else {
-          model.updateMatrixWorld(true);
-          let box = new THREE.Box3().setFromObject(model, true);
-          let size = box.getSize(new THREE.Vector3());
-          const s = 1.7 / Math.max(size.y, 0.001);
-          model.scale.setScalar(s);
-          model.updateMatrixWorld(true);
-          box = new THREE.Box3().setFromObject(model, true);
-          const center = box.getCenter(new THREE.Vector3());
-          model.position.x -= center.x;
-          model.position.z -= center.z;
-          model.position.y += 0.38 - box.max.y;
-          camera.position.set(0, 0.28, 0.65);
-          camera.lookAt(0, 0.26, 0);
-          document.documentElement.dataset.bbox = JSON.stringify({
-            size: { x: size.x, y: size.y, z: size.z },
-            s,
-          });
+          model.position.set(0, -0.95, 0);
+          model.scale.setScalar(1.7);
         }
+        camera.position.set(0, 0.1, 0.78);
+        camera.lookAt(0, 0.06, 0);
         renderer.render(scene, camera);
         requestAnimationFrame(() => {
           renderer.render(scene, camera);
