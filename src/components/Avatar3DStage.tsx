@@ -4,7 +4,7 @@ import { Suspense, Component, memo, type ReactNode, useCallback, useEffect, useM
 import { Canvas, useFrame } from "@react-three/fiber";
 import { useGLTF } from "@react-three/drei";
 import type { Group, Material } from "three";
-import { MathUtils, Mesh, Object3D, SkinnedMesh, Vector3 } from "three";
+import { FrontSide, MathUtils, Mesh, Object3D, SkinnedMesh, Vector3 } from "three";
 import * as SkeletonUtils from "three/examples/jsm/utils/SkeletonUtils.js";
 import type { Character } from "@/lib/characters";
 
@@ -18,11 +18,11 @@ type Avatar3DStageProps = {
 };
 
 const MAX_MOUTH_OPEN = 0.35;
-const ALEX_MODEL_URL = "/models/alex.glb?v=head_only_1";
+const ALEX_MODEL_URL = "/models/alex.glb?v=outfit_restore_1";
 const EMMA_MODEL_URL = "/models/emma.glb";
-const HIDDEN_ALEX_MESH_RE = /tie|strap|bottom|footwear|body|shirt|collar|inner|accessory|underwear|outfit_top/i;
-const ALEX_KEEP_MESH_RE = /head|hair|eye|teeth/i;
-const ALEX_BEARD_MESH_RE = /^(wolf3d_)?(beard|facewear)$/i;
+const HIDDEN_ALEX_MESH_RE = /strap|bottom|footwear|body|shirt|collar|inner|accessory|underwear/i;
+const ALEX_KEEP_MESH_RE = /head|hair|eye|teeth|outfit_top/i;
+const ALEX_HEAD_ARTIFACT_MESH_RE = /beard|facewear|neck|tie/i;
 
 function setMaterialHighp(mesh: Mesh) {
   const materials = (Array.isArray(mesh.material) ? mesh.material : [mesh.material]).filter(Boolean) as Material[];
@@ -174,20 +174,24 @@ function GLTFTalkingAvatar({
       if (characterId === "alex") {
         const n = mesh.name.toLowerCase();
         alexMeshNames.push(`${mesh.name || "(unnamed)"} [${mesh.type}] visible=?`);
-        const keepVisible = ALEX_KEEP_MESH_RE.test(n) && !n.includes("outfit_bottom") && !n.includes("beard");
-        if (
-          !n ||
-          ALEX_BEARD_MESH_RE.test(mesh.name) ||
-          n.includes("beard") ||
-          n.includes("facewear") ||
-          n.includes("outfit_top") ||
-          HIDDEN_ALEX_MESH_RE.test(n) ||
-          n.includes("outfit_bottom") ||
-          !keepVisible
-        ) {
+        const isOutfitTop = n.includes("outfit_top");
+        if (isOutfitTop) {
+          mesh.visible = true;
+        }
+        const hideArtifact = ALEX_HEAD_ARTIFACT_MESH_RE.test(n);
+        const keepVisible = ALEX_KEEP_MESH_RE.test(n) && !n.includes("outfit_bottom");
+        if (!n || hideArtifact || (!isOutfitTop && (HIDDEN_ALEX_MESH_RE.test(n) || n.includes("outfit_bottom") || !keepVisible))) {
           mesh.visible = false;
           alexMeshNames[alexMeshNames.length - 1] = `${mesh.name || "(unnamed)"} [${mesh.type}] hidden`;
           return;
+        }
+        if (mesh.name === "Wolf3D_Head") {
+          const materials = (Array.isArray(mesh.material) ? mesh.material : [mesh.material]).filter(Boolean) as Material[];
+          for (const material of materials) {
+            material.side = FrontSide;
+            material.depthWrite = true;
+            material.needsUpdate = true;
+          }
         }
         alexMeshNames[alexMeshNames.length - 1] = `${mesh.name || "(unnamed)"} [${mesh.type}] kept`;
       }
@@ -195,9 +199,13 @@ function GLTFTalkingAvatar({
       const dict = mesh.morphTargetDictionary;
       const influences = mesh.morphTargetInfluences;
       if (dict && influences) {
+        for (let i = 0; i < influences.length; i += 1) {
+          influences[i] = 0;
+        }
         for (const [name, index] of Object.entries(dict)) {
           const kind = classifyMouthMorph(name);
           const key = normMorphName(name);
+          if (key.includes("visemesil") || key === "vsil") continue;
           if (kind !== "other" || key.includes("mouth") || key.includes("jaw") || key.includes("viseme")) {
             mouthInfluenceEntriesRef.current.push({ mesh, index: Number(index), kind });
             hasMouthMorphRef.current = true;
