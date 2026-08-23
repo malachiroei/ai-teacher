@@ -4,7 +4,6 @@ import {
   quickHebrewSubtitle,
   shouldSkipLlmTranslate,
   isCleanHebrewSubtitle,
-  isCompleteHebrewSubtitle,
 } from "@/lib/hebrew";
 import { trustSystemCertificates } from "@/lib/tls";
 
@@ -111,7 +110,7 @@ ${english}`,
       text,
       gender === "girl" || gender === "boy" || gender === "other" ? gender : null,
     );
-    if (!isCompleteHebrewSubtitle(polished, english)) return "";
+    if (!isCleanHebrewSubtitle(polished)) return "";
     return polished;
   } finally {
     clearTimeout(timer);
@@ -139,7 +138,7 @@ export async function POST(request: Request) {
 
     try {
       const translationRaw = await translateWithGemini(apiKey, text, body.gender);
-      const translation = isCompleteHebrewSubtitle(translationRaw, text) ? translationRaw : "";
+      const translation = isCleanHebrewSubtitle(translationRaw) ? translationRaw : "";
       return NextResponse.json({
         translation: translation || local,
         source: translation ? "gemini" : "local",

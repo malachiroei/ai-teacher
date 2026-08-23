@@ -40,7 +40,7 @@ import {
 } from "@/lib/chat-history";
 import { getCharacter, isCharacterId, readStoredTutorId, writeStoredTutorId, type CharacterId } from "@/lib/characters";
 import { useDailyPractice } from "@/hooks/useDailyPractice";
-import { quickHebrewSubtitle, shouldSkipLlmTranslate, isCompleteHebrewSubtitle } from "@/lib/hebrew";
+import { quickHebrewSubtitle, shouldSkipLlmTranslate, isCleanHebrewSubtitle } from "@/lib/hebrew";
 import { logConversationPedagogyReport } from "@/lib/conversation-pedagogy";
 import { parseTutorNicknames, profilePayload, withTutorDisplayName } from "@/lib/learner";
 import { consumeChatStream, speakableSentences } from "@/lib/chat-stream";
@@ -372,7 +372,8 @@ export default function HomePage() {
 
   const applyLiveCaption = useCallback((caption: string, translation: string) => {
     setSpokenReply(caption);
-    if (translation.trim()) setSpokenTranslation(translation);
+    const next = translation.trim();
+    if (next) setSpokenTranslation(next);
   }, []);
 
   const fetchHebrewTranslation = useCallback((english: string, gender?: Profile["gender"] | null, userInput = "") => {
@@ -388,7 +389,7 @@ export default function HomePage() {
     };
 
     const local = quickHebrewSubtitle(text, gender);
-    if (local && isCompleteHebrewSubtitle(local, text)) {
+    if (local && isCleanHebrewSubtitle(local)) {
       setSpokenTranslation(local);
       if (shouldSkipLlmTranslate(text, local)) {
         const turn = latencyClientRef.current;
@@ -409,7 +410,7 @@ export default function HomePage() {
         turn.tTranslateStart = Date.now();
         console.log(`[latency] T_TRANSLATE_START +${turn.tTranslateStart - turn.tClientSend}ms`);
       }
-      let hebrew = local && isCompleteHebrewSubtitle(local, text) ? local : "";
+      let hebrew = local && isCleanHebrewSubtitle(local) ? local : "";
       try {
         const response = await fetch("/api/translate", {
           method: "POST",
@@ -419,7 +420,7 @@ export default function HomePage() {
         if (response.ok) {
           const data = (await response.json()) as { translation?: string };
           const next = String(data.translation ?? "").trim();
-          if (isCompleteHebrewSubtitle(next, text)) {
+          if (isCleanHebrewSubtitle(next) || /[\u0590-\u05FF]/.test(next)) {
             hebrew = next;
             setSpokenTranslation(next);
             setMessages((current) => {
@@ -434,8 +435,7 @@ export default function HomePage() {
               return current;
             });
           } else if (!hebrew) {
-            // Avoid leaving a truncated optimistic subtitle on screen.
-            setSpokenTranslation("");
+            /* keep any Hebrew already on screen */
           }
         }
       } catch {

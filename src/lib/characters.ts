@@ -141,15 +141,15 @@ export function writeStoredTutorId(id?: string | null) {
 }
 
 const FEMALE_VOICE_HINT =
-  /samantha|victoria|karen|moira|tessa|zira|hazel|fiona|kathy|siri|nicky|jenny|aria|female|woman|girl|us english female|uk english female|google us english(?! male)|neural2-[af]|wavenet-[afc]/i;
+  /samantha|victoria|karen|moira|tessa|zira|hazel|fiona|kathy|siri|nicky|jenny|aria|eva|sfg#female|female|woman|girl|us english female|uk english female|google us english(?! male)|neural2-[af]|wavenet-[afc]/i;
 const MALE_VOICE_HINT =
-  /daniel|fred|david|mark|arthur|\btom\b|oliver|aaron|rishi|ravi|george|thomas|james|tony|echo|onyx|\balex\b|male|man|\bguy\b|\bboy\b|us english male|uk english male|en-us-x-sfg|en-us-x-tpd|neural2-[dj]|wavenet-[dj]|standard-[bcdj]/i;
+  /daniel|fred|david|mark|arthur|\btom\b|oliver|aaron|rishi|ravi|george|thomas|james|tony|echo|onyx|\balex\b|male_1|#male|\biol\b|male|man|\bguy\b|\bboy\b|us english male|uk english male|en-us-x-tpd|neural2-[dj]|wavenet-[dj]|standard-[bcdj]/i;
 const NOVELTY_VOICE_HINT =
   /compact|novelty|whisper|bad news|good news|bells|boing|bubbles|cellos|trinoids|zarvox|deranged|hysterical|superstar|wobble/i;
 
 export function isEnglishVoice(voice: SpeechSynthesisVoice) {
-  const lang = voice.lang.toLowerCase();
-  return lang.startsWith("en-us") || lang.startsWith("en-gb") || lang.startsWith("en-au") || lang === "en";
+  const lang = (voice.lang || "").toLowerCase().replace(/_/g, "-");
+  return lang.startsWith("en");
 }
 
 export function listEnglishVoices(voices: SpeechSynthesisVoice[]) {

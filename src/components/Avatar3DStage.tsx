@@ -223,8 +223,7 @@ export const Avatar3DStage = memo(function Avatar3DStage({
 }: Avatar3DStageProps) {
   const characterId = resolveCharacterModelId(character.id) as "emma" | "alex";
   const modelUrl = `/models/${characterId}.glb`;
-  const cameraPosition: [number, number, number] =
-    characterId === "emma" ? [0, 0.42, 1.28] : [0, 0.4, 1.35];
+  const cameraPosition: [number, number, number] = [0, 0, 1.2];
   const [contextKey, setContextKey] = useState(0);
   const remountTimer = useRef<number | null>(null);
 
@@ -257,7 +256,7 @@ export const Avatar3DStage = memo(function Avatar3DStage({
       className="avatar-3d-canvas"
       dpr={[1, 1]}
       frameloop="always"
-      camera={{ position: cameraPosition, fov: compact ? 30 : 28 }}
+      camera={{ position: cameraPosition, fov: 45 }}
       style={{ width: "100%", height: "100%", pointerEvents: "none", background: "transparent" }}
       shadows={false}
       gl={{

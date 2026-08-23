@@ -412,6 +412,9 @@ function kickUtterance(
   }
 }
 
+const ANDROID_MALE_NAME_RE = /male_1|\bmale\b|david|george|james|aaron|guy|\biol\b/i;
+const ANDROID_FEMALE_AVOID_RE = /female|zira|samantha|eva|victoria|sfg#female/i;
+
 const MALE_VOICE_NEEDLES = [
   "google us english male",
   "google uk english male",
@@ -421,12 +424,14 @@ const MALE_VOICE_NEEDLES = [
   "en-us-wavenet-d",
   "uk english male",
   "us english male",
-  "en-us-x-sfg",
+  "male_1",
   "en-us-x-tpd",
+  "iol",
   "arthur",
   "daniel",
   "david",
   "george",
+  "aaron",
   "male",
   "alex",
   "guy",
@@ -470,9 +475,14 @@ function rankVoicesByNeedles(voices: SpeechSynthesisVoice[], needles: string[], 
     .sort((a, b) => b.score - a.score);
 }
 
+function englishVoicePool(voices: SpeechSynthesisVoice[]) {
+  const english = voices.filter((voice) => (voice.lang || "").toLowerCase().replace(/_/g, "-").startsWith("en"));
+  return english.length > 0 ? english : listEnglishVoices(voices);
+}
+
 function pickPreferredVoice(voices: SpeechSynthesisVoice[], character?: Character | null, preferredUri?: string | null) {
   const gender = character?.voice.gender ?? "female";
-  const english = listEnglishVoices(voices);
+  const english = englishVoicePool(voices);
   const preferred = findVoiceByUri(voices, preferredUri);
   if (preferred) {
     const mismatch =
@@ -480,22 +490,29 @@ function pickPreferredVoice(voices: SpeechSynthesisVoice[], character?: Characte
     if (!mismatch) return preferred;
   }
 
-  const ranked = rankVoicesByNeedles(
-    english,
-    gender === "male" ? MALE_VOICE_NEEDLES : FEMALE_VOICE_NEEDLES,
-    gender,
-  );
+  if (gender === "male") {
+    const priority = english.filter((voice) => ANDROID_MALE_NAME_RE.test(`${voice.name} ${voice.voiceURI}`));
+    if (priority[0]) return priority[0];
+    const notFemale = english.filter(
+      (voice) => !ANDROID_FEMALE_AVOID_RE.test(`${voice.name} ${voice.voiceURI}`.toLowerCase()),
+    );
+    const ranked = rankVoicesByNeedles(notFemale.length > 0 ? notFemale : english, MALE_VOICE_NEEDLES, "male");
+    if (ranked[0] && !isVoiceLikelyFemale(ranked[0].voice)) return ranked[0].voice;
+    const strict = (notFemale.length > 0 ? notFemale : english).find(
+      (voice) => isVoiceLikelyMale(voice) && !isVoiceLikelyFemale(voice),
+    );
+    if (strict) return strict;
+    const picked = pickCharacterVoice(voices, character);
+    if (picked && isVoiceLikelyFemale(picked)) return null;
+    return notFemale[0] ?? picked ?? null;
+  }
+
+  const ranked = rankVoicesByNeedles(english, FEMALE_VOICE_NEEDLES, "female");
   if (ranked[0]) return ranked[0].voice;
-
-  const strict =
-    gender === "male"
-      ? english.find((voice) => isVoiceLikelyMale(voice) && !isVoiceLikelyFemale(voice))
-      : english.find((voice) => isVoiceLikelyFemale(voice) && !isVoiceLikelyMale(voice));
+  const strict = english.find((voice) => isVoiceLikelyFemale(voice) && !isVoiceLikelyMale(voice));
   if (strict) return strict;
-
   const picked = pickCharacterVoice(voices, character);
-  if (gender === "male" && picked && isVoiceLikelyFemale(picked)) return null;
-  if (gender === "female" && picked && isVoiceLikelyMale(picked)) return null;
+  if (picked && isVoiceLikelyMale(picked)) return null;
   return picked;
 }
 
@@ -910,7 +927,8 @@ export function useSpeech(options?: {
       currentOutputVolume = volume;
       lastSpokenVolumeRef.current = volume;
       utterance.rate = Math.min(1.4, Math.max(0.6, (male ? 0.92 : character?.voice.rate ?? 0.95) * speed));
-      utterance.pitch = male ? 0.78 : 1.02;
+      const maleNamed = Boolean(voice && ANDROID_MALE_NAME_RE.test(`${voice.name} ${voice.voiceURI}`));
+      utterance.pitch = male ? (maleNamed ? 0.78 : 0.85) : character?.voice.pitch ?? 1.02;
       window.speechSynthesis.resume();
       if (voice && !(male && isVoiceLikelyFemale(voice))) utterance.voice = voice;
 

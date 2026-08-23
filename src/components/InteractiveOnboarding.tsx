@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import type { User } from "@supabase/supabase-js";
-import { Avatar3DStage } from "@/components/Avatar3DStage";
+import { CharacterAvatar } from "@/components/CharacterAvatar";
 import type { Character } from "@/lib/characters";
 import type { Profile } from "@/lib/supabase/types";
 import { cn } from "@/lib/utils";
@@ -308,8 +308,8 @@ export function InteractiveOnboarding({ user, character, initialProfile: _initia
               className="relative h-28 w-28 overflow-hidden rounded-full border-2 border-cyan-400/50 bg-black/40"
               style={{ boxShadow: `0 0 28px color-mix(in srgb, ${accentColor} 45%, rgba(34,211,238,0.3))` }}
             >
-              <div className="absolute inset-[-18%_-8%_-6%]">
-                <Avatar3DStage character={character} isSpeaking={false} compact />
+              <div className="absolute inset-0">
+                <CharacterAvatar character={character} className="h-full w-full" eager framed={false} />
               </div>
               <span
                 className="absolute inset-[-3px] rounded-full border border-cyan-300/20 pointer-events-none"

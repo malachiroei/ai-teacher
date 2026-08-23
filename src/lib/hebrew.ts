@@ -76,36 +76,20 @@ export function polishHebrewTranslation(text: string, gender?: Gender | string |
   return next.replace(/\s{2,}/g, " ").trim();
 }
 
-/** Reject mangled / partial subtitle strings. */
+/** Reject mangled / partial subtitle strings. Keep any real Hebrew line. */
 export function isCleanHebrewSubtitle(hebrew: string) {
   const he = hebrew.trim();
   if (!he || !/[\u0590-\u05FF]/.test(he)) return false;
-  if (/[)\](]/.test(he) && /[A-Za-z]{2,}/.test(he)) return false;
-  if (/\b(common|less|what|kind|ready|great|from)\b/i.test(he)) return false;
-  // Require mostly Hebrew letters among letters present.
+  if (/\b(common|less)\b/i.test(he) && /[)\](]/.test(he)) return false;
   const letters = he.match(/[\u0590-\u05FFa-zA-Z]/g) ?? [];
   if (letters.length === 0) return false;
   const hebrewLetters = (he.match(/[\u0590-\u05FF]/g) ?? []).length;
-  return hebrewLetters / letters.length >= 0.55;
+  return hebrewLetters / letters.length >= 0.35;
 }
 
-/** Reject truncations like "היי רועי! איזה" for a long English reply. */
-export function isCompleteHebrewSubtitle(hebrew: string, english: string) {
-  if (!isCleanHebrewSubtitle(hebrew)) return false;
-  const en = english.trim();
-  const he = hebrew.trim();
-  const enWords = en.split(/\s+/).filter(Boolean).length;
-  const heWords = he.split(/\s+/).filter(Boolean).length;
-  if (enWords >= 8 && heWords < Math.max(4, Math.floor(enWords * 0.35))) return false;
-  // Mid-clause cuts often lack end punctuation and are far shorter than the source.
-  if (
-    enWords >= 6 &&
-    heWords < Math.floor(enWords * 0.5) &&
-    !/[.!?…״"']\s*$/.test(he)
-  ) {
-    return false;
-  }
-  return true;
+/** Display-quality check — never drop a clean Hebrew subtitle for length. */
+export function isCompleteHebrewSubtitle(hebrew: string, _english: string) {
+  return isCleanHebrewSubtitle(hebrew);
 }
 
 /** Exact / near-exact tutor phrases → instant Hebrew (no LLM). */
@@ -204,8 +188,7 @@ export function extractHebrewHint(text: string) {
 export function splitCaptionLines(english: string, translation?: string | null) {
   const source = english.trim();
   const hebrewRaw = (translation ?? "").trim();
-  // Never scrape English caption for Hebrew fragments — that yields broken subtitles.
-  const hebrew = isCleanHebrewSubtitle(hebrewRaw) ? hebrewRaw : "";
+  const hebrew = /[\u0590-\u05FF]/.test(hebrewRaw) ? hebrewRaw : "";
   return {
     english: stripHebrewScript(source),
     hebrew,
