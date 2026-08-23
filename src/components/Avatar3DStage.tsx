@@ -3,8 +3,8 @@
 import { Suspense, Component, memo, type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { Canvas, useFrame } from "@react-three/fiber";
 import { useGLTF } from "@react-three/drei";
-import type { Group } from "three";
-import { MathUtils, Mesh, Object3D, Vector3 } from "three";
+import type { Group, Material } from "three";
+import { Box3, MathUtils, Mesh, Object3D, SkinnedMesh, Vector3 } from "three";
 import type { Character } from "@/lib/characters";
 
 type Avatar3DStageProps = {
@@ -17,6 +17,27 @@ type Avatar3DStageProps = {
 };
 
 const MAX_MOUTH_OPEN = 0.35;
+const HIDDEN_ALEX_MESH_RE = /tie|strap|collar_inner|accessory/i;
+const boundsSize = new Vector3();
+
+function setMaterialHighp(mesh: Mesh) {
+  const materials = (Array.isArray(mesh.material) ? mesh.material : [mesh.material]).filter(Boolean) as Material[];
+  for (const material of materials) {
+    material.precision = "highp";
+    material.needsUpdate = true;
+  }
+}
+
+function hasCorruptBounds(mesh: Mesh) {
+  const geometry = mesh.geometry;
+  if (!geometry) return false;
+  if (!geometry.boundingBox) geometry.computeBoundingBox();
+  const box = geometry.boundingBox as Box3 | null;
+  if (!box) return false;
+  const { min, max } = box;
+  if (![min.x, min.y, min.z, max.x, max.y, max.z].every(Number.isFinite)) return true;
+  return boundsSize.copy(max).sub(min).length() > 8;
+}
 
 function normMorphName(name: string) {
   return name.toLowerCase().replace(/[^a-z0-9]/g, "");
@@ -105,6 +126,7 @@ function GLTFTalkingAvatar({
   const jawOrHeadInitialRotRef = useRef<{ x: number; y: number; z: number } | null>(null);
   const jawMeshNodeRef = useRef<Object3D | null>(null);
   const jawMeshInitialPosRef = useRef<Vector3 | null>(null);
+  const skinnedMeshesRef = useRef<SkinnedMesh[]>([]);
 
   useEffect(() => {
     mouthInfluenceEntriesRef.current = [];
@@ -114,25 +136,32 @@ function GLTFTalkingAvatar({
     jawOrHeadInitialRotRef.current = null;
     jawMeshNodeRef.current = null;
     jawMeshInitialPosRef.current = null;
+    skinnedMeshesRef.current = [];
 
     scene.traverse((obj) => {
       const mesh = obj as Mesh;
       if (!mesh.isMesh) return;
+      setMaterialHighp(mesh);
+      const skinned = obj as SkinnedMesh;
+      if (skinned.isSkinnedMesh && skinned.skeleton) {
+        skinned.frustumCulled = false;
+        skinned.skeleton.pose();
+        skinnedMeshesRef.current.push(skinned);
+      }
       if (characterId === "alex") {
         const n = mesh.name.toLowerCase();
-        // RPM leftover collar / inner body often pokes through the beard line.
+        const keepVisible = /head|hair|eye|teeth|outfit_top/.test(n);
+        // RPM leftover inner body / tie / strap hangs from the beard on mobile GPUs.
         if (
           n === "wolf3d_body" ||
-          n.includes("collar") ||
-          n.includes("tie") ||
-          n.includes("strap") ||
-          n.includes("accessory")
+          HIDDEN_ALEX_MESH_RE.test(n) ||
+          (!keepVisible && hasCorruptBounds(mesh))
         ) {
           mesh.visible = false;
           return;
         }
       }
-      mesh.frustumCulled = true;
+      mesh.frustumCulled = skinned.isSkinnedMesh ? false : true;
       const dict = mesh.morphTargetDictionary;
       const influences = mesh.morphTargetInfluences;
       if (dict && influences) {
@@ -161,6 +190,11 @@ function GLTFTalkingAvatar({
   }, [characterId, scene]);
 
   useFrame((state) => {
+    // Lock unused skinned bones to bind pose so mobile GPUs don't stretch beard/neck verts.
+    for (const skinned of skinnedMeshesRef.current) {
+      skinned.skeleton?.pose();
+    }
+
     const t = state.clock.elapsedTime;
     let mouthAmount = 0;
     if (isSpeaking) {
@@ -260,9 +294,10 @@ export const Avatar3DStage = memo(function Avatar3DStage({
       style={{ width: "100%", height: "100%", pointerEvents: "none", background: "transparent" }}
       shadows={false}
       gl={{
-        antialias: false,
+        antialias: true,
         alpha: true,
         powerPreference: "high-performance",
+        precision: "highp",
         failIfMajorPerformanceCaveat: false,
         preserveDrawingBuffer: false,
       }}
