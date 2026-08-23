@@ -62,12 +62,12 @@ const GOAL_CHIPS = [
 
 // ── Bot messages per step ─────────────────────────────────────────────────────
 const BOT_MESSAGES = [
-  "שלום! אני המורה הקיברנטי שלך ב-BuddyAI. כדי לכוון את האימון בדיוק אליך — מה שמך?",
-  (name: string) => `נעים מאוד, ${name}! 🤝 באיזו שלב בית-ספר אתה נמצא?`,
-  "מגניב! מה הכי מדליק אותך? (אפשר לבחור כמה)",
-  "איך אתה אוהב ללמוד הכי טוב?",
-  "מה רמת הביטחון שלך באנגלית?",
-  "ולבסוף — כמה זמן ביום תרצה להתאמן?",
+  "היי! אני החבר החדש שלך לאנגלית ב-BuddyAI ✨ כדי שנוכל להכיר ולדבר בכיף — איך קוראים לך?",
+  (name: string) => `כיף להכיר, ${name}! 🤝 באיזה שלב בבית הספר אתה?`,
+  "מגניב! מה הכי מדליק אותך? אפשר לבחור כמה דברים ✨",
+  "איך הכי כיף לך ללמוד יחד?",
+  "איך אתה מרגיש עם אנגלית עכשיו?",
+  "ולסיום — כמה זמן ביום בא לך לדבר ולהתאמן יחד?",
 ];
 
 // ── Reusable styled chip ──────────────────────────────────────────────────────
@@ -170,20 +170,20 @@ export function InteractiveOnboarding({ user, character, initialProfile: _initia
   function validateAndNext() {
     setError("");
     if (step === 0) {
-      if (name.trim().length < 2) { setError("נא להזין שם (לפחות 2 תווים)."); return; }
+      if (name.trim().length < 2) { setError("ספר/י לנו איך קוראים לך (לפחות 2 אותיות)."); return; }
       setName(name.trim());
     }
-    if (step === 1 && !schoolStage) { setError("נא לבחור שלב בית-ספר."); return; }
-    if (step === 2 && passionIds.length === 0) { setError("נא לבחור לפחות תחום עניין אחד."); return; }
-    if (step === 3 && !learningStyle) { setError("נא לבחור סגנון למידה."); return; }
-    if (step === 4 && !confidenceId) { setError("נא לבחור רמת ביטחון."); return; }
+    if (step === 1 && !schoolStage) { setError("בחרו באיזה שלב בבית הספר אתם."); return; }
+    if (step === 2 && passionIds.length === 0) { setError("בחרו לפחות דבר אחד שמדליק אתכם."); return; }
+    if (step === 3 && !learningStyle) { setError("בחרו איך כיף לכם ללמוד."); return; }
+    if (step === 4 && !confidenceId) { setError("בחרו איך אתם מרגישים עם אנגלית."); return; }
     if (step === 5) { void handleFinish(); return; }
     setStep((s) => s + 1);
   }
 
   async function handleFinish() {
-    if (!dailyGoal) { setError("נא לבחור יעד יומי."); return; }
-    if (!englishLevel) { setError("נא לבחור רמת אנגלית."); return; }
+    if (!dailyGoal) { setError("בחרו כמה זמן כיף לכם להתאמן כל יום."); return; }
+    if (!englishLevel) { setError("בחרו איך אתם מרגישים עם אנגלית."); return; }
     setSaving(true);
     setError("");
 
@@ -288,7 +288,7 @@ export function InteractiveOnboarding({ user, character, initialProfile: _initia
           >
             BuddyAI
           </span>
-          <span className="text-[11px] font-medium tracking-widest text-white/35 uppercase">Cyber Academy</span>
+          <span className="text-[11px] font-medium tracking-widest text-white/35 uppercase">English Buddy</span>
         </div>
         <span className="text-xs font-semibold text-white/40">{step + 1} / {TOTAL_STEPS}</span>
       </div>
@@ -430,7 +430,7 @@ export function InteractiveOnboarding({ user, character, initialProfile: _initia
               }}
             >
               <span className="relative z-10">
-                {saving ? "מעבד…" : step === 5 ? "🚀 כניסה לאקדמיה!" : "המשך ←"}
+                {saving ? "רגע, מתכוננים…" : step === 5 ? "🚀 יוצאים להרפתקה!" : "יאללה, המשך ←"}
               </span>
               {/* shimmer sweep */}
               <span className="absolute inset-0 -translate-x-full animate-[shimmer_2s_infinite] bg-gradient-to-r from-transparent via-white/12 to-transparent pointer-events-none" />
