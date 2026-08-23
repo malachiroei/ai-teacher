@@ -18,13 +18,17 @@ type Avatar3DStageProps = {
 };
 
 const MAX_MOUTH_OPEN = 0.35;
-const HIDDEN_ALEX_MESH_RE = /tie|strap|collar_inner|accessory/i;
+const ALEX_MODEL_URL = "/models/alex.glb?v=clean3";
+const EMMA_MODEL_URL = "/models/emma.glb";
+const HIDDEN_ALEX_MESH_RE = /tie|strap|bottom|footwear|body|shirt|collar|inner|accessory|underwear/i;
+const ALEX_KEEP_MESH_RE = /head|hair|eye|teeth|outfit_top/i;
 const boundsSize = new Vector3();
 
 function setMaterialHighp(mesh: Mesh) {
   const materials = (Array.isArray(mesh.material) ? mesh.material : [mesh.material]).filter(Boolean) as Material[];
   for (const material of materials) {
     material.precision = "highp";
+    material.depthWrite = true;
     material.needsUpdate = true;
   }
 }
@@ -171,6 +175,7 @@ function GLTFTalkingAvatar({
     jawMeshInitialPosRef.current = null;
     skinnedMeshesRef.current = [];
 
+    const alexMeshNames: string[] = [];
     avatarScene.traverse((obj) => {
       const mesh = obj as Mesh;
       if (!mesh.isMesh) return;
@@ -183,16 +188,19 @@ function GLTFTalkingAvatar({
       }
       if (characterId === "alex") {
         const n = mesh.name.toLowerCase();
-        const keepVisible = /head|hair|eye|teeth|outfit_top/.test(n);
-        // RPM leftover inner body / tie / strap hangs from the beard on mobile GPUs.
+        alexMeshNames.push(`${mesh.name || "(unnamed)"} [${mesh.type}] visible=?`);
+        const keepVisible = ALEX_KEEP_MESH_RE.test(n) && !n.includes("outfit_bottom");
         if (
-          n === "wolf3d_body" ||
+          !n ||
           HIDDEN_ALEX_MESH_RE.test(n) ||
-          (!keepVisible && hasCorruptBounds(mesh))
+          n.includes("outfit_bottom") ||
+          !keepVisible
         ) {
           mesh.visible = false;
+          alexMeshNames[alexMeshNames.length - 1] = `${mesh.name || "(unnamed)"} [${mesh.type}] hidden`;
           return;
         }
+        alexMeshNames[alexMeshNames.length - 1] = `${mesh.name || "(unnamed)"} [${mesh.type}] kept`;
       }
       mesh.frustumCulled = skinned.isSkinnedMesh ? false : true;
       const dict = mesh.morphTargetDictionary;
@@ -220,6 +228,9 @@ function GLTFTalkingAvatar({
         jawMeshInitialPosRef.current = mesh.position.clone();
       }
     });
+    if (characterId === "alex") {
+      console.info("[Avatar3D] alex.glb meshes", alexMeshNames);
+    }
 
     return () => {
       mouthInfluenceEntriesRef.current = [];
@@ -296,7 +307,7 @@ export const Avatar3DStage = memo(function Avatar3DStage({
   compact = false,
 }: Avatar3DStageProps) {
   const characterId = resolveCharacterModelId(character.id) as "emma" | "alex";
-  const modelUrl = `/models/${characterId}.glb`;
+  const modelUrl = characterId === "alex" ? ALEX_MODEL_URL : EMMA_MODEL_URL;
   const cameraPosition: [number, number, number] = [0, 0, 1.2];
   const [contextKey, setContextKey] = useState(0);
   const remountTimer = useRef<number | null>(null);
@@ -312,8 +323,8 @@ export const Avatar3DStage = memo(function Avatar3DStage({
 
   useEffect(() => {
     try {
-      useGLTF.preload("/models/emma.glb");
-      useGLTF.preload("/models/alex.glb");
+      useGLTF.preload(EMMA_MODEL_URL);
+      useGLTF.preload(ALEX_MODEL_URL);
     } catch {
       /* preload is best-effort */
     }
