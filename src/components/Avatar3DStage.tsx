@@ -4,7 +4,7 @@ import { Suspense, Component, memo, type ReactNode, useCallback, useEffect, useM
 import { Canvas, useFrame } from "@react-three/fiber";
 import { useGLTF } from "@react-three/drei";
 import type { Group, Material } from "three";
-import { Box3, MathUtils, Mesh, Object3D, SkinnedMesh, Vector3 } from "three";
+import { MathUtils, Mesh, Object3D, SkinnedMesh, Vector3 } from "three";
 import * as SkeletonUtils from "three/examples/jsm/utils/SkeletonUtils.js";
 import type { Character } from "@/lib/characters";
 
@@ -18,14 +18,11 @@ type Avatar3DStageProps = {
 };
 
 const MAX_MOUTH_OPEN = 0.35;
-const ALEX_MODEL_URL = "/models/alex.glb?v=spike1";
+const ALEX_MODEL_URL = "/models/alex.glb?v=nocrash1";
 const EMMA_MODEL_URL = "/models/emma.glb";
 const HIDDEN_ALEX_MESH_RE = /tie|strap|bottom|footwear|body|shirt|collar|inner|accessory|underwear/i;
 const ALEX_KEEP_MESH_RE = /head|hair|eye|teeth|outfit_top/i;
-const ALEX_HEAD_MESH_RE = /head|beard|facewear/i;
-const ALEX_LOWER_BONE_RE = /hips|spine|chest|upleg|leg|foot|toebase/i;
-const HEAD_SPIKE_Y_OFFSET = 0.35;
-const boundsSize = new Vector3();
+const ALEX_BEARD_MESH_RE = /^(wolf3d_)?(beard|facewear)$/i;
 
 function setMaterialHighp(mesh: Mesh) {
   const materials = (Array.isArray(mesh.material) ? mesh.material : [mesh.material]).filter(Boolean) as Material[];
@@ -34,17 +31,6 @@ function setMaterialHighp(mesh: Mesh) {
     material.depthWrite = true;
     material.needsUpdate = true;
   }
-}
-
-function hasCorruptBounds(mesh: Mesh) {
-  const geometry = mesh.geometry;
-  if (!geometry) return false;
-  if (!geometry.boundingBox) geometry.computeBoundingBox();
-  const box = geometry.boundingBox as Box3 | null;
-  if (!box) return false;
-  const { min, max } = box;
-  if (![min.x, min.y, min.z, max.x, max.y, max.z].every(Number.isFinite)) return true;
-  return boundsSize.copy(max).sub(min).length() > 8;
 }
 
 function normMorphName(name: string) {
@@ -108,86 +94,6 @@ function resolveCharacterModelId(characterId: string) {
   return characterId === "alex" ? "alex" : "emma";
 }
 
-function isMobileViewport() {
-  return typeof window !== "undefined" && window.innerWidth < 768;
-}
-
-function lockAlexLowerSpineBones(skinned: SkinnedMesh) {
-  const skeleton = skinned.skeleton;
-  if (!skeleton) return;
-  for (const bone of skeleton.bones) {
-    const n = bone.name.toLowerCase();
-    if (!/spine|chest|hips/.test(n)) continue;
-    bone.scale.set(1, 1, 1);
-    if (bone.position.y < 0) bone.position.y = 0;
-  }
-}
-
-/** Drop hip/spine weights on the head so mobile drivers cannot stretch chin verts downward. */
-function sanitizeAlexHeadSkinning(mesh: SkinnedMesh) {
-  mesh.bindMode = "detached";
-  mesh.frustumCulled = false;
-  if (!mesh.skeleton) return;
-  mesh.normalizeSkinWeights();
-  const name = mesh.name.toLowerCase();
-  if (!ALEX_HEAD_MESH_RE.test(name) && !name.includes("hair") && !name.includes("teeth")) return;
-
-  const badBones = new Set<number>();
-  mesh.skeleton.bones.forEach((bone, index) => {
-    const n = bone.name.toLowerCase();
-    if (ALEX_LOWER_BONE_RE.test(n) && !/head|neck|jaw/.test(n)) badBones.add(index);
-  });
-  if (badBones.size === 0) return;
-
-  const skinIndex = mesh.geometry.getAttribute("skinIndex");
-  const skinWeight = mesh.geometry.getAttribute("skinWeight");
-  if (!skinIndex || !skinWeight) return;
-
-  for (let i = 0; i < skinIndex.count; i += 1) {
-    let remaining = 0;
-    for (let j = 0; j < skinIndex.itemSize; j += 1) {
-      const boneIndex = skinIndex.getComponent(i, j);
-      if (badBones.has(boneIndex)) {
-        skinWeight.setComponent(i, j, 0);
-      } else {
-        remaining += skinWeight.getComponent(i, j);
-      }
-    }
-    if (remaining <= 0) continue;
-    for (let j = 0; j < skinIndex.itemSize; j += 1) {
-      const boneIndex = skinIndex.getComponent(i, j);
-      if (!badBones.has(boneIndex)) {
-        skinWeight.setComponent(i, j, skinWeight.getComponent(i, j) / remaining);
-      }
-    }
-  }
-  skinWeight.needsUpdate = true;
-  mesh.normalizeSkinWeights();
-}
-
-function clampAlexHeadSpikeVertices(mesh: Mesh) {
-  const name = mesh.name.toLowerCase();
-  if (!ALEX_HEAD_MESH_RE.test(name)) return;
-  const position = mesh.geometry.getAttribute("position");
-  if (!position) return;
-  if (!mesh.geometry.boundingBox) mesh.geometry.computeBoundingBox();
-  const box = mesh.geometry.boundingBox;
-  if (!box) return;
-  const originY = (box.min.y + box.max.y) * 0.5;
-  const minY = originY - HEAD_SPIKE_Y_OFFSET;
-  let changed = false;
-  for (let i = 0; i < position.count; i += 1) {
-    if (position.getY(i) < minY) {
-      position.setY(i, minY);
-      changed = true;
-    }
-  }
-  if (!changed) return;
-  position.needsUpdate = true;
-  mesh.geometry.computeBoundingBox();
-  mesh.geometry.computeBoundingSphere();
-}
-
 /** Clone GPU-owned geo/materials so cleanup can dispose them without nuking the GLTF cache. */
 function cloneAvatarScene(source: Object3D) {
   const clone = SkeletonUtils.clone(source);
@@ -246,7 +152,6 @@ function GLTFTalkingAvatar({
   const jawOrHeadInitialRotRef = useRef<{ x: number; y: number; z: number } | null>(null);
   const jawMeshNodeRef = useRef<Object3D | null>(null);
   const jawMeshInitialPosRef = useRef<Vector3 | null>(null);
-  const skinnedMeshesRef = useRef<SkinnedMesh[]>([]);
 
   useEffect(() => {
     mouthInfluenceEntriesRef.current = [];
@@ -256,7 +161,6 @@ function GLTFTalkingAvatar({
     jawOrHeadInitialRotRef.current = null;
     jawMeshNodeRef.current = null;
     jawMeshInitialPosRef.current = null;
-    skinnedMeshesRef.current = [];
 
     const alexMeshNames: string[] = [];
     avatarScene.traverse((obj) => {
@@ -266,21 +170,16 @@ function GLTFTalkingAvatar({
       const skinned = obj as SkinnedMesh;
       if (skinned.isSkinnedMesh && skinned.skeleton) {
         skinned.frustumCulled = false;
-        skinned.skeleton.pose();
-        if (characterId === "alex") {
-          sanitizeAlexHeadSkinning(skinned);
-          lockAlexLowerSpineBones(skinned);
-        }
-        skinnedMeshesRef.current.push(skinned);
       }
       if (characterId === "alex") {
         const n = mesh.name.toLowerCase();
         alexMeshNames.push(`${mesh.name || "(unnamed)"} [${mesh.type}] visible=?`);
-        const keepVisible = ALEX_KEEP_MESH_RE.test(n) && !n.includes("outfit_bottom");
-        const hideBeardOnMobile = isMobileViewport() && n.includes("beard");
+        const keepVisible = ALEX_KEEP_MESH_RE.test(n) && !n.includes("outfit_bottom") && !n.includes("beard");
         if (
           !n ||
-          hideBeardOnMobile ||
+          ALEX_BEARD_MESH_RE.test(mesh.name) ||
+          n.includes("beard") ||
+          n.includes("facewear") ||
           HIDDEN_ALEX_MESH_RE.test(n) ||
           n.includes("outfit_bottom") ||
           !keepVisible
@@ -289,7 +188,6 @@ function GLTFTalkingAvatar({
           alexMeshNames[alexMeshNames.length - 1] = `${mesh.name || "(unnamed)"} [${mesh.type}] hidden`;
           return;
         }
-        clampAlexHeadSpikeVertices(mesh);
         alexMeshNames[alexMeshNames.length - 1] = `${mesh.name || "(unnamed)"} [${mesh.type}] kept`;
       }
       mesh.frustumCulled = skinned.isSkinnedMesh ? false : true;
@@ -325,18 +223,11 @@ function GLTFTalkingAvatar({
     return () => {
       mouthInfluenceEntriesRef.current = [];
       eyeInfluenceEntriesRef.current = [];
-      skinnedMeshesRef.current = [];
       disposeAvatarScene(avatarScene);
     };
   }, [characterId, avatarScene]);
 
   useFrame((state) => {
-    // Lock unused skinned bones to bind pose so mobile GPUs don't stretch beard/neck verts.
-    for (const skinned of skinnedMeshesRef.current) {
-      skinned.skeleton?.pose();
-      if (characterId === "alex") lockAlexLowerSpineBones(skinned);
-    }
-
     const t = state.clock.elapsedTime;
     let mouthAmount = 0;
     if (isSpeaking) {
