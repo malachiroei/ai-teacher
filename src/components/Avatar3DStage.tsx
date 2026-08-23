@@ -295,4 +295,9 @@ export const Avatar3DStage = memo(function Avatar3DStage({
       </Suspense>
     </Canvas>
   );
-});
+}, (prev, next) => (
+  prev.character.id === next.character.id &&
+  prev.isSpeaking === next.isSpeaking &&
+  prev.compact === next.compact &&
+  prev.mouthLevelRef === next.mouthLevelRef
+));

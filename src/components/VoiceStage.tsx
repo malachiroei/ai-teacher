@@ -22,7 +22,7 @@ interface VoiceStageProps {
   speakingText?: string;
   autoSpeak: boolean;
   voiceSpeed: string;
-  onSetVolume: (volume: number, options?: { commitMute?: boolean }) => void;
+  onSetVolume: (volume: number) => void;
   audioLevel?: number;
   audioLevelRef?: { current: number };
   disabled?: boolean;
@@ -59,21 +59,11 @@ export function VoiceStage({
 }: VoiceStageProps) {
   const [keyboardOpen, setKeyboardOpen] = useState(false);
   const [draft, setDraft] = useState("");
-  // Icon bucket only — never drive the range with React state (that re-renders the 3D canvas).
-  const [volumeIcon, setVolumeIcon] = useState<"mute" | "low" | "high">("high");
   const micTouchRef = useRef(false);
   const speakTouchRef = useRef(false);
   // Avatar3DStage updates this ref in real-time (jawOpen proxy) so the waveform
   // can visually respond to TTS speaking even when the mic is idle.
   const mouthLevelRef3d = useRef(0);
-
-  function applyVolumeLive(raw: number, commitMute = false) {
-    const v = Math.max(0, Math.min(1, raw));
-    // Audio first — no controlled React value on the hot path.
-    onSetVolume(v, { commitMute });
-    const nextIcon = v === 0 || !autoSpeak ? "mute" : v < 0.45 ? "low" : "high";
-    setVolumeIcon((current) => (current === nextIcon ? current : nextIcon));
-  }
 
   function bindImmediateTap(fromTouch: { current: boolean }, handler: () => void) {
     return {
@@ -307,39 +297,7 @@ export function VoiceStage({
           >
             <Keyboard className="h-5 w-5" />
           </button>
-          <button
-            type="button"
-            aria-label={autoSpeak ? "Mute voice replies" : "Unmute voice replies"}
-            className={cn(
-              "flex h-12 w-12 touch-manipulation items-center justify-center rounded-full ring-1 ring-white/12 transition hover:bg-white/10",
-              autoSpeak ? "bg-white/8 text-white" : "bg-white/5 text-white/40",
-            )}
-            {...bindImmediateTap(speakTouchRef, onToggleSpeak)}
-          >
-            {!autoSpeak || volumeIcon === "mute" ? (
-              <VolumeX className="h-5 w-5" />
-            ) : volumeIcon === "low" ? (
-              <Volume1 className="h-5 w-5" />
-            ) : (
-              <Volume2 className="h-5 w-5" />
-            )}
-          </button>
-          <div className="flex h-12 w-28 items-center gap-2 rounded-full bg-white/8 px-2.5 ring-1 ring-white/12 backdrop-blur-md sm:w-32">
-            <input
-              type="range"
-              min={0}
-              max={1}
-              step={0.01}
-              defaultValue={1}
-              onPointerDown={(e) => e.stopPropagation()}
-              onPointerUp={(e) => applyVolumeLive(Number((e.target as HTMLInputElement).value), true)}
-              onTouchEnd={(e) => applyVolumeLive(Number((e.target as HTMLInputElement).value), true)}
-              onInput={(e) => applyVolumeLive(Number((e.target as HTMLInputElement).value), false)}
-              onChange={(e) => applyVolumeLive(Number(e.target.value), false)}
-              aria-label="Voice volume"
-              className="voice-volume-slider h-5 w-full cursor-pointer accent-amber-400"
-            />
-          </div>
+          <VolumeControls autoSpeak={autoSpeak} onToggleSpeak={onToggleSpeak} onSetVolume={onSetVolume} speakTouchRef={speakTouchRef} bindImmediateTap={bindImmediateTap} />
           <button
             type="button"
             onClick={onCycleVoiceSpeed}
@@ -351,5 +309,72 @@ export function VoiceStage({
         </div>
       </div>
     </div>
+  );
+}
+
+function VolumeControls({
+  autoSpeak,
+  onToggleSpeak,
+  onSetVolume,
+  speakTouchRef,
+  bindImmediateTap,
+}: {
+  autoSpeak: boolean;
+  onToggleSpeak: () => void;
+  onSetVolume: (volume: number) => void;
+  speakTouchRef: { current: boolean };
+  bindImmediateTap: (
+    fromTouch: { current: boolean },
+    handler: () => void,
+  ) => {
+    onTouchStart: (event: TouchEvent<HTMLButtonElement>) => void;
+    onClick: (event: MouseEvent<HTMLButtonElement>) => void;
+  };
+}) {
+  const [volumeIcon, setVolumeIcon] = useState<"mute" | "low" | "high">(autoSpeak ? "high" : "mute");
+
+  function applyVolumeLive(raw: number) {
+    const v = Math.max(0, Math.min(1, raw));
+    onSetVolume(v);
+    const nextIcon = v === 0 || !autoSpeak ? "mute" : v < 0.45 ? "low" : "high";
+    setVolumeIcon((current) => (current === nextIcon ? current : nextIcon));
+  }
+
+  return (
+    <>
+      <button
+        type="button"
+        aria-label={autoSpeak ? "Mute voice replies" : "Unmute voice replies"}
+        className={cn(
+          "flex h-12 w-12 touch-manipulation items-center justify-center rounded-full ring-1 ring-white/12 transition hover:bg-white/10",
+          autoSpeak ? "bg-white/8 text-white" : "bg-white/5 text-white/40",
+        )}
+        {...bindImmediateTap(speakTouchRef, onToggleSpeak)}
+      >
+        {!autoSpeak || volumeIcon === "mute" ? (
+          <VolumeX className="h-5 w-5" />
+        ) : volumeIcon === "low" ? (
+          <Volume1 className="h-5 w-5" />
+        ) : (
+          <Volume2 className="h-5 w-5" />
+        )}
+      </button>
+      <div className="flex h-12 w-28 items-center gap-2 rounded-full bg-white/8 px-2.5 ring-1 ring-white/12 backdrop-blur-md sm:w-32">
+        <input
+          type="range"
+          min={0}
+          max={1}
+          step={0.01}
+          defaultValue={1}
+          onPointerDown={(e) => e.stopPropagation()}
+          onPointerUp={(e) => applyVolumeLive(Number((e.target as HTMLInputElement).value))}
+          onTouchEnd={(e) => applyVolumeLive(Number((e.target as HTMLInputElement).value))}
+          onInput={(e) => applyVolumeLive(Number((e.target as HTMLInputElement).value))}
+          onChange={(e) => applyVolumeLive(Number(e.target.value))}
+          aria-label="Voice volume"
+          className="voice-volume-slider h-5 w-full cursor-pointer accent-amber-400"
+        />
+      </div>
+    </>
   );
 }

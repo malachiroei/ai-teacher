@@ -569,7 +569,6 @@ export function useSpeech(options?: {
   const audioLevelRef = useRef(0);
   const volumeRef = useRef(1);
   const speakingTextRef = useRef("");
-  const lastCommittedVolumeRef = useRef(1);
   const spokeThisTurnRef = useRef(false);
 
   characterRef.current = options?.character ?? null;
@@ -991,44 +990,12 @@ export function useSpeech(options?: {
     setIsSpeaking(false);
   }, []);
 
-  const setVolume = useCallback((next: number, options?: { commitMute?: boolean }) => {
+  const setVolume = useCallback((next: number, _options?: { commitMute?: boolean }) => {
     const v = Math.max(0, Math.min(1, next));
     volumeRef.current = v;
     applyOutputVolume(v);
-
-    if (v === 0 && options?.commitMute) {
-      ttsGenerationRef.current += 1;
-      speechQueueRef.current = [];
-      ttsBusyRef.current = false;
-      activeUtterance = null;
-      cancelSpeechSynthesis();
-      setIsSpeaking(false);
-      setSpeakingText("");
-      speakingTextRef.current = "";
-      lastCommittedVolumeRef.current = 0;
-      return;
-    }
-
-    // Chrome freezes SpeechSynthesis volume at speak() — restart ONLY on pointer-up
-    // commit, never during drag (onChange fires continuously and caused avatar flicker).
-    if (options?.commitMute && Math.abs(v - lastCommittedVolumeRef.current) >= 0.08) {
-      lastCommittedVolumeRef.current = v;
-      const current = speakingTextRef.current.trim();
-      if (current && (ttsBusyRef.current || (typeof window !== "undefined" && window.speechSynthesis?.speaking))) {
-        const rest = speechQueueRef.current.slice();
-        ttsGenerationRef.current += 1;
-        cancelSpeechSynthesis();
-        ttsBusyRef.current = false;
-        activeUtterance = null;
-        speechQueueRef.current = [current, ...rest];
-        // Keep speaking UI stable during the brief restart.
-        setIsSpeaking(true);
-        playNextUtterance();
-      }
-    } else if (options?.commitMute) {
-      lastCommittedVolumeRef.current = v;
-    }
-  }, [playNextUtterance]);
+    // Never cancel/restart TTS here — slider must only mutate gain on the live utterance.
+  }, []);
 
   const speak = useCallback(
     (text: string, preview?: { rateMultiplier?: number; voiceUri?: string | null }) => {
