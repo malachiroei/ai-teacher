@@ -33,16 +33,44 @@ export function isProfileComplete(profile: Partial<Profile> | null | undefined):
   return Boolean(profile && profile.id && nickname?.toString().trim() && profile.english_level);
 }
 
+const INTRO_LEARNING_STYLE_KEY = "intro_learning_style";
+const INTRO_CUSTOM_TOPICS_KEY = "intro_custom_topics";
+
+export function writeIntroLearningGoals(value: string) {
+  const next = value.trim();
+  if (typeof window === "undefined" || !next) return;
+  try {
+    window.localStorage.setItem(INTRO_LEARNING_STYLE_KEY, next);
+  } catch {
+    /* ignore */
+  }
+}
+
+export function readIntroLearningGoals(profile?: Partial<Profile> | null) {
+  const fromProfile = String(
+    (profile as { learning_style?: string; learning_goals?: string; custom_topics?: string } | null | undefined)
+      ?.learning_style ||
+      (profile as { learning_goals?: string } | null | undefined)?.learning_goals ||
+      (profile as { custom_topics?: string } | null | undefined)?.custom_topics ||
+      "",
+  ).trim();
+  if (fromProfile) return fromProfile;
+  if (typeof window === "undefined") return "";
+  try {
+    return (
+      window.localStorage.getItem(INTRO_LEARNING_STYLE_KEY)?.trim() ||
+      window.localStorage.getItem(INTRO_CUSTOM_TOPICS_KEY)?.trim() ||
+      ""
+    );
+  } catch {
+    return "";
+  }
+}
+
 export function isIntroProfileComplete(profile: Partial<Profile> | null | undefined) {
-  const nickname = String(profile?.nickname || profile?.full_name || "").trim();
-  const interests = Array.isArray(profile?.interests)
-    ? profile.interests.map((item) => String(item).trim()).filter(Boolean)
-    : String(profile?.interests ?? "")
-        .split(",")
-        .map((item) => item.trim())
-        .filter(Boolean);
-  const age = Number(profile?.age) || 0;
-  return Boolean(nickname && profile?.english_level && interests.length > 0 && age > 0);
+  const interests = parseInterests(profile?.interests);
+  const learningGoals = readIntroLearningGoals(profile);
+  return interests.length > 0 && Boolean(learningGoals);
 }
 
 export function describeProfileSaveError(error: unknown) {

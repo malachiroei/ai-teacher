@@ -8,7 +8,7 @@ import type { Character } from "@/lib/characters";
 import type { Profile } from "@/lib/supabase/types";
 import { cn } from "@/lib/utils";
 import { createClient } from "@/lib/supabase/client";
-import { fetchProfile, loadUserMemories, saveExtractedFact, seedProfileMemories } from "@/lib/chat-history";
+import { fetchProfile, loadUserMemories, saveExtractedFact, seedProfileMemories, writeIntroLearningGoals } from "@/lib/chat-history";
 import { markKidsPlacementComplete } from "@/lib/placement";
 import type { UserMemory } from "@/lib/memory";
 
@@ -238,6 +238,7 @@ export function InteractiveOnboarding({ user, character, initialProfile: _initia
             level: 1,
           } as Profile);
 
+      writeIntroLearningGoals(learningStyle ?? "chat");
       await seedProfileMemories(supabase, user.id, nextProfile);
       await saveExtractedFact(supabase, user.id, `Level: ${englishLevel}`, "personal");
       await saveExtractedFact(supabase, user.id, `Interests: ${selectedInterests.join(", ")}`, "preference");

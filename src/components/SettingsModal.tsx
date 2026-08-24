@@ -32,6 +32,7 @@ interface SettingsModalProps {
   onToggleSpeak?: () => void;
   onSave: (settings: SettingsSavePayload) => void;
   onPreviewVoice: (speed: VoiceSpeed, voiceUri: string) => void;
+  onEditIntro?: () => void;
   onClose: () => void;
 }
 
@@ -48,6 +49,7 @@ export function SettingsModal({
   onToggleSpeak,
   onSave,
   onPreviewVoice,
+  onEditIntro,
   onClose,
 }: SettingsModalProps) {
   const [goal, setGoal] = useState(settings.daily_goal_minutes);
@@ -139,6 +141,21 @@ export function SettingsModal({
         </div>
 
         <div className="space-y-5 overflow-y-auto px-4 pb-5">
+          <section>
+            <p className="mb-2 text-[13px] font-semibold text-slate-800">Personal profile</p>
+            <button
+              type="button"
+              onClick={onEditIntro}
+              className="flex w-full items-center justify-between rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-left transition hover:bg-amber-100/80"
+            >
+              <span>
+                <span className="block text-[14px] font-semibold text-slate-800">Edit Intro Details</span>
+                <span className="mt-0.5 block text-[12px] text-slate-500">ערוך שאלון היכרות · ערוך פרטי היכרות ותחומי עניין</span>
+              </span>
+              <span className="shrink-0 text-[12px] font-semibold text-amber-700">ערוך ←</span>
+            </button>
+          </section>
+
           <section>
             <p className="mb-2 text-[13px] font-semibold text-slate-800">English name</p>
             <input

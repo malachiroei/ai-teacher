@@ -1161,7 +1161,10 @@ export default function HomePage() {
     }
   }
 
-  async function handleInteractiveOnboardingComplete(next: { profile: Profile; memories: UserMemory[] }) {
+  async function handleInteractiveOnboardingComplete(
+    next: { profile: Profile; memories: UserMemory[] },
+    options?: { keepChat?: boolean },
+  ) {
     if (!user) return;
     setSavingProfile(true);
     setProfileError("");
@@ -1171,6 +1174,7 @@ export default function HomePage() {
       setMemories(next.memories);
       setHistoryReady(true);
       forcePlacementRef.current = false;
+      if (options?.keepChat) return;
 
       // Personalised first greeting — keep BEGINNER ultra-simple (matches onboarding choice).
       const kidName = (next.profile.full_name ?? next.profile.nickname ?? "").trim() || "friend";
@@ -1314,7 +1318,7 @@ export default function HomePage() {
             initialProfile={profile}
             onComplete={async (next) => {
               setProfileQuizOpen(false);
-              await handleInteractiveOnboardingComplete(next);
+              await handleInteractiveOnboardingComplete(next, { keepChat: true });
             }}
           />
         ) : null}
@@ -1453,6 +1457,10 @@ export default function HomePage() {
                 },
               )
             }
+            onEditIntro={() => {
+              setSettingsOpen(false);
+              setProfileQuizOpen(true);
+            }}
             onClose={() => setSettingsOpen(false)}
           />
         ) : null}

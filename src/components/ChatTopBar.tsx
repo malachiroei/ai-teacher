@@ -104,11 +104,12 @@ export function ChatTopBar({
       {showProfileReminder ? (
         <button
           type="button"
+          dir="rtl"
           onClick={onOpenProfileReminder}
-          className="absolute inset-x-4 top-[calc(2.85rem+env(safe-area-inset-top))] z-[55] flex items-center justify-between rounded-xl border border-amber-500/40 bg-amber-500/20 p-2.5 text-left text-sm text-amber-200 transition-all hover:bg-amber-500/30"
+          className="absolute left-1/2 top-[calc(2.85rem+env(safe-area-inset-top))] z-[55] flex w-[90%] max-w-md -translate-x-1/2 cursor-pointer items-center justify-between rounded-xl border border-amber-500/40 bg-amber-500/20 p-2.5 text-sm text-amber-200 transition-all hover:bg-amber-500/30"
         >
-          <span>🎯 Complete your intro questions to personalize your practice!</span>
-          <span className="shrink-0 rounded bg-amber-500/30 px-2 py-1 text-xs font-semibold">Start →</span>
+          <span>🎯 השלם את שאלון ההיכרות כדי שנתאים לך את השיחה!</span>
+          <span className="shrink-0 rounded bg-amber-500/30 px-2 py-1 text-xs font-semibold">התחל ←</span>
         </button>
       ) : null}
 
