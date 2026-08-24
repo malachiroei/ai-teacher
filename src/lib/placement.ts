@@ -188,11 +188,11 @@ export function buildFriendshipOpener(
   return {
     id: createId(),
     sender: "ai",
-    text: `Hey ${name}! Great to see you! What did you do today?`,
-    timestamp: Date.now(),
-    translation: girl
-      ? `היי ${name}! איזה כיף לראות אותך! מה עשית היום?`
-      : `היי ${name}! איזה כיף לראות אותך! מה עשית היום?`,
+      text: `Hey ${name}! Good to see you. How has your day been so far?`,
+      timestamp: Date.now(),
+      translation: girl
+        ? `היי ${name}! כיף לראות אותך. איך היה היום שלך עד עכשיו?`
+        : `היי ${name}! כיף לראות אותך. איך היה היום שלך עד עכשיו?`,
   };
 }
 

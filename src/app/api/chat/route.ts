@@ -497,19 +497,19 @@ function emptyGrammar(correctedText = ""): GrammarFeedback {
 
 const GREETING_OPENERS: Array<{ en: string; he: string; suggestions: string[] }> = [
   {
-    en: "Hey! Awesome to chat with you! How's your day going so far?",
-    he: "היי! איזה כיף לדבר איתך! איך היום שלך עד עכשיו?",
-    suggestions: ["It was good!", "A little tired.", "I had fun!"],
+    en: "Hi! How are you doing today?",
+    he: "היי! מה שלומך היום?",
+    suggestions: ["I'm good!", "A little tired.", "Pretty good!"],
   },
   {
-    en: "Hey there! What's something fun you did today?",
-    he: "היי! מה משהו כיף שעשית היום?",
-    suggestions: ["I played a game.", "I watched a movie.", "I hung out."],
+    en: "Hey! Good to see you. How has your day been so far?",
+    he: "היי! כיף לראות אותך. איך היה היום שלך עד עכשיו?",
+    suggestions: ["It was good!", "A bit busy.", "Nice, thanks!"],
   },
   {
-    en: "Hi! Great to see you! What game, movie, or song are you into lately?",
-    he: "היי! איזה כיף לראות אותך! איזה משחק, סרט או שיר אתה אוהב עכשיו?",
-    suggestions: ["A fun game!", "A movie!", "A song I like."],
+    en: "Hi there! How are you feeling today?",
+    he: "היי! איך אתה מרגיש היום?",
+    suggestions: ["I'm happy!", "I'm okay.", "A little sleepy."],
   },
 ];
 
@@ -525,7 +525,13 @@ function naturalGreetingReply(profile?: ProfileInput | null, askName = false): C
   }
 
   const pick = GREETING_OPENERS[Math.floor(Date.now() / 1000) % GREETING_OPENERS.length];
-  const hello = name ? pick.en.replace("Hey!", `Hey ${name}!`).replace("Hey there!", `Hey ${name}!`).replace("Hi!", `Hi ${name}!`) : pick.en;
+  const hello = name
+    ? pick.en
+        .replace("Hey!", `Hey ${name}!`)
+        .replace("Hey there!", `Hey ${name}!`)
+        .replace("Hi there!", `Hi ${name}!`)
+        .replace("Hi!", `Hi ${name}!`)
+    : pick.en;
   return {
     aiResponse: hello,
     translation: pick.he,
@@ -1094,7 +1100,7 @@ async function streamGemini(
     action === "daily_open" || extras?.isFirstSessionToday
       ? "FIRST MESSAGE TODAY. Memories exist. Greet warmly (name OK once). Follow up on their latest plan, pet, game, or day. One punchy sentence + one fun question under 25 words. Do NOT ask their name again. Do NOT restart placement. Do NOT default to sports."
       : simpleHi && !placement
-        ? "SIMPLE GREETING only (hi/hello/hey). Warm varied hello. Ask about their day, something fun they did, or a game/movie/song — pick a different angle each time. NEVER default to sports. Do not restart placement. One sentence + one question, under 25 words."
+        ? "SIMPLE GREETING only (hi/hello/hey). Warm hello using their name if you know it. Ask only how they are today or how their day is going. Do NOT ask about games, movies, sports, or a specific hobby yet. One short sentence + one easy check-in question, under 20 words."
       : placement
         ? `PLACEMENT MODE is ON. Real answers so far: ${userTurns} of 3 (name, grade/age, favorite thing to learn or play). Ask only the next missing step. One short question. If they only said hi/hello/שלום/היי, that is NOT their name — greet warmly and ask their name again.`
         : action === "change_topic"

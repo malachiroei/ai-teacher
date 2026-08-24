@@ -28,6 +28,8 @@ interface SettingsModalProps {
   saving?: boolean;
   error?: string;
   focusVoice?: boolean;
+  autoSpeak?: boolean;
+  onToggleSpeak?: () => void;
   onSave: (settings: SettingsSavePayload) => void;
   onPreviewVoice: (speed: VoiceSpeed, voiceUri: string) => void;
   onClose: () => void;
@@ -42,6 +44,8 @@ export function SettingsModal({
   saving,
   error,
   focusVoice,
+  autoSpeak,
+  onToggleSpeak,
   onSave,
   onPreviewVoice,
   onClose,
@@ -121,8 +125,8 @@ export function SettingsModal({
       >
         <div className="flex items-center justify-between px-4 py-3">
           <div>
-            <h2 className="text-base font-semibold text-slate-900">Practice settings</h2>
-            <p className="text-xs text-slate-500">Name, voice, daily goal, and parent updates</p>
+            <h2 className="text-base font-semibold text-slate-900">Settings / הגדרות</h2>
+            <p className="text-xs text-slate-500">Practice, voice replies, and daily reminders</p>
           </div>
           <button
             type="button"
@@ -157,6 +161,22 @@ export function SettingsModal({
               Optional phonetic guide so the tutor pronounces{" "}
               {englishName.trim() || "your English name"} correctly — not a second name.
             </p>
+          </section>
+
+          <section>
+            <p className="mb-2 text-[13px] font-semibold text-slate-800">Voice replies</p>
+            <button
+              type="button"
+              onClick={onToggleSpeak}
+              className="flex w-full items-center justify-between rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-left"
+            >
+              <span className="text-[14px] font-medium text-slate-800">
+                {autoSpeak ? "Voice replies on" : "Voice replies off"}
+              </span>
+              <span className={cn("text-[12px] font-semibold", autoSpeak ? "text-emerald-600" : "text-slate-400")}>
+                {autoSpeak ? "ON" : "OFF"}
+              </span>
+            </button>
           </section>
 
           <section className={cn(focusVoice && "rounded-2xl ring-2 ring-[#2f6bff]/30 ring-offset-2")}>

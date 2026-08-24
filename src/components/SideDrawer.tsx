@@ -1,7 +1,7 @@
 "use client";
 
 import { AnimatePresence, motion } from "framer-motion";
-import { AudioLines, Circle, Download, History, LogOut, ScrollText, Settings2, Sparkles, Users, Volume2, VolumeX, X } from "lucide-react";
+import { Circle, Download, History, LogOut, Settings2, Sparkles, X } from "lucide-react";
 import { BuddyAIMark } from "@/components/BuddyAIMark";
 import type { Character } from "@/lib/characters";
 import { cn } from "@/lib/utils";
@@ -137,16 +137,9 @@ export function SideDrawer({
             </button>
 
             <nav className="flex flex-1 flex-col gap-0.5 px-2">
-              <DrawerItem icon={Users} label="Switch tutor" onClick={onOpenCharacters} />
-              <DrawerItem icon={Settings2} label="Practice settings" onClick={onOpenSettings} />
-              <DrawerItem icon={AudioLines} label="Voice settings" onClick={onOpenVoiceSettings} />
-              <DrawerItem
-                icon={autoSpeak ? Volume2 : VolumeX}
-                label={autoSpeak ? "Voice replies on" : "Voice replies off"}
-                onClick={onToggleSpeak}
-              />
-              <DrawerItem icon={History} label="Previous chats" onClick={onOpenHistory} />
-              <DrawerItem icon={ScrollText} label="Transcript History / היסטוריית שיחה" onClick={onOpenTranscript} />
+              <DrawerItem icon={Sparkles} label="New chat" onClick={onClearChat} />
+              <DrawerItem icon={History} label="Chat & Transcript History" onClick={onOpenHistory} />
+              <DrawerItem icon={Settings2} label="Settings / הגדרות" onClick={onOpenSettings} />
               {recorderSupported && onToggleRecording ? (
                 <DrawerItem
                   icon={Circle}
@@ -157,7 +150,6 @@ export function SideDrawer({
               {recorderSupported && hasRecordingClip && onDownloadRecording ? (
                 <DrawerItem icon={Download} label="Download audio (.webm)" onClick={onDownloadRecording} />
               ) : null}
-              <DrawerItem icon={Sparkles} label="New chat" onClick={onClearChat} />
             </nav>
 
             {onSignOut ? (
@@ -178,7 +170,7 @@ function DrawerItem({
   onClick,
   tone = "default",
 }: {
-  icon: typeof Users;
+  icon: typeof History;
   label: string;
   onClick: () => void;
   tone?: "default" | "danger";

@@ -195,10 +195,10 @@ function GLTFTalkingAvatar({
     });
 
     if (characterId === "alex") {
-      avatarScene.position.set(0, -0.95, 0);
+      avatarScene.position.set(0, -1.25, 0);
       avatarScene.scale.setScalar(1.7);
     } else {
-      avatarScene.position.set(0, -2.6, 0);
+      avatarScene.position.set(0, -2.85, 0);
       avatarScene.scale.setScalar(1.7);
     }
 
@@ -267,7 +267,7 @@ export const Avatar3DStage = memo(function Avatar3DStage({
 }: Avatar3DStageProps) {
   const characterId = resolveCharacterModelId(character.id) as "emma" | "alex";
   const modelUrl = characterId === "alex" ? ALEX_MODEL_URL : EMMA_MODEL_URL;
-  const cameraPosition: [number, number, number] = [0, 0, 1.2];
+  const cameraPosition: [number, number, number] = [0, 0.1, 1.2];
   const [contextKey, setContextKey] = useState(0);
   const remountTimer = useRef<number | null>(null);
 

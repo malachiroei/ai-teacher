@@ -1,14 +1,21 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { Download, ScrollText, X } from "lucide-react";
+import { Download, History, ScrollText, X } from "lucide-react";
 import { MixedBidiText } from "@/components/MixedBidiText";
+import { getCharacter } from "@/lib/characters";
+import type { ArchivedChatSession } from "@/lib/chat-history";
 import type { Message } from "@/types/chat";
 
 interface TranscriptHistoryModalProps {
   messages: Message[];
   tutorName: string;
   childName?: string;
+  sessions?: ArchivedChatSession[];
+  sessionsLoading?: boolean;
+  sessionsError?: string;
+  restoringId?: string | null;
+  onRestore?: (session: ArchivedChatSession) => void;
   onClose: () => void;
 }
 
@@ -20,17 +27,49 @@ function formatClock(ts: number) {
   }
 }
 
+function formatDay(ts: number) {
+  try {
+    return new Date(ts).toLocaleDateString([], {
+      weekday: "short",
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+    });
+  } catch {
+    return "";
+  }
+}
+
+function dayKey(ts: number) {
+  const date = new Date(ts);
+  return `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
+}
+
+function groupByDay(messages: Message[]) {
+  const groups: Array<{ key: string; label: string; messages: Message[] }> = [];
+  for (const message of messages) {
+    const key = dayKey(message.timestamp);
+    const last = groups[groups.length - 1];
+    if (last?.key === key) last.messages.push(message);
+    else groups.push({ key, label: formatDay(message.timestamp), messages: [message] });
+  }
+  return groups;
+}
+
 export function buildTranscriptText(messages: Message[], tutorName: string, childName = "You") {
   const header = `BuddyAI transcript\n${new Date().toLocaleString()}\n`;
-  const body = messages
-    .map((message) => {
-      const who = message.sender === "ai" ? tutorName : childName;
-      const time = formatClock(message.timestamp);
-      const lines = [`[${time}] ${who}: ${message.text.trim()}`];
-      if (message.sender === "ai" && message.translation?.trim()) {
-        lines.push(`  HE: ${message.translation.trim()}`);
-      }
-      return lines.join("\n");
+  const body = groupByDay(messages)
+    .map((group) => {
+      const lines = group.messages.map((message) => {
+        const who = message.sender === "ai" ? tutorName : childName;
+        const time = formatClock(message.timestamp);
+        const block = [`[${group.label} ${time}] ${who}: ${message.text.trim()}`];
+        if (message.sender === "ai" && message.translation?.trim()) {
+          block.push(`  HE: ${message.translation.trim()}`);
+        }
+        return block.join("\n");
+      });
+      return lines.join("\n\n");
     })
     .join("\n\n");
   return `${header}\n${body}\n`;
@@ -40,6 +79,11 @@ export function TranscriptHistoryModal({
   messages,
   tutorName,
   childName = "You",
+  sessions = [],
+  sessionsLoading,
+  sessionsError,
+  restoringId,
+  onRestore,
   onClose,
 }: TranscriptHistoryModalProps) {
   function downloadTxt() {
@@ -56,12 +100,14 @@ export function TranscriptHistoryModal({
     window.setTimeout(() => URL.revokeObjectURL(url), 1500);
   }
 
+  const groups = groupByDay(messages);
+
   return (
     <div className="absolute inset-0 z-[60] flex items-end justify-center p-3 sm:items-center">
       <motion.button
         type="button"
         className="absolute inset-0 bg-black/55"
-        aria-label="Close transcript"
+        aria-label="Close history"
         onClick={onClose}
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
@@ -78,7 +124,7 @@ export function TranscriptHistoryModal({
               <ScrollText className="h-4 w-4" />
             </span>
             <div className="min-w-0">
-              <h2 className="truncate text-base font-semibold text-white">Transcript History</h2>
+              <h2 className="truncate text-base font-semibold text-white">Chat & Transcript History</h2>
               <p className="text-xs text-white/45" dir="rtl">
                 היסטוריית שיחה
               </p>
@@ -107,33 +153,71 @@ export function TranscriptHistoryModal({
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-4">
-          {messages.length === 0 ? (
-            <p className="px-2 py-8 text-center text-sm text-white/45">No turns yet. Start talking to build a transcript.</p>
-          ) : (
-            <ol className="space-y-2">
-              {messages.map((message) => (
-                <li
-                  key={message.id}
-                  className="rounded-2xl border border-white/8 bg-white/[0.04] px-3 py-2.5"
-                >
-                  <div className="mb-1 flex items-center justify-between gap-2">
-                    <span className="text-[11px] font-semibold tracking-wide text-white/55">
-                      {message.sender === "ai" ? tutorName : childName}
-                    </span>
-                    <span className="text-[10px] text-white/35">{formatClock(message.timestamp)}</span>
-                  </div>
-                  <p dir="ltr" className="text-[14px] leading-snug text-white/90">
-                    {message.text}
-                  </p>
-                  {message.sender === "ai" && message.translation?.trim() ? (
-                    <p dir="rtl" className="mt-1 text-[13px] leading-snug text-white/50">
-                      <MixedBidiText text={message.translation} />
+          {sessions.length > 0 || sessionsLoading || sessionsError ? (
+            <section className="mb-4">
+              <div className="mb-2 flex items-center gap-2 px-1 text-[11px] font-semibold uppercase tracking-wide text-white/40">
+                <History className="h-3.5 w-3.5" />
+                Past chats
+              </div>
+              {sessionsError ? <p className="px-1 pb-2 text-sm text-rose-300">{sessionsError}</p> : null}
+              {sessionsLoading ? <p className="px-1 pb-2 text-sm text-white/45">Loading…</p> : null}
+              <div className="space-y-2">
+                {sessions.map((session) => (
+                  <button
+                    key={session.id}
+                    type="button"
+                    disabled={Boolean(restoringId) || !onRestore}
+                    onClick={() => onRestore?.(session)}
+                    className="w-full rounded-2xl border border-white/8 bg-white/[0.04] px-3 py-2.5 text-left hover:bg-white/[0.07] disabled:opacity-60"
+                  >
+                    <p className="truncate text-[14px] font-semibold text-white">{session.title}</p>
+                    <p className="mt-0.5 truncate text-[12px] text-white/50">
+                      {getCharacter(session.characterId).name}
+                      {session.preview ? ` · ${session.preview}` : ""}
                     </p>
-                  ) : null}
-                </li>
-              ))}
-            </ol>
-          )}
+                    <p className="mt-1 text-[11px] text-white/35">
+                      {restoringId === session.id
+                        ? "Opening…"
+                        : `${session.messages.length} messages · ${new Date(session.archivedAt).toLocaleString()}`}
+                    </p>
+                  </button>
+                ))}
+              </div>
+            </section>
+          ) : null}
+
+          <section>
+            <p className="mb-2 px-1 text-[11px] font-semibold uppercase tracking-wide text-white/40">This chat</p>
+            {messages.length === 0 ? (
+              <p className="px-2 py-8 text-center text-sm text-white/45">No turns yet. Start talking to build a transcript.</p>
+            ) : (
+              groups.map((group) => (
+                <div key={group.key} className="mb-3">
+                  <p className="mb-1.5 px-1 text-[11px] font-medium text-emerald-200/70">{group.label}</p>
+                  <ol className="space-y-2">
+                    {group.messages.map((message) => (
+                      <li key={message.id} className="rounded-2xl border border-white/8 bg-white/[0.04] px-3 py-2.5">
+                        <div className="mb-1 flex items-center justify-between gap-2">
+                          <span className="text-[11px] font-semibold tracking-wide text-white/55">
+                            {message.sender === "ai" ? tutorName : childName}
+                          </span>
+                          <span className="text-[10px] text-white/35">{formatClock(message.timestamp)}</span>
+                        </div>
+                        <p dir="ltr" className="text-[14px] leading-snug text-white/90">
+                          {message.text}
+                        </p>
+                        {message.sender === "ai" && message.translation?.trim() ? (
+                          <p dir="rtl" className="mt-1 text-[13px] leading-snug text-white/50">
+                            <MixedBidiText text={message.translation} />
+                          </p>
+                        ) : null}
+                      </li>
+                    ))}
+                  </ol>
+                </div>
+              ))
+            )}
+          </section>
         </div>
       </motion.div>
     </div>

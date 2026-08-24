@@ -131,6 +131,7 @@ body {
 
 /* Portrait is 100% static — NO position/scale/rotation animations.
    All visual energy goes to the external glow border and waveform only. */
+.avatar-portrait,
 .avatar-portrait {
   transform: none !important;
   will-change: filter;
@@ -140,9 +141,10 @@ body {
   background-repeat: no-repeat;
 }
 
+.avatar-portrait-3d,
 .avatar-portrait-3d {
-  /* When we render the 3D canvas, we don't want the old background JPG to show. */
   background-image: none !important;
+  background-color: #050805;
 }
 
 .avatar-portrait-idle {
@@ -207,8 +209,8 @@ body {
   opacity: 0.28;
 }
 
-html[data-tutor="emma"] .avatar-portrait { background-image: url("/characters/emma.png"); }
-html[data-tutor="alex"] .avatar-portrait { background-image: url("/characters/alex.png"); }
+html[data-tutor="emma"] .avatar-portrait { background-image: none; }
+html[data-tutor="alex"] .avatar-portrait { background-image: none; }
 
 @keyframes holo-aura-idle {
   0%,

@@ -5,7 +5,6 @@ import type { User } from "@supabase/supabase-js";
 import { AuthModal } from "@/components/AuthModal";
 import { CharacterSelectorModal } from "@/components/CharacterSelectorModal";
 import { ChatTopBar } from "@/components/ChatTopBar";
-import { PreviousChatsModal } from "@/components/PreviousChatsModal";
 import { TranscriptHistoryModal } from "@/components/TranscriptHistoryModal";
 import { DocumentTitle } from "@/components/DocumentTitle";
 import { GoalCelebrationModal } from "@/components/GoalCelebrationModal";
@@ -49,6 +48,7 @@ import {
   type PipelineClientMetrics,
   type PipelineServerMetrics,
 } from "@/lib/pipeline-latency";
+import { mergeTranscriptMessages, readTranscriptCache, writeTranscriptCache } from "@/lib/transcript-cache";
 import {
   buildFriendshipOpener,
   buildPlacementOpener,
@@ -158,11 +158,11 @@ export default function HomePage() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsFocusVoice, setSettingsFocusVoice] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
-  const [transcriptOpen, setTranscriptOpen] = useState(false);
   const [sessions, setSessions] = useState<ArchivedChatSession[]>([]);
   const [sessionsLoading, setSessionsLoading] = useState(false);
   const [sessionsError, setSessionsError] = useState("");
   const [restoringId, setRestoringId] = useState<string | null>(null);
+  const [profileQuizOpen, setProfileQuizOpen] = useState(false);
   const [memories, setMemories] = useState<UserMemory[]>([]);
   const [savingSettings, setSavingSettings] = useState(false);
   const [settingsError, setSettingsError] = useState("");
@@ -313,15 +313,7 @@ export default function HomePage() {
     setSettingsOpen(true);
   }
 
-  function openTranscript() {
-    setMenuOpen(false);
-    setCharacterPickerOpen(false);
-    setSettingsOpen(false);
-    setHistoryOpen(false);
-    setTranscriptOpen(true);
-  }
-
-  function openHistory() {
+  function openHistoryHub() {
     setMenuOpen(false);
     setCharacterPickerOpen(false);
     setSettingsOpen(false);
@@ -364,6 +356,11 @@ export default function HomePage() {
     setSelectedTutorId(next);
     writeStoredTutorId(next);
   }, [profile?.selected_character]);
+
+  useEffect(() => {
+    if (!user?.id || messages.length === 0) return;
+    writeTranscriptCache(user.id, messages);
+  }, [user?.id, messages]);
 
   const flash = useCallback((text: string) => {
     setNotice(text);
@@ -484,9 +481,12 @@ export default function HomePage() {
             withTimeout(loadUserMemories(supabase, nextUser.id), 2000, [] as UserMemory[]),
           ]);
           setMemories(nextMemories);
-          const placementDone = hasCompletedKidsPlacement(nextUser.id, history, mergedProfile);
-          if (placementDone && history.length > 0) {
-            setMessages(history);
+          const cached = readTranscriptCache(nextUser.id);
+          const mergedHistory = mergeTranscriptMessages(history, cached);
+          const placementDone = hasCompletedKidsPlacement(nextUser.id, mergedHistory, mergedProfile);
+          if (placementDone && mergedHistory.length > 0) {
+            setMessages(mergedHistory);
+            writeTranscriptCache(nextUser.id, mergedHistory);
           } else if (placementDone) {
             setMessages([]);
           } else {
@@ -596,7 +596,14 @@ export default function HomePage() {
     const supabase = createClient();
     let ok = true;
     for (const entry of entries) {
-      const result = await saveMessage(supabase, userId, entry);
+      const result = await saveMessage(supabase, userId, {
+        id: entry.id,
+        sender: entry.sender,
+        text: entry.text,
+        translation: entry.translation,
+        grammarFeedback: entry.grammarFeedback,
+        createdAt: entry.createdAt ?? Date.now(),
+      });
       if (!result.success) {
         console.error("Chat Save Error:", result.error);
         ok = false;
@@ -828,12 +835,13 @@ export default function HomePage() {
 
       void persistMemories(data.newMemories, text, history, placementTurn);
       void persistMessages(user.id, [
-        { id: userMessage.id, sender: "user", text, grammarFeedback: grammar },
+        { id: userMessage.id, sender: "user", text, grammarFeedback: grammar, createdAt: userMessage.timestamp },
         {
           id: aiMessage.id,
           sender: "ai",
           text: data.aiResponse,
           translation: data.translation,
+          createdAt: aiMessage.timestamp,
         },
       ]);
     } catch {
@@ -883,7 +891,7 @@ export default function HomePage() {
       if (data.translation?.trim()) setSpokenTranslation(data.translation);
       if (autoSpeak && !streamedSpeech) speak(data.aiResponse);
       void persistMemories(data.newMemories);
-      void persistMessages(user.id, [{ id: aiMessage.id, sender: "ai", text: data.aiResponse, translation: data.translation }]);
+      void persistMessages(user.id, [{ id: aiMessage.id, sender: "ai", text: data.aiResponse, translation: data.translation, createdAt: aiMessage.timestamp }]);
     } catch {
       flash("Couldn't switch topics right now.");
     } finally {
@@ -939,7 +947,7 @@ export default function HomePage() {
       if (!archived.success) flash("Started a new chat, but the previous one couldn't be archived.");
       await startFreshChat(supabase, user.id);
       await persistMessages(user.id, [
-        { id: opener.id, sender: "ai", text: opener.text, translation: opener.translation },
+        { id: opener.id, sender: "ai", text: opener.text, translation: opener.translation, createdAt: opener.timestamp },
       ]);
     } catch {
       flash("Started a new chat, but saving it failed.");
@@ -1127,7 +1135,7 @@ export default function HomePage() {
       }
       try {
         await persistMessages(user.id, [
-          { id: opener.id, sender: "ai", text: opener.text, translation: opener.translation },
+          { id: opener.id, sender: "ai", text: opener.text, translation: opener.translation, createdAt: opener.timestamp },
         ]);
         const seeded = await seedProfileMemories(supabase, user.id, result.profile);
         if (seeded.length > 0) setMemories(seeded);
@@ -1155,24 +1163,9 @@ export default function HomePage() {
 
       // Personalised first greeting — keep BEGINNER ultra-simple (matches onboarding choice).
       const kidName = (next.profile.full_name ?? next.profile.nickname ?? "").trim() || "friend";
-      const kidInterest = next.profile.interests?.[0] ?? "";
       const tutorNameStr = character.name;
-      const level = String(next.profile.english_level || "beginner").toLowerCase();
-      const isBeginner = level === "beginner" || level.includes("begin");
-      const greetingText = isBeginner
-        ? kidInterest
-          ? `Hi ${kidName}! I am ${tutorNameStr}. Do you like ${kidInterest}?`
-          : `Hi ${kidName}! I am ${tutorNameStr}. How are you?`
-        : kidInterest
-          ? `Hey ${kidName}! I'm ${tutorNameStr}. You like ${kidInterest} — cool! What do you want to talk about?`
-          : `Hey ${kidName}! I'm ${tutorNameStr}. What do you want to talk about today?`;
-      const greetingTranslation = isBeginner
-        ? kidInterest
-          ? `היי ${kidName}! אני ${tutorNameStr}. אתה אוהב ${kidInterest}?`
-          : `היי ${kidName}! אני ${tutorNameStr}. מה שלומך?`
-        : kidInterest
-          ? `היי ${kidName}! אני ${tutorNameStr}. אתה אוהב ${kidInterest} — מגניב! על מה בא לך לדבר?`
-          : `היי ${kidName}! אני ${tutorNameStr}. על מה בא לך לדבר היום?`;
+      const greetingText = `Hi ${kidName}! I'm ${tutorNameStr}. How are you doing today?`;
+      const greetingTranslation = `היי ${kidName}! אני ${tutorNameStr}. מה שלומך היום?`;
 
       const opener = {
         id: typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `${Date.now()}`,
@@ -1186,18 +1179,14 @@ export default function HomePage() {
       setMessages([opener]);
       setSpokenReply(opener.text);
       setSpokenTranslation(opener.translation);
-      setSuggestions(
-        isBeginner
-          ? ["Yes!", "I like it!", "Hi!"]
-          : ["That sounds fun!", "Let's play!", "Tell me more!"],
-      );
+      setSuggestions(["I'm good!", "A little tired.", "Pretty good!"]);
 
       unlockSpeech();
       if (autoSpeak) speak(opener.text);
 
       try {
         await persistMessages(user.id, [
-          { id: opener.id, sender: "ai", text: opener.text, translation: opener.translation },
+          { id: opener.id, sender: "ai", text: opener.text, translation: opener.translation, createdAt: opener.timestamp },
         ]);
       } catch {
         /* opener can stay local if history insert fails */
@@ -1306,6 +1295,16 @@ export default function HomePage() {
             error={profileError}
             onComplete={(next) => void handleOnboarding(next)}
           />
+        ) : profileQuizOpen && user ? (
+          <InteractiveOnboarding
+            user={user}
+            character={character}
+            initialProfile={profile}
+            onComplete={async (next) => {
+              setProfileQuizOpen(false);
+              await handleInteractiveOnboardingComplete(next);
+            }}
+          />
         ) : null}
 
         <ChatTopBar
@@ -1320,8 +1319,8 @@ export default function HomePage() {
           }}
           onOpenCharacters={openCharacterPicker}
           onOpenVoiceSettings={() => openSettings(true)}
-          onOpenHistory={openHistory}
-          onOpenTranscript={openTranscript}
+          onOpenHistory={openHistoryHub}
+          onOpenTranscript={openHistoryHub}
           recording={recorder.recording}
           recorderSupported={recorder.supported}
           hasRecordingClip={recorder.hasClip}
@@ -1386,6 +1385,22 @@ export default function HomePage() {
           onSetVolume={setVolume}
         />
 
+        {chatUnlocked &&
+        onboardingDone &&
+        !needsInteractiveOnboarding &&
+        !hasCompletedKidsPlacement(user?.id, messages, profile) ? (
+          <button
+            type="button"
+            onClick={() => setProfileQuizOpen(true)}
+            className="absolute inset-x-3 top-[calc(3.4rem+env(safe-area-inset-top))] z-40 rounded-2xl border border-amber-200/25 bg-amber-400/15 px-3 py-2 text-left shadow-[0_8px_30px_rgba(0,0,0,0.25)] backdrop-blur-md"
+          >
+            <p className="text-[13px] font-semibold text-amber-50">
+              Complete your profile for more personal practice! 🎯
+            </p>
+            <p className="text-[11px] text-amber-100/70">Tap here · השלם את הפרופיל</p>
+          </button>
+        ) : null}
+
         {notice ? (
           <p className="pointer-events-none absolute inset-x-0 bottom-40 z-40 px-6 text-center text-xs font-medium text-amber-100/90">
             {notice}
@@ -1412,6 +1427,14 @@ export default function HomePage() {
             saving={savingSettings}
             error={settingsError}
             focusVoice={settingsFocusVoice}
+            autoSpeak={autoSpeak}
+            onToggleSpeak={() => {
+              unlockSpeech();
+              setAutoSpeak((value) => {
+                if (value) stopSpeaking();
+                return !value;
+              });
+            }}
             onSave={(next) => void handleSaveSettings(next)}
             onPreviewVoice={(speed, voiceUri) =>
               speak(
@@ -1427,22 +1450,16 @@ export default function HomePage() {
         ) : null}
 
         {historyOpen ? (
-          <PreviousChatsModal
-            sessions={sessions}
-            loading={sessionsLoading}
-            error={sessionsError}
-            restoringId={restoringId}
-            onRestore={(session) => void handleRestoreSession(session)}
-            onClose={() => setHistoryOpen(false)}
-          />
-        ) : null}
-
-        {transcriptOpen ? (
           <TranscriptHistoryModal
             messages={messages}
             tutorName={character.name}
             childName={profile?.nickname || "You"}
-            onClose={() => setTranscriptOpen(false)}
+            sessions={sessions}
+            sessionsLoading={sessionsLoading}
+            sessionsError={sessionsError}
+            restoringId={restoringId}
+            onRestore={(session) => void handleRestoreSession(session)}
+            onClose={() => setHistoryOpen(false)}
           />
         ) : null}
 
