@@ -3,25 +3,46 @@
 import { useState } from "react";
 import { ChevronLeft, Loader2 } from "lucide-react";
 import { INTEREST_OPTIONS } from "@/lib/learner";
-import type { EnglishLevel, Gender, ProfileInput } from "@/lib/supabase/types";
+import type { EnglishLevel, Gender, Profile, ProfileInput } from "@/lib/supabase/types";
 import { cn } from "@/lib/utils";
 
 interface OnboardingModalProps {
   saving?: boolean;
   error?: string;
+  initialProfile?: Partial<Profile> | null;
   onComplete: (profile: ProfileInput) => void;
 }
 
 const STEPS = ["Name", "Age", "Gender", "Level", "Interests"] as const;
 
-export function OnboardingModal({ saving, error, onComplete }: OnboardingModalProps) {
+export function OnboardingModal({ saving, error, initialProfile, onComplete }: OnboardingModalProps) {
   const [step, setStep] = useState(0);
-  const [nickname, setNickname] = useState("");
-  const [pronunciation, setPronunciation] = useState("");
-  const [age, setAge] = useState("");
-  const [gender, setGender] = useState<Gender | "">("");
-  const [level, setLevel] = useState<EnglishLevel | "">("");
-  const [interests, setInterests] = useState<string[]>([]);
+  const [nickname, setNickname] = useState(() =>
+    String(initialProfile?.nickname || initialProfile?.full_name || "").trim(),
+  );
+  const [pronunciation, setPronunciation] = useState(() =>
+    String(initialProfile?.name_pronunciation || "").trim(),
+  );
+  const [age, setAge] = useState(() => {
+    const value = Number(initialProfile?.age);
+    return value > 0 ? String(value) : "";
+  });
+  const [gender, setGender] = useState<Gender | "">(() => {
+    const value = initialProfile?.gender;
+    return value === "boy" || value === "girl" || value === "other" ? value : "";
+  });
+  const [level, setLevel] = useState<EnglishLevel | "">(() => {
+    const value = String(initialProfile?.english_level || "").toLowerCase();
+    return value === "beginner" || value === "intermediate" || value === "advanced" ? value : "";
+  });
+  const [interests, setInterests] = useState<string[]>(() =>
+    Array.isArray(initialProfile?.interests)
+      ? initialProfile.interests.map((item) => String(item).trim()).filter(Boolean)
+      : String(initialProfile?.interests ?? "")
+          .split(",")
+          .map((item) => item.trim())
+          .filter(Boolean),
+  );
   const [localError, setLocalError] = useState("");
 
   function next() {

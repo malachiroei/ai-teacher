@@ -8,7 +8,7 @@ import type { Character } from "@/lib/characters";
 import type { Profile } from "@/lib/supabase/types";
 import { cn } from "@/lib/utils";
 import { createClient } from "@/lib/supabase/client";
-import { fetchProfile, loadUserMemories, saveExtractedFact, seedProfileMemories, writeIntroLearningGoals } from "@/lib/chat-history";
+import { fetchProfile, loadUserMemories, parseInterests, readIntroLearningGoals, saveExtractedFact, seedProfileMemories, writeIntroLearningGoals } from "@/lib/chat-history";
 import { markKidsPlacementComplete } from "@/lib/placement";
 import type { UserMemory } from "@/lib/memory";
 
@@ -121,16 +121,57 @@ function StepDots({ total, current }: { total: number; current: number }) {
   );
 }
 
+function prefillName(profile?: Profile | null) {
+  return String(profile?.nickname || profile?.full_name || "").trim();
+}
+
+function prefillSchoolStage(profile?: Profile | null): SchoolStageId | null {
+  const age = Number(profile?.age) || 0;
+  if (!age) return null;
+  for (const chip of SCHOOL_STAGE_CHIPS) {
+    const [lo, hi] = chip.ageRange.split("-").map(Number);
+    if (age >= lo && age <= hi) return chip.id;
+  }
+  return null;
+}
+
+function prefillPassionIds(profile?: Profile | null): PassionId[] {
+  const interests = parseInterests(profile?.interests).map((item) => item.toLowerCase());
+  if (interests.length === 0) return [];
+  return PASSION_CHIPS.filter((chip) =>
+    chip.interests.some((topic) =>
+      interests.includes(topic.toLowerCase()) || interests.some((item) => item.includes(topic.toLowerCase())),
+    ),
+  ).map((chip) => chip.id);
+}
+
+function prefillLearningStyle(profile?: Profile | null): LearningStyleId | null {
+  const stored = readIntroLearningGoals(profile).toLowerCase();
+  if (LEARNING_STYLE_CHIPS.some((chip) => chip.id === stored)) return stored as LearningStyleId;
+  return null;
+}
+
+function prefillConfidence(profile?: Profile | null): ConfidenceId | null {
+  const level = String(profile?.english_level ?? "").toLowerCase();
+  if (level === "beginner" || level === "intermediate" || level === "advanced") return level;
+  return null;
+}
+
+function prefillDailyGoal(profile?: Profile | null): 5 | 10 | 15 | null {
+  const minutes = Number(profile?.daily_goal_minutes);
+  if (minutes === 5 || minutes === 10 || minutes === 15) return minutes;
+  return null;
+}
+
 // ── Main component ─────────────────────────────────────────────────────────────
-export function InteractiveOnboarding({ user, character, initialProfile: _initialProfile, onComplete }: InteractiveOnboardingProps) {
-  // Step 1 always asks for the child's name — never pre-fill from profile/auth.
+export function InteractiveOnboarding({ user, character, initialProfile, onComplete }: InteractiveOnboardingProps) {
   const [step, setStep] = useState(0);
-  const [name, setName] = useState("");
-  const [schoolStage, setSchoolStage] = useState<SchoolStageId | null>(null);
-  const [passionIds, setPassionIds] = useState<PassionId[]>([]);
-  const [learningStyle, setLearningStyle] = useState<LearningStyleId | null>(null);
-  const [confidenceId, setConfidenceId] = useState<ConfidenceId | null>(null);
-  const [dailyGoal, setDailyGoal] = useState<5 | 10 | 15 | null>(null);
+  const [name, setName] = useState(() => prefillName(initialProfile));
+  const [schoolStage, setSchoolStage] = useState<SchoolStageId | null>(() => prefillSchoolStage(initialProfile));
+  const [passionIds, setPassionIds] = useState<PassionId[]>(() => prefillPassionIds(initialProfile));
+  const [learningStyle, setLearningStyle] = useState<LearningStyleId | null>(() => prefillLearningStyle(initialProfile));
+  const [confidenceId, setConfidenceId] = useState<ConfidenceId | null>(() => prefillConfidence(initialProfile));
+  const [dailyGoal, setDailyGoal] = useState<5 | 10 | 15 | null>(() => prefillDailyGoal(initialProfile));
 
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -219,7 +260,7 @@ export function InteractiveOnboarding({ user, character, initialProfile: _initia
             nickname: trimmedName || stored.nickname,
             full_name: trimmedName || stored.full_name,
             english_level: englishLevel,
-            interests: selectedInterests.length ? selectedInterests : stored.interests,
+            interests: selectedInterests,
             age: ageApprox,
             daily_goal_minutes: dailyGoal,
           }

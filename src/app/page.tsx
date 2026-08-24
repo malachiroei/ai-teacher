@@ -1309,6 +1309,7 @@ export default function HomePage() {
           <OnboardingModal
             saving={savingProfile}
             error={profileError}
+            initialProfile={profile}
             onComplete={(next) => void handleOnboarding(next)}
           />
         ) : profileQuizOpen && user ? (

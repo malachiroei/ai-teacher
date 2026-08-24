@@ -102,15 +102,17 @@ export function ChatTopBar({
       </div>
 
       {showProfileReminder ? (
-        <button
-          type="button"
-          dir="rtl"
-          onClick={onOpenProfileReminder}
-          className="absolute left-1/2 top-[calc(2.85rem+env(safe-area-inset-top))] z-[55] flex w-[90%] max-w-md -translate-x-1/2 cursor-pointer items-center justify-between rounded-xl border border-amber-500/40 bg-amber-500/20 p-2.5 text-sm text-amber-200 transition-all hover:bg-amber-500/30"
-        >
-          <span>🎯 השלם את שאלון ההיכרות כדי שנתאים לך את השיחה!</span>
-          <span className="shrink-0 rounded bg-amber-500/30 px-2 py-1 text-xs font-semibold">התחל ←</span>
-        </button>
+        <div className="absolute left-1/2 top-[calc(2.85rem+env(safe-area-inset-top))] z-[55] mb-4 w-[90%] max-w-md -translate-x-1/2">
+          <button
+            type="button"
+            dir="rtl"
+            onClick={onOpenProfileReminder}
+            className="flex w-full cursor-pointer items-center justify-between rounded-xl border border-amber-500/40 bg-amber-500/20 p-2.5 text-sm text-amber-200 transition-all hover:bg-amber-500/30"
+          >
+            <span>🎯 השלם את שאלון ההיכרות כדי שנתאים לך את השיחה!</span>
+            <span className="shrink-0 rounded bg-amber-500/30 px-2 py-1 text-xs font-semibold">התחל ←</span>
+          </button>
+        </div>
       ) : null}
 
       <SideDrawer

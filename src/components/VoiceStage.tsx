@@ -138,7 +138,7 @@ export function VoiceStage({
         <div className="pointer-events-none absolute inset-x-0 bottom-0 h-[46%] bg-gradient-to-t from-[#050805] via-[#050805]/88 to-transparent" />
       </button>
 
-      <div className={cn("pointer-events-none relative z-10 flex flex-col items-center px-6", offsetForBanner ? "pt-[calc(5.35rem+env(safe-area-inset-top))]" : "pt-[calc(2.75rem+env(safe-area-inset-top))]")}>
+      <div className={cn("pointer-events-none relative z-10 flex flex-col items-center px-6", offsetForBanner ? "mb-4 pt-[calc(6.35rem+env(safe-area-inset-top))]" : "pt-[calc(2.75rem+env(safe-area-inset-top))]")}>
         <p className="text-[13px] font-medium tracking-[0.28em] text-white/55 uppercase">{character.title}</p>
         <h1 className="mt-1 text-[22px] font-semibold tracking-tight text-white drop-shadow-[0_2px_18px_rgba(0,0,0,0.45)]">
           {tutorName}
