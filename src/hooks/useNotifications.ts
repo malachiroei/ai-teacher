@@ -55,6 +55,119 @@ export function formatPracticeTimeLabel(hhmm: string) {
 export const NOTIFICATION_DENIED_HELP =
   "Notifications are blocked for this site. Open your browser site settings, allow Notifications, then try again. / ההתראות חסומות. אפשר התראות בהגדרות האתר בדפדפן, ואז נסה שוב.";
 
+export type ReminderSoundId = "chime" | "arcade" | "pop" | "fanfare";
+export const REMINDER_SOUND_STORAGE_KEY = "buddyai_reminder_sound";
+
+export const REMINDER_SOUNDS: Array<{
+  id: ReminderSoundId;
+  emoji: string;
+  label: string;
+  labelHe: string;
+}> = [
+  { id: "chime", emoji: "🔔", label: "Chime", labelHe: "פעמון קסם" },
+  { id: "arcade", emoji: "🎮", label: "Arcade", labelHe: "משחק רטרו" },
+  { id: "pop", emoji: "🫧", label: "Pop", labelHe: "פופ עליז" },
+  { id: "fanfare", emoji: "🎺", label: "Hero Fanfare", labelHe: "תרועת ניצחון" },
+];
+
+const SOUND_IDS = new Set<ReminderSoundId>(REMINDER_SOUNDS.map((item) => item.id));
+
+export function readReminderSound(): ReminderSoundId {
+  if (typeof window === "undefined") return "chime";
+  try {
+    const value = window.localStorage.getItem(REMINDER_SOUND_STORAGE_KEY);
+    if (value && SOUND_IDS.has(value as ReminderSoundId)) return value as ReminderSoundId;
+  } catch {
+    /* ignore */
+  }
+  return "chime";
+}
+
+export function writeReminderSound(soundId: ReminderSoundId) {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(REMINDER_SOUND_STORAGE_KEY, soundId);
+  } catch {
+    /* ignore */
+  }
+}
+
+let audioCtx: AudioContext | null = null;
+
+function getAudioContext() {
+  if (typeof window === "undefined") return null;
+  const Ctor = window.AudioContext || (window as Window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+  if (!Ctor) return null;
+  if (!audioCtx || audioCtx.state === "closed") audioCtx = new Ctor();
+  return audioCtx;
+}
+
+function tone(
+  ctx: AudioContext,
+  type: OscillatorType,
+  freq: number,
+  when: number,
+  duration: number,
+  peak = 0.16,
+  endFreq?: number,
+) {
+  const osc = ctx.createOscillator();
+  const gain = ctx.createGain();
+  osc.type = type;
+  osc.frequency.setValueAtTime(freq, when);
+  if (endFreq) osc.frequency.exponentialRampToValueAtTime(Math.max(40, endFreq), when + duration);
+  gain.gain.setValueAtTime(0.0001, when);
+  gain.gain.exponentialRampToValueAtTime(peak, when + 0.018);
+  gain.gain.exponentialRampToValueAtTime(0.0001, when + duration);
+  osc.connect(gain);
+  gain.connect(ctx.destination);
+  osc.start(when);
+  osc.stop(when + duration + 0.03);
+}
+
+function playChime(ctx: AudioContext, t0: number) {
+  [523.25, 659.25, 783.99].forEach((freq, index) => {
+    tone(ctx, "sine", freq, t0 + index * 0.12, 0.55, 0.14);
+    tone(ctx, "sine", freq * 2, t0 + index * 0.12, 0.35, 0.04);
+  });
+}
+
+function playArcade(ctx: AudioContext, t0: number) {
+  [523.25, 659.25, 783.99, 1046.5].forEach((freq, index) => {
+    tone(ctx, "square", freq, t0 + index * 0.09, 0.1, 0.07);
+  });
+}
+
+function playPop(ctx: AudioContext, t0: number) {
+  tone(ctx, "sine", 980, t0, 0.12, 0.2, 420);
+  tone(ctx, "sine", 1320, t0 + 0.1, 0.08, 0.12, 700);
+}
+
+function playFanfare(ctx: AudioContext, t0: number) {
+  [392, 523.25, 783.99].forEach((freq, index) => {
+    tone(ctx, "triangle", freq, t0 + index * 0.14, 0.22, 0.15);
+    tone(ctx, "square", freq, t0 + index * 0.14, 0.18, 0.03);
+  });
+}
+
+export async function playReminderSound(soundId?: ReminderSoundId) {
+  const ctx = getAudioContext();
+  if (!ctx) return false;
+  try {
+    if (ctx.state === "suspended") await ctx.resume();
+    const id = soundId && SOUND_IDS.has(soundId) ? soundId : readReminderSound();
+    const t0 = ctx.currentTime + 0.02;
+    if (id === "arcade") playArcade(ctx, t0);
+    else if (id === "pop") playPop(ctx, t0);
+    else if (id === "fanfare") playFanfare(ctx, t0);
+    else playChime(ctx, t0);
+    return true;
+  } catch (error) {
+    console.warn("Could not play reminder sound:", error);
+    return false;
+  }
+}
+
 async function showViaServiceWorker(title: string, options: NotificationOptions & Record<string, unknown>) {
   const registration = (await registerServiceWorker()) ?? (await navigator.serviceWorker?.ready.catch(() => null));
   if (registration?.showNotification) {
@@ -82,6 +195,7 @@ export async function showTutorPracticeNotification(input: {
   const tutorId = input.tutorId.trim() || "emma";
   const icon = `/avatars/${tutorId}.png`;
   try {
+    void playReminderSound();
     return await showViaServiceWorker(`🚀 ${tutorName} is waiting for you!`, {
       body: pickBody(input.kidName ?? "", tutorName, input.goalMinutes ?? 10),
       icon,
@@ -110,6 +224,7 @@ export async function showNotificationsEnabledTest(input: {
   const when = formatPracticeTimeLabel(input.practiceTime);
   const icon = `/avatars/${tutorId}.png`;
   try {
+    void playReminderSound();
     return await showViaServiceWorker(`🎉 Notifications enabled! ${tutorName} will ping you at ${when}`, {
       body: "Tap here to open BuddyAI and start talking.",
       icon,

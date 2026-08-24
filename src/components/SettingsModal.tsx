@@ -13,8 +13,13 @@ import {
 } from "@/lib/practice";
 import {
   NOTIFICATION_DENIED_HELP,
+  REMINDER_SOUNDS,
+  playReminderSound,
+  readReminderSound,
   requestNotificationPermission,
   showNotificationsEnabledTest,
+  writeReminderSound,
+  type ReminderSoundId,
 } from "@/hooks/useNotifications";
 import { cn } from "@/lib/utils";
 
@@ -61,6 +66,7 @@ export function SettingsModal({
   const [goal, setGoal] = useState(settings.daily_goal_minutes);
   const [time, setTime] = useState(settings.preferred_practice_time);
   const [notify, setNotify] = useState(settings.notifications_enabled);
+  const [soundId, setSoundId] = useState<ReminderSoundId>(() => readReminderSound());
   const [phone, setPhone] = useState(settings.parent_whatsapp);
   const [speed, setSpeed] = useState<VoiceSpeed>(settings.voice_speed);
   const [voiceUri, setVoiceUri] = useState(settings.preferred_voice);
@@ -90,6 +96,7 @@ export function SettingsModal({
       return;
     }
     setNotify(true);
+    writeReminderSound(soundId);
     await showNotificationsEnabledTest({
       tutorName: characterName,
       tutorId: characterId || "emma",
@@ -108,6 +115,7 @@ export function SettingsModal({
       setLocalError("Enter the English name the tutor should use.");
       return;
     }
+    writeReminderSound(soundId);
     onSave({
       daily_goal_minutes: goal,
       preferred_practice_time: time,
@@ -318,6 +326,40 @@ export function SettingsModal({
               )}
             >
               {notify ? <Bell className="h-4 w-4" /> : <BellOff className="h-4 w-4" />}
+            </button>
+          </section>
+
+          <section className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+            <p className="text-[13px] font-semibold text-slate-800">Notification Sound / צליל התראה</p>
+            <p className="mt-0.5 text-[12px] text-slate-500">Pick the tone that plays with reminders</p>
+            <div className="mt-3 grid grid-cols-2 gap-2">
+              {REMINDER_SOUNDS.map((sound) => (
+                <button
+                  key={sound.id}
+                  type="button"
+                  onClick={() => {
+                    setSoundId(sound.id);
+                    writeReminderSound(sound.id);
+                  }}
+                  className={cn(
+                    "rounded-full border px-2 py-2 text-[12px] font-semibold transition",
+                    soundId === sound.id
+                      ? "border-emerald-400 bg-emerald-50 text-emerald-800"
+                      : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50",
+                  )}
+                >
+                  {sound.emoji} {sound.label}
+                  <span className="mt-0.5 block text-[10px] font-medium text-slate-500">{sound.labelHe}</span>
+                </button>
+              ))}
+            </div>
+            <button
+              type="button"
+              onClick={() => void playReminderSound(soundId)}
+              className="mt-3 flex h-11 w-full items-center justify-center gap-2 rounded-full border border-slate-200 bg-white text-[14px] font-semibold text-slate-700 hover:bg-slate-50"
+            >
+              <Volume2 className="h-4 w-4" />
+              🔊 שמע דוגמה
             </button>
           </section>
 
