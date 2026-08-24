@@ -21,11 +21,61 @@
       import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 
       const SIZE = 1024;
+      const MALE_IDS = new Set(["alex", "leo", "kai"]);
+      const LOOKS = {
+        leo: { clothing: "#1d4ed8", hair: "#111827", hideGlasses: true },
+        maya: { clothing: "#db2777", hair: "#3f1d12", hideGlasses: true },
+        kai: { clothing: "#3f6212", hair: "#b45309", hideGlasses: true },
+        chloe: { clothing: "#111827", hair: "#6b21a8", hideGlasses: true },
+      };
+
+      function applyAvatarLook(root, characterId) {
+        const look = LOOKS[characterId];
+        if (!look) return;
+        const clothing = new THREE.Color(look.clothing);
+        const hair = new THREE.Color(look.hair);
+        root.traverse((obj) => {
+          if (!obj.isMesh) return;
+          const label = `${obj.name} ${Array.isArray(obj.material) ? obj.material.map((item) => item?.name).join(" ") : obj.material?.name ?? ""}`.toLowerCase();
+          if (look.hideGlasses && (label.includes("glass") || label.includes("eyewear"))) {
+            obj.visible = false;
+            return;
+          }
+          if (label.includes("head") || label.includes("eye") || label.includes("tooth") || label.includes("teeth") || label.includes("body") || label.includes("skin")) {
+            return;
+          }
+          const materials = (Array.isArray(obj.material) ? obj.material : [obj.material]).filter(Boolean);
+          const nextMaterials = materials.map((material) => {
+            const std = material.clone();
+            if (!std.color) return std;
+            if (label.includes("hair") || label.includes("scalp") || label.includes("brow")) {
+              std.color.copy(hair);
+              std.needsUpdate = true;
+            } else if (
+              label.includes("outfit") ||
+              label.includes("shirt") ||
+              label.includes("top") ||
+              label.includes("bottom") ||
+              label.includes("footwear") ||
+              label.includes("cloth") ||
+              label.includes("jacket") ||
+              label.includes("hoodie") ||
+              (label.includes("wolf3d") && !label.includes("hair"))
+            ) {
+              std.color.copy(clothing);
+              std.needsUpdate = true;
+            }
+            return std;
+          });
+          obj.material = Array.isArray(obj.material) ? nextMaterials : nextMaterials[0];
+        });
+      }
+
       const scene = new THREE.Scene();
       scene.background = new THREE.Color(0x0a1210);
 
-      const camera = new THREE.PerspectiveCamera(32, 1, 0.05, 20);
-      camera.position.set(0, 0.1, 0.78);
+      const camera = new THREE.PerspectiveCamera(45, 1, 0.05, 20);
+      camera.position.set(0, 0.1, 1.2);
       camera.lookAt(0, 0.06, 0);
 
       const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false, preserveDrawingBuffer: true });
@@ -43,38 +93,43 @@
       scene.add(fill);
 
       const params = new URLSearchParams(location.search);
-      const modelFile = params.get("model") === "emma" ? "emma.glb" : "alex.glb";
-      const loader = new GLTFLoader();
-      loader.load(
-        `/public/models/${modelFile}`,
-        (gltf) => {
-        const model = gltf.scene;
-        model.traverse((obj) => {
-          if (!obj.isMesh) return;
-          obj.frustumCulled = false;
-          if (String(obj.name).toLowerCase().includes("transparent")) obj.visible = false;
-        });
-        scene.add(model);
-        if (modelFile === "emma.glb") {
-          model.position.set(0, -2.6, 0);
-          model.scale.setScalar(1.7);
-        } else {
-          model.position.set(0, -0.95, 0);
-          model.scale.setScalar(1.7);
-        }
-        camera.position.set(0, 0.1, 0.78);
-        camera.lookAt(0, 0.06, 0);
-        renderer.render(scene, camera);
-        requestAnimationFrame(() => {
-          renderer.render(scene, camera);
-          document.documentElement.dataset.ready = "1";
-        });
-      },
-      undefined,
-      (err) => {
-        document.documentElement.dataset.error = String(err?.message || err);
-      },
-      );
+      const characterId = String(params.get("model") || "emma").toLowerCase();
+      const allowed = new Set(["emma", "alex", "leo", "maya", "kai", "chloe"]);
+      if (!allowed.has(characterId)) {
+        document.documentElement.dataset.error = `Unknown model ${characterId}`;
+      } else {
+        const loader = new GLTFLoader();
+        loader.load(
+          `/public/models/${characterId}.glb`,
+          (gltf) => {
+            const model = gltf.scene;
+            model.traverse((obj) => {
+              if (!obj.isMesh) return;
+              obj.frustumCulled = false;
+              if (String(obj.name).toLowerCase().includes("transparent")) obj.visible = false;
+            });
+            applyAvatarLook(model, characterId);
+            if (MALE_IDS.has(characterId)) {
+              model.position.set(0, -1.25, 0);
+            } else {
+              model.position.set(0, -2.85, 0);
+            }
+            model.scale.setScalar(1.7);
+            scene.add(model);
+            renderer.render(scene, camera);
+            const box = new THREE.Box3().setFromObject(model);
+            document.documentElement.dataset.bbox = JSON.stringify(box.min.toArray().concat(box.max.toArray()));
+            requestAnimationFrame(() => {
+              renderer.render(scene, camera);
+              document.documentElement.dataset.ready = "1";
+            });
+          },
+          undefined,
+          (err) => {
+            document.documentElement.dataset.error = String(err?.message || err);
+          },
+        );
+      }
     </script>
   </body>
 </html>

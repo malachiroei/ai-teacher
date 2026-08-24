@@ -30,7 +30,7 @@ export function CharacterAvatar({
       >
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
-          src={character.portraitUrl || character.avatarUrl || `/avatars/${character.id}.png`}
+          src={character.portraitUrl || character.avatarUrl || `/avatars/${character.id}.png?v=real3d_v1`}
           alt=""
           className="h-full w-full object-cover object-center"
           draggable={false}
