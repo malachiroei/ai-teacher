@@ -20,6 +20,7 @@ type Avatar3DStageProps = {
 const MAX_MOUTH_OPEN = 0.35;
 const ALEX_MODEL_URL = "/models/alex.glb?v=human_male_v2";
 const EMMA_MODEL_URL = "/models/emma.glb?v=v_final_new";
+const MALE_CHARACTER_IDS = new Set(["alex", "leo", "kai"]);
 
 function setMaterialHighp(mesh: Mesh) {
   const materials = (Array.isArray(mesh.material) ? mesh.material : [mesh.material]).filter(Boolean) as Material[];
@@ -88,7 +89,11 @@ class ErrorBoundary extends Component<{ children: ReactNode; fallback: ReactNode
 }
 
 function resolveCharacterModelId(characterId: string) {
-  return characterId === "alex" ? "alex" : "emma";
+  return characterId;
+}
+
+function isMaleAvatar(characterId: string) {
+  return MALE_CHARACTER_IDS.has(characterId);
 }
 
 /** Clone GPU-owned geo/materials so cleanup can dispose them without nuking the GLTF cache. */
@@ -128,7 +133,7 @@ function GLTFTalkingAvatar({
   spokenText,
   mouthLevelRef,
 }: {
-  characterId: "emma" | "alex";
+  characterId: string;
   modelUrl: string;
   isSpeaking: boolean;
   spokenText?: string;
@@ -194,7 +199,7 @@ function GLTFTalkingAvatar({
       }
     });
 
-    if (characterId === "alex") {
+    if (isMaleAvatar(characterId)) {
       avatarScene.position.set(0, -1.25, 0);
       avatarScene.scale.setScalar(1.7);
     } else {
@@ -265,8 +270,8 @@ export const Avatar3DStage = memo(function Avatar3DStage({
   mouthLevelRef,
   compact = false,
 }: Avatar3DStageProps) {
-  const characterId = resolveCharacterModelId(character.id) as "emma" | "alex";
-  const modelUrl = characterId === "alex" ? ALEX_MODEL_URL : EMMA_MODEL_URL;
+  const characterId = resolveCharacterModelId(character.id);
+  const modelUrl = character.modelUrl || (isMaleAvatar(characterId) ? ALEX_MODEL_URL : EMMA_MODEL_URL);
   const cameraPosition: [number, number, number] = [0, 0.1, 1.2];
   const [contextKey, setContextKey] = useState(0);
   const remountTimer = useRef<number | null>(null);
@@ -283,6 +288,10 @@ export const Avatar3DStage = memo(function Avatar3DStage({
     try {
       useGLTF.preload(EMMA_MODEL_URL);
       useGLTF.preload(ALEX_MODEL_URL);
+      useGLTF.preload("/models/leo.glb?v=1");
+      useGLTF.preload("/models/maya.glb?v=1");
+      useGLTF.preload("/models/kai.glb?v=1");
+      useGLTF.preload("/models/chloe.glb?v=1");
     } catch {
       /* preload is best-effort */
     }

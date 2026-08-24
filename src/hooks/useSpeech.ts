@@ -437,6 +437,10 @@ const MALE_VOICE_NEEDLES = [
   "guy",
   "james",
   "fred",
+  "matthew",
+  "brian",
+  "mark",
+  "ryan",
 ];
 
 const FEMALE_VOICE_NEEDLES = [
@@ -450,6 +454,9 @@ const FEMALE_VOICE_NEEDLES = [
   "karen",
   "moira",
   "zira",
+  "jenny",
+  "aria",
+  "moira",
   "female",
 ];
 
@@ -926,11 +933,14 @@ export function useSpeech(options?: {
       activeUtterance = utterance;
       currentOutputVolume = volume;
       lastSpokenVolumeRef.current = volume;
-      utterance.rate = Math.min(1.4, Math.max(0.6, (male ? 0.92 : character?.voice.rate ?? 0.95) * speed));
+      utterance.rate = Math.min(1.4, Math.max(0.6, (character?.voice.rate ?? (male ? 0.92 : 0.95)) * speed));
       const maleNamed = Boolean(voice && ANDROID_MALE_NAME_RE.test(`${voice.name} ${voice.voiceURI}`));
-      utterance.pitch = male ? (maleNamed ? 0.78 : 0.85) : character?.voice.pitch ?? 1.02;
+      utterance.pitch = character?.voice.pitch ?? (male ? (maleNamed ? 0.78 : 0.85) : 1.02);
       window.speechSynthesis.resume();
-      if (voice && !(male && isVoiceLikelyFemale(voice))) utterance.voice = voice;
+      if (voice) {
+        const mismatch = male ? isVoiceLikelyFemale(voice) : isVoiceLikelyMale(voice);
+        if (!mismatch) utterance.voice = voice;
+      }
 
       ttsBusyRef.current = true;
       setIsSpeaking(true);

@@ -86,6 +86,10 @@ const STOP_WORDS = new Set([
 const GOAL_CHEERS: Partial<Record<CharacterId, string>> & Record<"emma", string> = {
   emma: "Amazing job! You crushed your {{minutes}} minutes today! 🎉",
   alex: "Champion session — {{minutes}} minutes on the clock! 🏆",
+  leo: "Mission complete — {{minutes}} minutes of English in orbit! 🚀",
+  maya: "Beautiful set — {{minutes}} minutes of English, like a song! 🎵",
+  kai: "Trail done — {{minutes}} minutes of English adventure! 🌍",
+  chloe: "GG — {{minutes}} minutes, and you leveled up English! 🎮",
 };
 
 export function todayDateKey(date = new Date()) {

@@ -36,7 +36,7 @@ export function CharacterSelectorModal({ selectedId, nicknames, onSelect, onClos
         initial={{ y: 28, opacity: 0 }}
         animate={{ y: 0, opacity: 1 }}
         transition={{ type: "spring", damping: 28, stiffness: 340 }}
-        className="relative flex max-h-[92%] w-full max-w-md flex-col overflow-hidden rounded-3xl border border-white/12 bg-[#0c1410]/95 shadow-2xl backdrop-blur-xl"
+        className="relative flex max-h-[92%] w-full max-w-3xl flex-col overflow-hidden rounded-3xl border border-white/12 bg-[#0c1410]/95 shadow-2xl backdrop-blur-xl"
       >
         <div className="flex items-center justify-between px-4 py-3.5">
           <div>
@@ -53,7 +53,7 @@ export function CharacterSelectorModal({ selectedId, nicknames, onSelect, onClos
           </button>
         </div>
 
-        <div className="grid grid-cols-2 gap-3 overflow-y-auto px-3 pb-5 sm:gap-3.5 sm:px-4">
+        <div className="grid grid-cols-2 gap-3 overflow-y-auto px-3 pb-5 md:grid-cols-3 sm:gap-3.5 sm:px-4">
           {CHARACTERS.map((character) => (
             <CharacterCard
               key={character.id}
@@ -85,7 +85,7 @@ function CharacterCard({
       type="button"
       onClick={onSelect}
       className={cn(
-        "relative flex min-h-[236px] flex-col items-center overflow-visible rounded-2xl border px-3 py-4 text-center transition",
+        "relative flex min-h-[210px] flex-col items-center overflow-visible rounded-2xl border px-3 py-4 text-center transition",
         selected ? "border-transparent bg-white/8" : "border-white/10 bg-white/[0.03] hover:bg-white/[0.06]",
       )}
       style={selected ? { boxShadow: `inset 0 0 0 2px ${character.accentColor}` } : undefined}
