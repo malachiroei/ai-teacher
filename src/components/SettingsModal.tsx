@@ -149,8 +149,8 @@ export function SettingsModal({
               className="flex w-full items-center justify-between rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-left transition hover:bg-amber-100/80"
             >
               <span>
-                <span className="block text-[14px] font-semibold text-slate-800">Edit Intro Details</span>
-                <span className="mt-0.5 block text-[12px] text-slate-500">ערוך שאלון היכרות · ערוך פרטי היכרות ותחומי עניין</span>
+            <span className="block text-[14px] font-semibold text-slate-800">Edit Personal Profile</span>
+            <span className="mt-0.5 block text-[12px] text-slate-500">עריכת פרופיל · עריכת פרטים אישיים</span>
               </span>
               <span className="shrink-0 text-[12px] font-semibold text-amber-700">ערוך ←</span>
             </button>

@@ -12,6 +12,7 @@ import { LevelUpBurst } from "@/components/LevelUpBurst";
 import { LoadingScreen } from "@/components/LoadingScreen";
 import { OnboardingModal } from "@/components/OnboardingModal";
 import { InteractiveOnboarding } from "@/components/InteractiveOnboarding";
+import { ProfileEditModal, type ProfileEditPayload } from "@/components/ProfileEditModal";
 import { SettingsModal } from "@/components/SettingsModal";
 import { VoiceStage } from "@/components/VoiceStage";
 import { useSpeech, SPEECH_UNAVAILABLE_MESSAGE, MIC_PERMISSION_MESSAGE } from "@/hooks/useSpeech";
@@ -36,6 +37,7 @@ import {
   saveTutorNickname,
   seedProfileMemories,
   startFreshChat,
+  writeIntroLearningGoals,
   type ArchivedChatSession,
 } from "@/lib/chat-history";
 import { getCharacter, isCharacterId, readStoredTutorId, writeStoredTutorId, type CharacterId } from "@/lib/characters";
@@ -165,6 +167,9 @@ export default function HomePage() {
   const [sessionsError, setSessionsError] = useState("");
   const [restoringId, setRestoringId] = useState<string | null>(null);
   const [profileQuizOpen, setProfileQuizOpen] = useState(false);
+  const [profileEditOpen, setProfileEditOpen] = useState(false);
+  const [savingProfileDetails, setSavingProfileDetails] = useState(false);
+  const [profileEditError, setProfileEditError] = useState("");
   const [memories, setMemories] = useState<UserMemory[]>([]);
   const [savingSettings, setSavingSettings] = useState(false);
   const [settingsError, setSettingsError] = useState("");
@@ -1252,6 +1257,36 @@ export default function HomePage() {
     }
   }
 
+  async function handleSaveProfileDetails(next: ProfileEditPayload) {
+    if (!user || !profile) return;
+    setSavingProfileDetails(true);
+    setProfileEditError("");
+    try {
+      const result = await saveProfile(createClient(), user.id, {
+        nickname: next.nickname,
+        name: next.nickname,
+        age: next.age,
+        gender: profile.gender,
+        english_level: next.english_level,
+        interests: next.interests,
+        selected_character: profile.selected_character,
+        name_pronunciation: profile.name_pronunciation,
+      });
+      if (!result.success) {
+        setProfileEditError(result.error);
+        return;
+      }
+      writeIntroLearningGoals(next.learning_goal);
+      setProfile(result.profile);
+      setProfileEditOpen(false);
+      flash("Profile saved / הפרופיל נשמר");
+    } catch (error) {
+      setProfileEditError(describeProfileSaveError(error));
+    } finally {
+      setSavingProfileDetails(false);
+    }
+  }
+
   function handleShareWhatsApp() {
     const phone = practiceSettings.parent_whatsapp;
     if (!normalizeWhatsAppPhone(phone)) {
@@ -1358,6 +1393,11 @@ export default function HomePage() {
           onToggleMenu={() => setMenuOpen((value) => !value)}
           onClearChat={handleClearChat}
           onOpenSettings={() => openSettings(false)}
+          onEditProfile={() => {
+            setMenuOpen(false);
+            setSettingsOpen(false);
+            setProfileEditOpen(true);
+          }}
           onSignOut={() => void handleSignOut()}
           practicedMinutes={practicedMinutes}
           dailyGoalMinutes={practiceSettings.daily_goal_minutes}
@@ -1460,9 +1500,23 @@ export default function HomePage() {
             }
             onEditIntro={() => {
               setSettingsOpen(false);
-              setProfileQuizOpen(true);
+              setMenuOpen(false);
+              setProfileEditOpen(true);
             }}
             onClose={() => setSettingsOpen(false)}
+          />
+        ) : null}
+
+        {profileEditOpen && profile ? (
+          <ProfileEditModal
+            profile={profile}
+            saving={savingProfileDetails}
+            error={profileEditError}
+            onSave={(next) => void handleSaveProfileDetails(next)}
+            onClose={() => {
+              setProfileEditOpen(false);
+              setProfileEditError("");
+            }}
           />
         ) : null}
 

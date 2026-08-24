@@ -4,9 +4,9 @@ import { Suspense, Component, memo, type ReactNode, useCallback, useEffect, useM
 import { Canvas, useFrame } from "@react-three/fiber";
 import { useGLTF } from "@react-three/drei";
 import type { Group, Material } from "three";
-import { MathUtils, Mesh, Object3D, SkinnedMesh, Vector3 } from "three";
+import { Color, MathUtils, Mesh, MeshStandardMaterial, Object3D, SkinnedMesh, Vector3 } from "three";
 import * as SkeletonUtils from "three/examples/jsm/utils/SkeletonUtils.js";
-import type { Character } from "@/lib/characters";
+import { CHARACTERS, type Character } from "@/lib/characters";
 
 type Avatar3DStageProps = {
   character: Character;
@@ -18,9 +18,57 @@ type Avatar3DStageProps = {
 };
 
 const MAX_MOUTH_OPEN = 0.35;
-const ALEX_MODEL_URL = "/models/alex.glb?v=human_male_v2";
-const EMMA_MODEL_URL = "/models/emma.glb?v=v_final_new";
 const MALE_CHARACTER_IDS = new Set(["alex", "leo", "kai"]);
+
+const AVATAR_LOOK: Record<string, { clothing: string; hair: string; hideGlasses?: boolean }> = {
+  leo: { clothing: "#1d4ed8", hair: "#111827", hideGlasses: true },
+  maya: { clothing: "#db2777", hair: "#3f1d12", hideGlasses: true },
+  kai: { clothing: "#3f6212", hair: "#b45309", hideGlasses: true },
+  chloe: { clothing: "#111827", hair: "#6b21a8", hideGlasses: true },
+};
+
+function applyAvatarLook(root: Object3D, characterId: string) {
+  const look = AVATAR_LOOK[characterId];
+  if (!look) return;
+  const clothing = new Color(look.clothing);
+  const hair = new Color(look.hair);
+  root.traverse((obj) => {
+    const mesh = obj as Mesh;
+    if (!mesh.isMesh) return;
+    const label = `${mesh.name} ${Array.isArray(mesh.material) ? mesh.material.map((item) => item?.name).join(" ") : mesh.material?.name ?? ""}`.toLowerCase();
+    if (look.hideGlasses && (label.includes("glass") || label.includes("eyewear"))) {
+      mesh.visible = false;
+      return;
+    }
+    if (label.includes("head") || label.includes("eye") || label.includes("tooth") || label.includes("teeth") || label.includes("body") || label.includes("skin")) {
+      return;
+    }
+    const materials = (Array.isArray(mesh.material) ? mesh.material : [mesh.material]).filter(Boolean);
+    const nextMaterials = materials.map((material) => {
+      const std = (material as MeshStandardMaterial).clone() as MeshStandardMaterial;
+      if (!std.color) return std;
+      if (label.includes("hair") || label.includes("scalp") || label.includes("brow")) {
+        std.color.copy(hair);
+        std.needsUpdate = true;
+      } else if (
+        label.includes("outfit") ||
+        label.includes("shirt") ||
+        label.includes("top") ||
+        label.includes("bottom") ||
+        label.includes("footwear") ||
+        label.includes("cloth") ||
+        label.includes("jacket") ||
+        label.includes("hoodie") ||
+        (label.includes("wolf3d") && !label.includes("hair"))
+      ) {
+        std.color.copy(clothing);
+        std.needsUpdate = true;
+      }
+      return std;
+    });
+    mesh.material = Array.isArray(mesh.material) ? nextMaterials : nextMaterials[0];
+  });
+}
 
 function setMaterialHighp(mesh: Mesh) {
   const materials = (Array.isArray(mesh.material) ? mesh.material : [mesh.material]).filter(Boolean) as Material[];
@@ -199,6 +247,8 @@ function GLTFTalkingAvatar({
       }
     });
 
+    applyAvatarLook(avatarScene, characterId);
+
     if (isMaleAvatar(characterId)) {
       avatarScene.position.set(0, -1.25, 0);
       avatarScene.scale.setScalar(1.7);
@@ -271,7 +321,7 @@ export const Avatar3DStage = memo(function Avatar3DStage({
   compact = false,
 }: Avatar3DStageProps) {
   const characterId = resolveCharacterModelId(character.id);
-  const modelUrl = character.modelUrl || (isMaleAvatar(characterId) ? ALEX_MODEL_URL : EMMA_MODEL_URL);
+  const modelUrl = character.modelUrl || `/models/${characterId}.glb`;
   const cameraPosition: [number, number, number] = [0, 0.1, 1.2];
   const [contextKey, setContextKey] = useState(0);
   const remountTimer = useRef<number | null>(null);
@@ -286,12 +336,9 @@ export const Avatar3DStage = memo(function Avatar3DStage({
 
   useEffect(() => {
     try {
-      useGLTF.preload(EMMA_MODEL_URL);
-      useGLTF.preload(ALEX_MODEL_URL);
-      useGLTF.preload("/models/leo.glb?v=1");
-      useGLTF.preload("/models/maya.glb?v=1");
-      useGLTF.preload("/models/kai.glb?v=1");
-      useGLTF.preload("/models/chloe.glb?v=1");
+      for (const item of CHARACTERS) {
+        if (item.modelUrl) useGLTF.preload(item.modelUrl);
+      }
     } catch {
       /* preload is best-effort */
     }

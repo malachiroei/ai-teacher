@@ -21,6 +21,7 @@ interface SideDrawerProps {
   onToggleSpeak: () => void;
   onOpenCharacters: () => void;
   onOpenSettings: () => void;
+  onEditProfile?: () => void;
   onOpenVoiceSettings: () => void;
   onOpenHistory: () => void;
   onOpenTranscript: () => void;
@@ -48,6 +49,7 @@ export function SideDrawer({
   onToggleSpeak,
   onOpenCharacters,
   onOpenSettings,
+  onEditProfile,
   onOpenVoiceSettings,
   onOpenHistory,
   onOpenTranscript,
@@ -103,7 +105,7 @@ export function SideDrawer({
               type="button"
               onClick={onOpenSettings}
               aria-label={`Level ${level} ${levelTitle}, ${xp} XP`}
-              className="mx-4 mb-3 rounded-2xl border border-white/10 bg-white/5 p-3 text-left"
+              className="mx-4 mb-2 rounded-2xl border border-white/10 bg-white/5 p-3 text-left"
             >
               <div className="mb-2 flex items-center justify-between">
                 <span className="text-[12px] font-semibold text-white/50">
@@ -135,6 +137,16 @@ export function SideDrawer({
                 />
               </div>
             </button>
+            {onEditProfile ? (
+              <button
+                type="button"
+                onClick={onEditProfile}
+                className="mx-4 mb-3 rounded-2xl border border-amber-300/25 bg-amber-400/10 px-3 py-2.5 text-left text-[13px] font-semibold text-amber-100"
+              >
+                Edit Personal Profile
+                <span className="mt-0.5 block text-[12px] font-medium text-amber-100/70">עריכת פרופיל</span>
+              </button>
+            ) : null}
 
             <nav className="flex flex-1 flex-col gap-0.5 px-2">
               <DrawerItem icon={Sparkles} label="New chat" onClick={onClearChat} />

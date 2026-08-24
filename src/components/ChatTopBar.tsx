@@ -23,6 +23,7 @@ interface ChatTopBarProps {
   onToggleMenu: () => void;
   onClearChat: () => void;
   onOpenSettings: () => void;
+  onEditProfile?: () => void;
   onSignOut?: () => void;
   practicedMinutes: number;
   dailyGoalMinutes: number;
@@ -49,6 +50,7 @@ export function ChatTopBar({
   onToggleMenu,
   onClearChat,
   onOpenSettings,
+  onEditProfile,
   onSignOut,
   practicedMinutes,
   dailyGoalMinutes,
@@ -132,6 +134,7 @@ export function ChatTopBar({
         onToggleSpeak={onToggleSpeak}
         onOpenCharacters={onOpenCharacters}
         onOpenSettings={onOpenSettings}
+        onEditProfile={onEditProfile}
         onOpenVoiceSettings={onOpenVoiceSettings}
         onOpenHistory={onOpenHistory}
         onOpenTranscript={onOpenTranscript}

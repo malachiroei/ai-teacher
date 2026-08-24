@@ -163,9 +163,19 @@ function prefillDailyGoal(profile?: Profile | null): 5 | 10 | 15 | null {
   return null;
 }
 
+function firstIncompleteInteractiveStep(profile?: Profile | null) {
+  if (prefillName(profile).length < 2) return 0;
+  if (!prefillSchoolStage(profile)) return 1;
+  if (prefillPassionIds(profile).length === 0) return 2;
+  if (!prefillLearningStyle(profile)) return 3;
+  if (!prefillConfidence(profile)) return 4;
+  if (!prefillDailyGoal(profile)) return 5;
+  return 2;
+}
+
 // ── Main component ─────────────────────────────────────────────────────────────
 export function InteractiveOnboarding({ user, character, initialProfile, onComplete }: InteractiveOnboardingProps) {
-  const [step, setStep] = useState(0);
+  const [step, setStep] = useState(() => firstIncompleteInteractiveStep(initialProfile));
   const [name, setName] = useState(() => prefillName(initialProfile));
   const [schoolStage, setSchoolStage] = useState<SchoolStageId | null>(() => prefillSchoolStage(initialProfile));
   const [passionIds, setPassionIds] = useState<PassionId[]>(() => prefillPassionIds(initialProfile));
@@ -485,7 +495,7 @@ export function InteractiveOnboarding({ user, character, initialProfile, onCompl
                 disabled={saving}
                 className="mt-2 w-full py-2 text-center text-sm font-medium text-white/38 hover:text-white/60 transition"
               >
-                ← חזרה
+                ← חזור
               </button>
             )}
           </div>

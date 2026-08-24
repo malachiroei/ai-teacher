@@ -109,7 +109,7 @@ Stay age-appropriate. No body-shaming, no extreme training pressure.`,
     shortDescription: "Loves astronomy, AI, gadgets, superheroes, and the mysteries of the universe.",
     avatarUrl: portrait("leo"),
     portraitUrl: portrait("leo"),
-    modelUrl: "/models/leo.glb?v=1",
+    modelUrl: "/models/leo.glb?v=look-v2",
     accentColor: "#3D9BFF",
     voice: {
       gender: "male",
@@ -138,7 +138,7 @@ Stay age-appropriate. You still correct grammar kindly, keep replies 1–3 sente
     shortDescription: "Passionate about pop music, drawing, movies, acting, and creative storytelling.",
     avatarUrl: portrait("maya"),
     portraitUrl: portrait("maya"),
-    modelUrl: "/models/maya.glb?v=1",
+    modelUrl: "/models/maya.glb?v=look-v2",
     accentColor: "#FF5DA2",
     voice: {
       gender: "female",
@@ -167,7 +167,7 @@ Stay age-appropriate. You still correct grammar kindly, keep replies 1–3 sente
     shortDescription: "Enjoys world travel, wildlife, extreme sports, hiking, and exploring cool cultures.",
     avatarUrl: portrait("kai"),
     portraitUrl: portrait("kai"),
-    modelUrl: "/models/kai.glb?v=1",
+    modelUrl: "/models/kai.glb?v=look-v2",
     accentColor: "#22C55E",
     voice: {
       gender: "male",
@@ -196,7 +196,7 @@ Stay age-appropriate. No real danger talk. You still correct grammar kindly, kee
     shortDescription: "Obsessed with Roblox, Fortnite, Minecraft, anime, and epic game strategies.",
     avatarUrl: portrait("chloe"),
     portraitUrl: portrait("chloe"),
-    modelUrl: "/models/chloe.glb?v=1",
+    modelUrl: "/models/chloe.glb?v=look-v2",
     accentColor: "#A855F7",
     voice: {
       gender: "female",

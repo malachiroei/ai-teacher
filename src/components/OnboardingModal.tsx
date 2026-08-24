@@ -15,8 +15,27 @@ interface OnboardingModalProps {
 
 const STEPS = ["Name", "Age", "Gender", "Level", "Interests"] as const;
 
+function firstIncompleteOnboardingStep(profile?: Partial<Profile> | null) {
+  const nickname = String(profile?.nickname || profile?.full_name || "").trim();
+  const age = Number(profile?.age) || 0;
+  const gender = profile?.gender;
+  const level = String(profile?.english_level || "").toLowerCase();
+  const interests = Array.isArray(profile?.interests)
+    ? profile.interests.map((item) => String(item).trim()).filter(Boolean)
+    : String(profile?.interests ?? "")
+        .split(",")
+        .map((item) => item.trim())
+        .filter(Boolean);
+  if (nickname.length < 2) return 0;
+  if (age < 5) return 1;
+  if (gender !== "boy" && gender !== "girl" && gender !== "other") return 2;
+  if (level !== "beginner" && level !== "intermediate" && level !== "advanced") return 3;
+  if (interests.length === 0) return 4;
+  return 4;
+}
+
 export function OnboardingModal({ saving, error, initialProfile, onComplete }: OnboardingModalProps) {
-  const [step, setStep] = useState(0);
+  const [step, setStep] = useState(() => firstIncompleteOnboardingStep(initialProfile));
   const [nickname, setNickname] = useState(() =>
     String(initialProfile?.nickname || initialProfile?.full_name || "").trim(),
   );
@@ -92,13 +111,14 @@ export function OnboardingModal({ saving, error, initialProfile, onComplete }: O
             type="button"
             suppressHydrationWarning
             onClick={() => setStep((value) => value - 1)}
-            className="flex h-9 w-9 items-center justify-center rounded-full hover:bg-slate-100"
-            aria-label="Back"
+            className="flex h-9 items-center gap-0.5 rounded-full pe-2 ps-1 text-[12px] font-semibold text-slate-600 hover:bg-slate-100"
+            aria-label="Back / חזור"
           >
             <ChevronLeft className="h-5 w-5" />
+            חזור
           </button>
         ) : (
-          <span className="w-9" />
+          <span className="w-14" />
         )}
         <div className="flex flex-1 justify-center gap-1.5">
           {STEPS.map((label, index) => (
