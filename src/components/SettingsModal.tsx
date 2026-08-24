@@ -7,11 +7,15 @@ import {
   DAILY_GOAL_OPTIONS,
   VOICE_SPEED_OPTIONS,
   normalizeWhatsAppPhone,
-  requestNotificationPermission,
   voiceSpeedLabel,
   type PracticeSettings,
   type VoiceSpeed,
 } from "@/lib/practice";
+import {
+  NOTIFICATION_DENIED_HELP,
+  requestNotificationPermission,
+  showNotificationsEnabledTest,
+} from "@/hooks/useNotifications";
 import { cn } from "@/lib/utils";
 
 export interface SettingsSavePayload extends PracticeSettings {
@@ -24,6 +28,7 @@ interface SettingsModalProps {
   nickname: string;
   namePronunciation: string;
   characterName: string;
+  characterId?: string;
   voices: SpeechSynthesisVoice[];
   saving?: boolean;
   error?: string;
@@ -41,6 +46,7 @@ export function SettingsModal({
   nickname,
   namePronunciation,
   characterName,
+  characterId,
   voices,
   saving,
   error,
@@ -79,11 +85,16 @@ export function SettingsModal({
       setLocalError("Browser notifications aren't supported here.");
       return;
     }
-    if (permission !== "granted") {
-      setLocalError("Allow notifications in your browser to get a daily reminder.");
+    if (permission === "denied" || permission !== "granted") {
+      setLocalError(NOTIFICATION_DENIED_HELP);
       return;
     }
     setNotify(true);
+    await showNotificationsEnabledTest({
+      tutorName: characterName,
+      tutorId: characterId || "emma",
+      practiceTime: time,
+    });
   }
 
   function handleSave() {

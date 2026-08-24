@@ -312,29 +312,15 @@ export function markNotifiedToday() {
   window.localStorage.setItem(LAST_NOTIFY_KEY, todayDateKey());
 }
 
-export async function requestNotificationPermission() {
-  if (typeof window === "undefined" || !("Notification" in window)) {
-    return "unsupported" as const;
-  }
-  if (Notification.permission === "granted") return "granted" as const;
-  if (Notification.permission === "denied") return "denied" as const;
-  const result = await Notification.requestPermission();
-  return result;
-}
-
-export function showPracticeNotification(characterName: string) {
-  if (typeof window === "undefined" || !("Notification" in window) || Notification.permission !== "granted") {
-    return false;
-  }
+export async function showPracticeNotification(input: {
+  tutorName: string;
+  tutorId: string;
+  kidName?: string;
+  goalMinutes?: number;
+}) {
   if (alreadyNotifiedToday()) return false;
-  try {
-    new Notification("Time to practice with BuddyAI!", {
-      body: `Your daily session with ${characterName} is waiting. Let's go! 🌟`,
-      tag: "buddyai-daily-practice",
-    });
-    markNotifiedToday();
-    return true;
-  } catch {
-    return false;
-  }
+  const { showTutorPracticeNotification } = await import("@/hooks/useNotifications");
+  const shown = await showTutorPracticeNotification(input);
+  if (shown) markNotifiedToday();
+  return shown;
 }

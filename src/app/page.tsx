@@ -18,6 +18,7 @@ import { VoiceStage } from "@/components/VoiceStage";
 import { useSpeech, SPEECH_UNAVAILABLE_MESSAGE, MIC_PERMISSION_MESSAGE } from "@/hooks/useSpeech";
 import { useSessionRecorder } from "@/hooks/useSessionRecorder";
 import { useVisualViewport } from "@/hooks/useVisualViewport";
+import { useNotifications } from "@/hooks/useNotifications";
 import {
   archiveCurrentChat,
   describeProfileSaveError,
@@ -139,6 +140,7 @@ function mergeLocalProgression(userId: string, nextProfile: Profile): Profile {
 }
 
 export default function HomePage() {
+  useNotifications();
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [selectedTutorId, setSelectedTutorId] = useState<CharacterId | null>(null);
@@ -301,6 +303,8 @@ export default function HomePage() {
     reminderTime: practiceSettings.preferred_practice_time,
     remindersEnabled: practiceSettings.notifications_enabled,
     characterName: character.name,
+    characterId: character.id,
+    kidName: profile?.nickname ?? "",
     engaged: isListening || isSpeaking || isLoading || awaitingGreeting,
     lastUserMessageAt,
     userMessageCount: userMessageCountToday,
@@ -1476,6 +1480,7 @@ export default function HomePage() {
             nickname={profile?.nickname ?? ""}
             namePronunciation={profile?.name_pronunciation ?? ""}
             characterName={character.name}
+            characterId={character.id}
             voices={voices}
             saving={savingSettings}
             error={settingsError}

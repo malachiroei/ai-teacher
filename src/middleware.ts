@@ -21,6 +21,6 @@ export const config = {
      * - api routes (/api/*) — critical for chat latency
      * - _next/static, _next/image, favicons, manifests, static assets, models/
      */
-    "/((?!api|_next/static|_next/image|favicon.ico|icon.svg|manifest.json|manifest.webmanifest|models|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico|glb|gltf)$).*)",
+    "/((?!api|_next/static|_next/image|favicon.ico|icon.svg|sw.js|manifest.json|manifest.webmanifest|models|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico|glb|gltf)$).*)",
   ],
 };

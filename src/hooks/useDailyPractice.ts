@@ -26,6 +26,8 @@ export function useDailyPractice(options: {
   reminderTime: string;
   remindersEnabled: boolean;
   characterName: string;
+  characterId?: string;
+  kidName?: string;
   engaged?: boolean;
   lastUserMessageAt?: number;
   userMessageCount?: number;
@@ -38,6 +40,8 @@ export function useDailyPractice(options: {
     reminderTime,
     remindersEnabled,
     characterName,
+    characterId,
+    kidName,
     engaged = false,
     lastUserMessageAt = 0,
     userMessageCount = 0,
@@ -178,7 +182,12 @@ export function useDailyPractice(options: {
       const [hours, minutes] = reminderTime.split(":").map(Number);
       const now = new Date();
       if (now.getHours() === hours && now.getMinutes() === minutes) {
-        showPracticeNotification(characterName);
+        void showPracticeNotification({
+          tutorName: characterName,
+          tutorId: characterId || "emma",
+          kidName,
+          goalMinutes,
+        });
       }
     };
 
@@ -186,7 +195,12 @@ export function useDailyPractice(options: {
     const delay = msUntilTime(reminderTime);
     const timeout = window.setTimeout(() => {
       if (practicedMinutes(secondsRef.current) < goalMinutes) {
-        showPracticeNotification(characterName);
+        void showPracticeNotification({
+          tutorName: characterName,
+          tutorId: characterId || "emma",
+          kidName,
+          goalMinutes,
+        });
       }
     }, delay);
     const poll = window.setInterval(fireIfDue, 30000);
@@ -195,7 +209,7 @@ export function useDailyPractice(options: {
       window.clearTimeout(timeout);
       window.clearInterval(poll);
     };
-  }, [remindersEnabled, enabled, reminderTime, characterName, goalMinutes]);
+  }, [remindersEnabled, enabled, reminderTime, characterName, characterId, kidName, goalMinutes]);
 
   const dismissCelebration = useCallback(() => setCelebrationOpen(false), []);
 
