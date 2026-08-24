@@ -12,6 +12,7 @@ import {
   showPracticeNotification,
   todayDateKey,
 } from "@/lib/practice";
+import { recordWeekMinutes } from "@/lib/learning-progress";
 import { createClient } from "@/lib/supabase/client";
 import type { Profile } from "@/lib/supabase/types";
 
@@ -95,6 +96,7 @@ export function useDailyPractice(options: {
       if (!userId) return;
       const snapshot = { date: todayDateKey(), seconds: nextSeconds, celebrated: nextCelebrated };
       savePracticeSnapshot(userId, snapshot);
+      recordWeekMinutes(userId, snapshot.date, practicedMinutes(nextSeconds));
       if (!syncRemote) return;
       void savePracticeProgress(createClient(), userId, {
         practice_date: snapshot.date,

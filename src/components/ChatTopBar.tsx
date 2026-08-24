@@ -23,6 +23,7 @@ interface ChatTopBarProps {
   onToggleMenu: () => void;
   onClearChat: () => void;
   onOpenSettings: () => void;
+  onOpenProgress?: () => void;
   onEditProfile?: () => void;
   onSignOut?: () => void;
   practicedMinutes: number;
@@ -50,6 +51,7 @@ export function ChatTopBar({
   onToggleMenu,
   onClearChat,
   onOpenSettings,
+  onOpenProgress,
   onEditProfile,
   onSignOut,
   practicedMinutes,
@@ -73,7 +75,7 @@ export function ChatTopBar({
           <BuddyAIMark className="h-7 w-7 shrink-0 rounded-[0.65rem] shadow-[0_0_16px_rgba(61,255,208,0.22)]" />
           <button
             type="button"
-            onClick={onOpenSettings}
+            onClick={onOpenProgress ?? onOpenSettings}
             aria-label={`Level ${level} ${title}, ${xp} XP. Daily goal ${done} of ${goal} minutes`}
             className="min-w-0 rounded-2xl px-1.5 py-0.5 text-left transition hover:bg-white/8"
           >
@@ -134,6 +136,7 @@ export function ChatTopBar({
         onToggleSpeak={onToggleSpeak}
         onOpenCharacters={onOpenCharacters}
         onOpenSettings={onOpenSettings}
+        onOpenProgress={onOpenProgress}
         onEditProfile={onEditProfile}
         onOpenVoiceSettings={onOpenVoiceSettings}
         onOpenHistory={onOpenHistory}

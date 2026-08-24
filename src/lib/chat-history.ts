@@ -12,6 +12,7 @@ import {
 } from "@/lib/memory";
 import { guessSpokenName } from "@/lib/placement";
 import { normalizeProgression } from "@/lib/progression";
+import { smartSessionTitle } from "@/lib/learning-progress";
 
 type AppSupabaseClient = SupabaseClient;
 
@@ -555,9 +556,7 @@ export interface ArchivedChatSession {
 }
 
 function sessionTitle(messages: Message[], tutorName: string) {
-  const firstUser = messages.find((message) => message.sender === "user")?.text.trim();
-  if (firstUser) return firstUser.slice(0, 48);
-  return `Chat with ${tutorName}`;
+  return smartSessionTitle(messages, `Chat with ${tutorName}`);
 }
 
 function toSessionMessage(message: Message) {

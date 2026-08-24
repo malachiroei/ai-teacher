@@ -1,10 +1,12 @@
 "use client";
 
+import { useMemo, useState } from "react";
 import { motion } from "framer-motion";
 import { Download, History, ScrollText, X } from "lucide-react";
 import { MixedBidiText } from "@/components/MixedBidiText";
 import { getCharacter } from "@/lib/characters";
 import type { ArchivedChatSession } from "@/lib/chat-history";
+import { smartSessionTitle } from "@/lib/learning-progress";
 import type { Message } from "@/types/chat";
 
 interface TranscriptHistoryModalProps {
@@ -86,6 +88,7 @@ export function TranscriptHistoryModal({
   onRestore,
   onClose,
 }: TranscriptHistoryModalProps) {
+  const [expandedId, setExpandedId] = useState<string | null>(null);
   function downloadTxt() {
     const text = buildTranscriptText(messages, tutorName, childName);
     const blob = new Blob([text], { type: "text/plain;charset=utf-8" });
@@ -162,29 +165,56 @@ export function TranscriptHistoryModal({
               {sessionsError ? <p className="px-1 pb-2 text-sm text-rose-300">{sessionsError}</p> : null}
               {sessionsLoading ? <p className="px-1 pb-2 text-sm text-white/45">Loading…</p> : null}
               <div className="space-y-2">
-                {sessions.map((session) => (
-                  <button
-                    key={session.id}
-                    type="button"
-                    disabled={Boolean(restoringId)}
-                    onClick={() => {
-                      onRestore?.(session);
-                      onClose();
-                    }}
-                    className="pointer-events-auto w-full cursor-pointer rounded-2xl border border-white/8 bg-white/[0.04] px-3 py-2.5 text-left hover:bg-white/[0.07] disabled:opacity-60"
-                  >
-                    <p className="truncate text-[14px] font-semibold text-white">{session.title}</p>
-                    <p className="mt-0.5 truncate text-[12px] text-white/50">
-                      {getCharacter(session.characterId).name}
-                      {session.preview ? ` · ${session.preview}` : ""}
-                    </p>
-                    <p className="mt-1 text-[11px] text-white/35">
-                      {restoringId === session.id
-                        ? "Opening…"
-                        : `${session.messages.length} messages · ${new Date(session.archivedAt).toLocaleString()}`}
-                    </p>
-                  </button>
-                ))}
+                {[...sessions]
+                  .sort((a, b) => (b.archivedAt || b.createdAt) - (a.archivedAt || a.createdAt))
+                  .map((session) => {
+                    const tutor = getCharacter(session.characterId);
+                    const title = smartSessionTitle(session.messages, session.title);
+                    const open = expandedId === session.id;
+                    return (
+                      <div key={session.id} className="overflow-hidden rounded-2xl border border-white/8 bg-white/[0.04]">
+                        <button
+                          type="button"
+                          onClick={() => setExpandedId(open ? null : session.id)}
+                          className="flex w-full items-center gap-3 px-3 py-2.5 text-left"
+                        >
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img src={tutor.avatarUrl} alt="" className="h-10 w-10 rounded-full object-cover" />
+                          <div className="min-w-0 flex-1">
+                            <p className="truncate text-[14px] font-semibold text-white">{title}</p>
+                            <p className="mt-0.5 text-[11px] text-white/40">
+                              {tutor.name} · {session.messages.length} messages · {new Date(session.archivedAt).toLocaleString()}
+                            </p>
+                          </div>
+                        </button>
+                        {open ? (
+                          <div className="border-t border-white/8 px-3 py-2">
+                            <ol className="max-h-48 space-y-2 overflow-y-auto">
+                              {session.messages.map((message) => (
+                                <li key={message.id} className="text-[13px] text-white/80">
+                                  <span className="text-[11px] font-semibold text-white/45">
+                                    {message.sender === "ai" ? tutor.name : childName}:
+                                  </span>{" "}
+                                  {message.text}
+                                </li>
+                              ))}
+                            </ol>
+                            <button
+                              type="button"
+                              disabled={Boolean(restoringId)}
+                              onClick={() => {
+                                onRestore?.(session);
+                                onClose();
+                              }}
+                              className="mt-2 h-9 w-full rounded-full bg-amber-400/20 text-[12px] font-semibold text-amber-100 disabled:opacity-60"
+                            >
+                              {restoringId === session.id ? "Opening…" : "Continue this chat"}
+                            </button>
+                          </div>
+                        ) : null}
+                      </div>
+                    );
+                  })}
               </div>
             </section>
           ) : null}

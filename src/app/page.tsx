@@ -14,11 +14,13 @@ import { OnboardingModal } from "@/components/OnboardingModal";
 import { InteractiveOnboarding } from "@/components/InteractiveOnboarding";
 import { ProfileEditModal, type ProfileEditPayload } from "@/components/ProfileEditModal";
 import { SettingsModal } from "@/components/SettingsModal";
+import { ProgressModal } from "@/components/ProgressModal";
+import { PracticeMomentsRecorder } from "@/components/PracticeMomentsRecorder";
 import { VoiceStage } from "@/components/VoiceStage";
 import { useSpeech, SPEECH_UNAVAILABLE_MESSAGE, MIC_PERMISSION_MESSAGE } from "@/hooks/useSpeech";
-import { useSessionRecorder } from "@/hooks/useSessionRecorder";
 import { useVisualViewport } from "@/hooks/useVisualViewport";
 import { useNotifications } from "@/hooks/useNotifications";
+import { loadWeekMinutes, loadTutorsMet, rememberTutorMet } from "@/lib/learning-progress";
 import {
   archiveCurrentChat,
   describeProfileSaveError,
@@ -164,6 +166,9 @@ export default function HomePage() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsFocusVoice, setSettingsFocusVoice] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [progressOpen, setProgressOpen] = useState(false);
+  const [practiceMomentsOn, setPracticeMomentsOn] = useState(false);
+  const [trophyTick, setTrophyTick] = useState(0);
   const [sessions, setSessions] = useState<ArchivedChatSession[]>([]);
   const [sessionsLoading, setSessionsLoading] = useState(false);
   const [sessionsError, setSessionsError] = useState("");
@@ -204,6 +209,10 @@ export default function HomePage() {
     ...practiceSettingsFromProfile(profile),
     voice_speed: voiceSpeed,
   };
+
+  useEffect(() => {
+    if (user?.id) rememberTutorMet(user.id, character.id);
+  }, [user?.id, character.id]);
 
   const maybePrintLatencyReport = useCallback(() => {
     if (latencyReportPrintedRef.current) return;
@@ -285,7 +294,7 @@ export default function HomePage() {
       }, 140);
     },
   });
-  const recorder = useSessionRecorder();
+  const recorderSupported = typeof MediaRecorder !== "undefined";
   startListeningRef.current = startListening;
   canAutoListenRef.current =
     chatUnlocked && !isLoading && !awaitingGreeting && !sendingRef.current && speechSupported.stt;
@@ -1377,26 +1386,25 @@ export default function HomePage() {
           onOpenVoiceSettings={() => openSettings(true)}
           onOpenHistory={openHistoryHub}
           onOpenTranscript={openHistoryHub}
-          recording={recorder.recording}
-          recorderSupported={recorder.supported}
-          hasRecordingClip={recorder.hasClip}
+          recording={practiceMomentsOn}
+          recorderSupported={recorderSupported}
+          hasRecordingClip
           onToggleRecording={() => {
-            void (async () => {
-              if (recorder.recording) {
-                recorder.stop();
-                return;
-              }
-              const ok = await recorder.start();
-              if (!ok) flash("Couldn't start recording. Check microphone permission.");
-            })();
+            setMenuOpen(false);
+            setPracticeMomentsOn((value) => !value);
           }}
           onDownloadRecording={() => {
-            if (!recorder.download()) flash("No recorded audio yet.");
+            setMenuOpen(false);
+            setTrophyTick((value) => value + 1);
           }}
           menuOpen={menuOpen}
           onToggleMenu={() => setMenuOpen((value) => !value)}
           onClearChat={handleClearChat}
           onOpenSettings={() => openSettings(false)}
+          onOpenProgress={() => {
+            setMenuOpen(false);
+            setProgressOpen(true);
+          }}
           onEditProfile={() => {
             setMenuOpen(false);
             setSettingsOpen(false);
@@ -1456,6 +1464,19 @@ export default function HomePage() {
           offsetForBanner={Boolean(
             chatUnlocked && !needsInteractiveOnboarding && profile && !isIntroProfileComplete(profile),
           )}
+        />
+
+        <PracticeMomentsRecorder
+          active={practiceMomentsOn}
+          listening={isListening}
+          childName={profile?.nickname || "Buddy"}
+          tutorName={character.name}
+          minutes={practicedMinutes}
+          xp={Number(profile?.xp) || 0}
+          messages={messages}
+          parentPhone={practiceSettings.parent_whatsapp}
+          trophyTick={trophyTick}
+          onError={(message) => flash(message)}
         />
 
         {notice ? (
@@ -1522,6 +1543,20 @@ export default function HomePage() {
               setProfileEditOpen(false);
               setProfileEditError("");
             }}
+          />
+        ) : null}
+
+        {progressOpen ? (
+          <ProgressModal
+            xp={Number(profile?.xp) || 0}
+            messages={messages}
+            sessions={sessions}
+            weekMinutes={user?.id ? loadWeekMinutes(user.id) : {}}
+            tutorsMet={user?.id ? loadTutorsMet(user.id) : []}
+            currentTutorId={character.id}
+            goalMinutes={practiceSettings.daily_goal_minutes}
+            practicedMinutesToday={practicedMinutes}
+            onClose={() => setProgressOpen(false)}
           />
         ) : null}
 

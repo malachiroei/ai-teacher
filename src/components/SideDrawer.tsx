@@ -1,7 +1,7 @@
 "use client";
 
 import { AnimatePresence, motion } from "framer-motion";
-import { Circle, Download, History, LogOut, Settings2, Sparkles, X } from "lucide-react";
+import { Circle, Download, History, LogOut, Settings2, Sparkles, Trophy, X } from "lucide-react";
 import { BuddyAIMark } from "@/components/BuddyAIMark";
 import type { Character } from "@/lib/characters";
 import { cn } from "@/lib/utils";
@@ -21,6 +21,7 @@ interface SideDrawerProps {
   onToggleSpeak: () => void;
   onOpenCharacters: () => void;
   onOpenSettings: () => void;
+  onOpenProgress?: () => void;
   onEditProfile?: () => void;
   onOpenVoiceSettings: () => void;
   onOpenHistory: () => void;
@@ -49,6 +50,7 @@ export function SideDrawer({
   onToggleSpeak,
   onOpenCharacters,
   onOpenSettings,
+  onOpenProgress,
   onEditProfile,
   onOpenVoiceSettings,
   onOpenHistory,
@@ -103,7 +105,7 @@ export function SideDrawer({
 
             <button
               type="button"
-              onClick={onOpenSettings}
+              onClick={onOpenProgress ?? onOpenSettings}
               aria-label={`Level ${level} ${levelTitle}, ${xp} XP`}
               className="mx-4 mb-2 rounded-2xl border border-white/10 bg-white/5 p-3 text-left"
             >
@@ -155,12 +157,12 @@ export function SideDrawer({
               {recorderSupported && onToggleRecording ? (
                 <DrawerItem
                   icon={Circle}
-                  label={recording ? "Stop recording" : "Record conversation"}
+                  label={recording ? "Stop Practice Moments camera" : "Practice Moments camera"}
                   onClick={onToggleRecording}
                 />
               ) : null}
               {recorderSupported && hasRecordingClip && onDownloadRecording ? (
-                <DrawerItem icon={Download} label="Download audio (.webm)" onClick={onDownloadRecording} />
+                <DrawerItem icon={Trophy} label="Practice Trophy Card / WhatsApp" onClick={onDownloadRecording} />
               ) : null}
             </nav>
 
