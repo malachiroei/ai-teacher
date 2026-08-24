@@ -20,6 +20,7 @@ import {
   speakableSentences,
   type ChatStreamEvent,
 } from "@/lib/chat-stream";
+import { dayPartFromHour, timeOfDayGreeting, timeOfDaySystemHint } from "@/lib/daypart";
 import { fetchProfile } from "@/lib/chat-history";
 import { createClient } from "@/lib/supabase/server";
 import { trustSystemCertificates } from "@/lib/tls";
@@ -146,6 +147,7 @@ interface ChatRequestBody {
   placement?: boolean;
   placementCompleted?: boolean;
   clientSendAt?: number | null;
+  localHour?: number | null;
 }
 
 function formatStructuredUserProfile(profile?: ProfileInput | null) {
@@ -495,25 +497,7 @@ function emptyGrammar(correctedText = ""): GrammarFeedback {
   return { hasError: false, explanation: "", correctedText };
 }
 
-const GREETING_OPENERS: Array<{ en: string; he: string; suggestions: string[] }> = [
-  {
-    en: "Hi! How are you doing today?",
-    he: "היי! מה שלומך היום?",
-    suggestions: ["I'm good!", "A little tired.", "Pretty good!"],
-  },
-  {
-    en: "Hey! Good to see you. How has your day been so far?",
-    he: "היי! כיף לראות אותך. איך היה היום שלך עד עכשיו?",
-    suggestions: ["It was good!", "A bit busy.", "Nice, thanks!"],
-  },
-  {
-    en: "Hi there! How are you feeling today?",
-    he: "היי! איך אתה מרגיש היום?",
-    suggestions: ["I'm happy!", "I'm okay.", "A little sleepy."],
-  },
-];
-
-function naturalGreetingReply(profile?: ProfileInput | null, askName = false): ChatApiResponse {
+function naturalGreetingReply(profile?: ProfileInput | null, askName = false, hour = new Date().getHours()): ChatApiResponse {
   const name = String(profile?.nickname ?? "").trim();
   if (askName && !name) {
     return {
@@ -524,16 +508,9 @@ function naturalGreetingReply(profile?: ProfileInput | null, askName = false): C
     };
   }
 
-  const pick = GREETING_OPENERS[Math.floor(Date.now() / 1000) % GREETING_OPENERS.length];
-  const hello = name
-    ? pick.en
-        .replace("Hey!", `Hey ${name}!`)
-        .replace("Hey there!", `Hey ${name}!`)
-        .replace("Hi there!", `Hi ${name}!`)
-        .replace("Hi!", `Hi ${name}!`)
-    : pick.en;
+  const pick = timeOfDayGreeting(name || undefined, hour);
   return {
-    aiResponse: hello,
+    aiResponse: pick.en,
     translation: pick.he,
     grammarAnalysis: emptyGrammar(),
     suggestedAnswers: pick.suggestions,
@@ -547,12 +524,13 @@ function maybeGreetingReply(
   profile?: ProfileInput | null,
   placement?: boolean,
   placementCompleted = false,
+  hour = new Date().getHours(),
 ): ChatApiResponse | null {
   if (action !== "chat") return null;
   if (!isSimpleGreeting(userMessage)) return null;
   const knownName = String(profile?.nickname ?? "").trim();
   const inPlacement = Boolean(placement || isPlacementActive(history, placementCompleted)) && !placementCompleted && !knownName;
-  return naturalGreetingReply(profile, inPlacement);
+  return naturalGreetingReply(profile, inPlacement, hour);
 }
 
 function hebrewLessonReply(userMessage: string, allowScaffold: boolean): ChatApiResponse {
@@ -773,20 +751,22 @@ function mockPlacementReply(
   };
 }
 
-function mockDailyGreeting(profile?: ProfileInput | null, memories: UserMemory[] = []): ChatApiResponse {
-  const name = String(profile?.nickname || profile?.name || "friend").trim() || "friend";
+function mockDailyGreeting(profile?: ProfileInput | null, memories: UserMemory[] = [], hour = new Date().getHours()): ChatApiResponse {
+  const name = String(profile?.nickname || profile?.name || "").trim();
+  const greeting = timeOfDayGreeting(name || undefined, hour);
   const latest = memories[0];
-  const fact = latest?.fact ?? "your day";
+  const fact = latest?.fact ?? "";
   const shortFact = fact.replace(/^Child's name is /i, "").slice(0, 40);
+  const remember = latest ? ` I still remember ${shortFact.toLowerCase()}.` : "";
   return {
-    aiResponse: `Hey ${name}! ${latest ? `I still remember ${shortFact.toLowerCase()}.` : "I missed you!"} How are you today?`,
-    translation: `היי ${name}! ${latest ? "אני זוכר אותך." : "התגעגעתי אליך!"} מה שלומך היום?`,
+    aiResponse: `${greeting.en.slice(0, greeting.en.indexOf("!") + 1)}${remember} ${greeting.en.slice(greeting.en.indexOf("!") + 1).trim()}`.replace(/\s+/g, " ").trim(),
+    translation: greeting.he,
     grammarAnalysis: {
       hasError: false,
       explanation: "ברוכים השבים! אין כאן שגיאה.",
       correctedText: "",
     },
-    suggestedAnswers: ["I'm great!", "I am happy.", "I played a game."],
+    suggestedAnswers: greeting.suggestions,
   };
 }
 
@@ -798,12 +778,13 @@ function mockReply(
   placement?: boolean,
   memories: UserMemory[] = [],
   placementCompleted = false,
+  hour = new Date().getHours(),
 ): ChatApiResponse {
   if (action === "daily_open") {
-    return mockDailyGreeting(profile, memories);
+    return mockDailyGreeting(profile, memories, hour);
   }
 
-  const greeting = maybeGreetingReply(userMessage, action, history, profile, placement, placementCompleted);
+  const greeting = maybeGreetingReply(userMessage, action, history, profile, placement, placementCompleted, hour);
   if (greeting) return greeting;
 
   if (!placementCompleted && (placement || isPlacementActive(history, placementCompleted))) {
@@ -1078,6 +1059,7 @@ async function streamGemini(
     placementCompleted?: boolean;
     clientSendAt?: number | null;
     t0ServerStart?: number;
+    localHour?: number;
   } | undefined,
   onEvent: (event: ChatStreamEvent) => void,
 ): Promise<ChatApiResponse> {
@@ -1096,12 +1078,19 @@ async function streamGemini(
   const allowScaffold = shouldOfferSayHint(userMessage);
   const simpleHi = isSimpleGreeting(userMessage);
 
+  const localHour =
+    typeof extras?.localHour === "number" && extras.localHour >= 0 && extras.localHour <= 23
+      ? extras.localHour
+      : new Date().getHours();
+  const timeHint = timeOfDaySystemHint(localHour);
+  const part = dayPartFromHour(localHour);
+
   const languageHint =
     action === "daily_open" || extras?.isFirstSessionToday
-      ? "FIRST MESSAGE TODAY. Memories exist. Greet warmly (name OK once). Follow up on their latest plan, pet, game, or day. One punchy sentence + one fun question under 25 words. Do NOT ask their name again. Do NOT restart placement. Do NOT default to sports."
+      ? `${timeHint} FIRST MESSAGE TODAY. Memories exist. Greet with the matching time-of-day opener (morning / afternoon / evening). Follow up on their latest plan, pet, or day — not a random evening line in the morning. One punchy sentence + one fun question under 25 words. Do NOT ask their name again. Do NOT restart placement. Do NOT default to sports.`
       : simpleHi && !placement
-        ? "SIMPLE GREETING only (hi/hello/hey). Warm hello using their name if you know it. Ask only how they are today or how their day is going. Do NOT ask about games, movies, sports, or a specific hobby yet. One short sentence + one easy check-in question, under 20 words."
-      : placement
+        ? `${timeHint} SIMPLE GREETING only (hi/hello/hey). Use the ${part} greeting. Ask only how they are / how the day is going for this time of day. Do NOT ask about games, movies, sports, or a specific hobby yet. One short sentence + one easy check-in question, under 20 words.`
+        : placement
         ? `PLACEMENT MODE is ON. Real answers so far: ${userTurns} of 3 (name, grade/age, favorite thing to learn or play). Ask only the next missing step. One short question. If they only said hi/hello/שלום/היי, that is NOT their name — greet warmly and ask their name again.`
         : action === "change_topic"
           ? "CHANGE TOPIC: Drop the previous subject completely. Warmly ask what they feel like talking about right now (e.g. \"Sure thing! What do you feel like talking about right now?\"). Do NOT pick a topic for them. Do NOT use their name. Do NOT ask name/age/favorite color."
@@ -1243,6 +1232,7 @@ Use memories when relevant. One punchy sentence + one open question. Under 25 wo
       placement,
       extras?.memories ?? [],
       placementCompleted,
+      localHour,
     );
     streamComplete = "NO";
     streamReason = `fallback reply: ${errMsg}`;
@@ -1303,6 +1293,10 @@ export async function POST(request: Request) {
     const bodyProfile = body.profile ?? null;
     const bodyMemories = Array.isArray(body.memories) ? body.memories : [];
     const clientSendAt = typeof body.clientSendAt === "number" ? body.clientSendAt : null;
+    const localHour =
+      typeof body.localHour === "number" && body.localHour >= 0 && body.localHour <= 23
+        ? Math.floor(body.localHour)
+        : new Date().getHours();
 
     // Never block the SSE stream on Supabase when the client already sent a profile.
     let profile = bodyProfile;
@@ -1331,6 +1325,7 @@ export async function POST(request: Request) {
       placementCompleted,
       clientSendAt,
       t0ServerStart,
+      localHour,
     };
     const apiKey = geminiApiKey();
     if (!apiKey) {

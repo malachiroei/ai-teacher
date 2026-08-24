@@ -28,6 +28,8 @@ interface ChatTopBarProps {
   dailyGoalMinutes: number;
   xp: number;
   level: number;
+  showProfileReminder?: boolean;
+  onOpenProfileReminder?: () => void;
 }
 
 export function ChatTopBar({
@@ -52,6 +54,8 @@ export function ChatTopBar({
   dailyGoalMinutes,
   xp,
   level,
+  showProfileReminder,
+  onOpenProfileReminder,
 }: ChatTopBarProps) {
   const goal = Math.max(1, dailyGoalMinutes);
   const done = Math.min(practicedMinutes, goal);
@@ -96,6 +100,17 @@ export function ChatTopBar({
           <Menu className="h-4 w-4" />
         </button>
       </div>
+
+      {showProfileReminder ? (
+        <button
+          type="button"
+          onClick={onOpenProfileReminder}
+          className="absolute inset-x-4 top-[calc(2.85rem+env(safe-area-inset-top))] z-[55] flex items-center justify-between rounded-xl border border-amber-500/40 bg-amber-500/20 p-2.5 text-left text-sm text-amber-200 transition-all hover:bg-amber-500/30"
+        >
+          <span>🎯 Complete your intro questions to personalize your practice!</span>
+          <span className="shrink-0 rounded bg-amber-500/30 px-2 py-1 text-xs font-semibold">Start →</span>
+        </button>
+      ) : null}
 
       <SideDrawer
         open={menuOpen}

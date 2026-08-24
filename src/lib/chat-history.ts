@@ -33,6 +33,18 @@ export function isProfileComplete(profile: Partial<Profile> | null | undefined):
   return Boolean(profile && profile.id && nickname?.toString().trim() && profile.english_level);
 }
 
+export function isIntroProfileComplete(profile: Partial<Profile> | null | undefined) {
+  const nickname = String(profile?.nickname || profile?.full_name || "").trim();
+  const interests = Array.isArray(profile?.interests)
+    ? profile.interests.map((item) => String(item).trim()).filter(Boolean)
+    : String(profile?.interests ?? "")
+        .split(",")
+        .map((item) => item.trim())
+        .filter(Boolean);
+  const age = Number(profile?.age) || 0;
+  return Boolean(nickname && profile?.english_level && interests.length > 0 && age > 0);
+}
+
 export function describeProfileSaveError(error: unknown) {
   if (typeof navigator !== "undefined" && navigator.onLine === false) {
     return "You're offline. Check your connection and try again.";
@@ -535,13 +547,27 @@ function fromSessionMessages(value: unknown): Message[] {
   if (!Array.isArray(value)) return [];
   const messages: Message[] = [];
   for (const item of value) {
-    const row = item as Partial<Message> & { grammar_feedback?: GrammarFeedback | null };
-    if (!row || (row.sender !== "ai" && row.sender !== "user") || !row.text) continue;
+    const row = item as Partial<Message> & {
+      grammar_feedback?: GrammarFeedback | null;
+      role?: string;
+      content?: string;
+      created_at?: string | number;
+    };
+    const role = String(row.sender || row.role || "").toLowerCase();
+    const sender: Message["sender"] | null =
+      role === "ai" || role === "assistant" || role === "model"
+        ? "ai"
+        : role === "user"
+          ? "user"
+          : null;
+    const text = String(row.text || row.content || "").trim();
+    if (!sender || !text) continue;
+    const ts = Number(row.timestamp) || (row.created_at ? new Date(row.created_at).getTime() : Date.now());
     messages.push({
-      id: String(row.id || `${Date.now()}-${Math.random().toString(16).slice(2)}`),
-      sender: row.sender,
-      text: String(row.text),
-      timestamp: Number(row.timestamp) || Date.now(),
+      id: String(row.id || `${ts}-${messages.length}`),
+      sender,
+      text,
+      timestamp: Number.isFinite(ts) ? ts : Date.now(),
       translation: row.translation ?? undefined,
       grammarFeedback: row.grammarFeedback ?? row.grammar_feedback ?? undefined,
     });

@@ -166,9 +166,12 @@ export function TranscriptHistoryModal({
                   <button
                     key={session.id}
                     type="button"
-                    disabled={Boolean(restoringId) || !onRestore}
-                    onClick={() => onRestore?.(session)}
-                    className="w-full rounded-2xl border border-white/8 bg-white/[0.04] px-3 py-2.5 text-left hover:bg-white/[0.07] disabled:opacity-60"
+                    disabled={Boolean(restoringId)}
+                    onClick={() => {
+                      onRestore?.(session);
+                      onClose();
+                    }}
+                    className="pointer-events-auto w-full cursor-pointer rounded-2xl border border-white/8 bg-white/[0.04] px-3 py-2.5 text-left hover:bg-white/[0.07] disabled:opacity-60"
                   >
                     <p className="truncate text-[14px] font-semibold text-white">{session.title}</p>
                     <p className="mt-0.5 truncate text-[12px] text-white/50">

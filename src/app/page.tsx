@@ -26,6 +26,7 @@ import {
   restoreChatSession,
   saveMessage,
   isProfileComplete,
+  isIntroProfileComplete,
   loadChatHistory,
   rememberKidTurn,
   saveProfile,
@@ -48,6 +49,7 @@ import {
   type PipelineClientMetrics,
   type PipelineServerMetrics,
 } from "@/lib/pipeline-latency";
+import { timeOfDayGreeting } from "@/lib/daypart";
 import { mergeTranscriptMessages, readTranscriptCache, writeTranscriptCache } from "@/lib/transcript-cache";
 import {
   buildFriendshipOpener,
@@ -681,6 +683,7 @@ export default function HomePage() {
           (message) => message.sender === "user" && message.timestamp >= startOfLocalDay(),
         ),
         clientSendAt,
+        localHour: new Date().getHours(),
       }),
     });
 
@@ -998,8 +1001,19 @@ export default function HomePage() {
   }
 
   async function handleRestoreSession(session: ArchivedChatSession) {
-    if (!user || !profile) return;
+    if (!user) return;
+    setHistoryOpen(false);
     setRestoringId(session.id);
+    const nextCharacter = getCharacter(session.characterId);
+    setSelectedTutorId(nextCharacter.id);
+    writeStoredTutorId(nextCharacter.id);
+    const thread = session.messages?.length ? session.messages : [];
+    setMessages(thread);
+    writeTranscriptCache(user.id, thread);
+    setOpenTranslations({});
+    if (profile) {
+      setProfile({ ...profile, selected_character: nextCharacter.id });
+    }
     try {
       const supabase = createClient();
       const restored = await restoreChatSession(supabase, user.id, session, {
@@ -1007,16 +1021,13 @@ export default function HomePage() {
         characterId: character.id,
         tutorName: character.name,
       });
-      const nextCharacter = getCharacter(session.characterId);
-      setSelectedTutorId(nextCharacter.id);
-      writeStoredTutorId(nextCharacter.id);
-      setProfile({ ...profile, selected_character: nextCharacter.id });
-      setMessages(restored.length > 0 ? restored : hasCompletedKidsPlacement(user.id, [], profile) ? [friendshipMessage(profile)] : [placementMessage(profile)]);
-      setOpenTranslations({});
-      setHistoryOpen(false);
+      if (restored.length > 0) {
+        setMessages(restored);
+        writeTranscriptCache(user.id, restored);
+      }
       void saveSelectedCharacter(supabase, user.id, nextCharacter.id);
     } catch {
-      flash("Couldn't open that chat.");
+      flash("Opened locally — couldn't sync that chat to the server.");
     } finally {
       setRestoringId(null);
     }
@@ -1164,8 +1175,9 @@ export default function HomePage() {
       // Personalised first greeting — keep BEGINNER ultra-simple (matches onboarding choice).
       const kidName = (next.profile.full_name ?? next.profile.nickname ?? "").trim() || "friend";
       const tutorNameStr = character.name;
-      const greetingText = `Hi ${kidName}! I'm ${tutorNameStr}. How are you doing today?`;
-      const greetingTranslation = `היי ${kidName}! אני ${tutorNameStr}. מה שלומך היום?`;
+      const tod = timeOfDayGreeting(kidName);
+      const greetingText = `${tod.en.slice(0, tod.en.indexOf("!") + 1)} I'm ${tutorNameStr}. ${tod.en.slice(tod.en.indexOf("!") + 1).trim()}`;
+      const greetingTranslation = tod.he;
 
       const opener = {
         id: typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `${Date.now()}`,
@@ -1179,7 +1191,7 @@ export default function HomePage() {
       setMessages([opener]);
       setSpokenReply(opener.text);
       setSpokenTranslation(opener.translation);
-      setSuggestions(["I'm good!", "A little tired.", "Pretty good!"]);
+      setSuggestions(tod.suggestions);
 
       unlockSpeech();
       if (autoSpeak) speak(opener.text);
@@ -1346,6 +1358,15 @@ export default function HomePage() {
           dailyGoalMinutes={practiceSettings.daily_goal_minutes}
           xp={Number(profile?.xp) || 0}
           level={Number(profile?.level) || 1}
+          showProfileReminder={
+            Boolean(
+              chatUnlocked &&
+                !needsInteractiveOnboarding &&
+                profile &&
+                !isIntroProfileComplete(profile),
+            )
+          }
+          onOpenProfileReminder={() => setProfileQuizOpen(true)}
         />
 
         <VoiceStage
@@ -1383,23 +1404,10 @@ export default function HomePage() {
           }}
           onOpenCharacters={openCharacterPicker}
           onSetVolume={setVolume}
+          offsetForBanner={Boolean(
+            chatUnlocked && !needsInteractiveOnboarding && profile && !isIntroProfileComplete(profile),
+          )}
         />
-
-        {chatUnlocked &&
-        onboardingDone &&
-        !needsInteractiveOnboarding &&
-        !hasCompletedKidsPlacement(user?.id, messages, profile) ? (
-          <button
-            type="button"
-            onClick={() => setProfileQuizOpen(true)}
-            className="absolute inset-x-3 top-[calc(3.4rem+env(safe-area-inset-top))] z-40 rounded-2xl border border-amber-200/25 bg-amber-400/15 px-3 py-2 text-left shadow-[0_8px_30px_rgba(0,0,0,0.25)] backdrop-blur-md"
-          >
-            <p className="text-[13px] font-semibold text-amber-50">
-              Complete your profile for more personal practice! 🎯
-            </p>
-            <p className="text-[11px] text-amber-100/70">Tap here · השלם את הפרופיל</p>
-          </button>
-        ) : null}
 
         {notice ? (
           <p className="pointer-events-none absolute inset-x-0 bottom-40 z-40 px-6 text-center text-xs font-medium text-amber-100/90">

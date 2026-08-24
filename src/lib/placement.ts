@@ -1,3 +1,4 @@
+import { timeOfDayGreeting } from "@/lib/daypart";
 import { isSimpleGreeting } from "@/lib/language";
 import type { Gender } from "@/lib/supabase/types";
 import type { Message } from "@/types/chat";
@@ -169,30 +170,30 @@ export function buildFriendshipOpener(
   childName: string,
   favorite?: string,
   gender?: Gender | string | null,
+  hour = new Date().getHours(),
 ): Message {
-  const name = childName.trim() || "friend";
+  void tutorName;
+  const greeting = timeOfDayGreeting(childName, hour);
   const girl = asGender(gender) === "girl";
   const thing = favorite?.trim();
-  if (thing) {
-    return {
-      id: createId(),
-      sender: "ai",
-      text: `Hey ${name}! I still remember you like ${thing}. What did you do today?`,
-      timestamp: Date.now(),
-      translation: girl
-        ? `היי ${name}! אני זוכרת שאת אוהבת ${thing}. מה עשית היום?`
-        : `היי ${name}! אני זוכר שאתה אוהב ${thing}. מה עשית היום?`,
-    };
-  }
-
+  const bang = greeting.en.indexOf("!");
+  const hello = bang >= 0 ? greeting.en.slice(0, bang + 1) : greeting.en;
+  const question = bang >= 0 ? greeting.en.slice(bang + 1).trim() : "";
+  const rememberEn = thing ? ` I still remember you like ${thing}.` : "";
+  const rememberHe = thing
+    ? girl
+      ? ` אני זוכרת שאת אוהבת ${thing}.`
+      : ` אני זוכר שאתה אוהב ${thing}.`
+    : "";
+  const heBang = greeting.he.indexOf("!");
+  const heHello = heBang >= 0 ? greeting.he.slice(0, heBang + 1) : greeting.he;
+  const heRest = heBang >= 0 ? greeting.he.slice(heBang + 1) : "";
   return {
     id: createId(),
     sender: "ai",
-      text: `Hey ${name}! Good to see you. How has your day been so far?`,
-      timestamp: Date.now(),
-      translation: girl
-        ? `היי ${name}! כיף לראות אותך. איך היה היום שלך עד עכשיו?`
-        : `היי ${name}! כיף לראות אותך. איך היה היום שלך עד עכשיו?`,
+    text: `${hello}${rememberEn} ${question}`.replace(/\s+/g, " ").trim(),
+    timestamp: Date.now(),
+    translation: `${heHello}${rememberHe}${heRest}`.replace(/\s+/g, " ").trim(),
   };
 }
 
