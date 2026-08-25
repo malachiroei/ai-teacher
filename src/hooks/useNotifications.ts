@@ -9,7 +9,7 @@ export type NotificationPermissionResult = NotificationPermission | "unsupported
 export async function registerServiceWorker() {
   if (typeof window === "undefined" || !("serviceWorker" in navigator)) return null;
   try {
-    const registration = await navigator.serviceWorker.register(SW_PATH, { scope: "/" });
+    const registration = await navigator.serviceWorker.register(SW_PATH, { scope: "/", updateViaCache: "none" });
     await navigator.serviceWorker.ready;
     return registration;
   } catch (error) {
@@ -57,6 +57,9 @@ export const NOTIFICATION_DENIED_HELP =
 
 export type ReminderSoundId = "chime" | "arcade" | "pop" | "fanfare";
 export const REMINDER_SOUND_STORAGE_KEY = "buddyai_reminder_sound";
+export const REMINDER_SCHEDULE_STORAGE_KEY = "buddyai_reminder_schedule";
+export const REMINDER_CACHE_NAME = "buddyai-reminder";
+export const REMINDER_CONFIG_URL = "/__buddyai/reminder-config";
 
 export const REMINDER_SOUNDS: Array<{
   id: ReminderSoundId;
@@ -150,6 +153,23 @@ function playFanfare(ctx: AudioContext, t0: number) {
   });
 }
 
+function playTryAgain(ctx: AudioContext, t0: number) {
+  tone(ctx, "square", 180, t0, 0.14, 0.08, 90);
+  tone(ctx, "sawtooth", 140, t0 + 0.08, 0.18, 0.06, 70);
+}
+
+export async function playTryAgainSound() {
+  const ctx = getAudioContext();
+  if (!ctx) return false;
+  try {
+    if (ctx.state === "suspended") await ctx.resume();
+    playTryAgain(ctx, ctx.currentTime + 0.01);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export async function playReminderSound(soundId?: ReminderSoundId) {
   const ctx = getAudioContext();
   if (!ctx) return false;
@@ -196,7 +216,7 @@ export async function showTutorPracticeNotification(input: {
   const icon = `/avatars/${tutorId}.png`;
   try {
     void playReminderSound();
-    return await showViaServiceWorker(`🚀 ${tutorName} is waiting for you!`, {
+    const shown = await showViaServiceWorker(`🚀 ${tutorName} is waiting for you!`, {
       body: pickBody(input.kidName ?? "", tutorName, input.goalMinutes ?? 10),
       icon,
       badge: icon,
@@ -205,6 +225,8 @@ export async function showTutorPracticeNotification(input: {
       vibrate: [200, 100, 200],
       data: { url: "/" },
     });
+    if (shown) void markReminderFiredToday();
+    return shown;
   } catch (error) {
     console.warn("Could not show practice notification:", error);
     return false;
@@ -239,8 +261,127 @@ export async function showNotificationsEnabledTest(input: {
   }
 }
 
+export interface ReminderScheduleConfig {
+  hhmm: string;
+  enabled: boolean;
+  tutorName: string;
+  tutorId: string;
+  kidName: string;
+  goalMinutes: number;
+  lastFiredDate?: string;
+}
+
+function localDateKey(date = new Date()) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+
+export function readStoredReminderSchedule(): ReminderScheduleConfig | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.localStorage.getItem(REMINDER_SCHEDULE_STORAGE_KEY);
+    if (!raw) return null;
+    return JSON.parse(raw) as ReminderScheduleConfig;
+  } catch {
+    return null;
+  }
+}
+
+async function writeReminderIndexedDb(config: ReminderScheduleConfig) {
+  await new Promise<void>((resolve) => {
+    const request = indexedDB.open("buddyai-reminders", 1);
+    request.onupgradeneeded = () => {
+      if (!request.result.objectStoreNames.contains("config")) request.result.createObjectStore("config");
+    };
+    request.onerror = () => resolve();
+    request.onsuccess = () => {
+      try {
+        const tx = request.result.transaction("config", "readwrite");
+        tx.objectStore("config").put(config, "schedule");
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => resolve();
+      } catch {
+        resolve();
+      }
+    };
+  });
+}
+
+async function registerBackgroundWake(registration: ServiceWorkerRegistration) {
+  const periodic = (registration as ServiceWorkerRegistration & {
+    periodicSync?: { register: (tag: string, options: { minInterval: number }) => Promise<void> };
+  }).periodicSync;
+  if (periodic) {
+    try {
+      const status = await navigator.permissions.query({ name: "periodic-background-sync" as PermissionName });
+      if (status.state !== "denied") {
+        await periodic.register("practice-reminder", { minInterval: 60 * 60 * 1000 });
+      }
+    } catch {
+      /* not supported or not granted */
+    }
+  }
+  const oneShot = (registration as ServiceWorkerRegistration & {
+    sync?: { register: (tag: string) => Promise<void> };
+  }).sync;
+  if (oneShot) {
+    try {
+      await oneShot.register("practice-reminder");
+    } catch {
+      /* ignore */
+    }
+  }
+}
+
+export async function persistReminderSchedule(config: ReminderScheduleConfig) {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(REMINDER_SCHEDULE_STORAGE_KEY, JSON.stringify(config));
+  } catch {
+    /* ignore */
+  }
+  try {
+    const cache = await caches.open(REMINDER_CACHE_NAME);
+    await cache.put(
+      REMINDER_CONFIG_URL,
+      new Response(JSON.stringify(config), { headers: { "Content-Type": "application/json" } }),
+    );
+  } catch {
+    /* ignore */
+  }
+  try {
+    await writeReminderIndexedDb(config);
+  } catch {
+    /* ignore */
+  }
+  const registration = await registerServiceWorker();
+  const worker = registration?.active ?? registration?.waiting ?? registration?.installing;
+  worker?.postMessage({ type: "SCHEDULE_REMINDER", config });
+  if (registration) await registerBackgroundWake(registration);
+}
+
+export async function markReminderFiredToday() {
+  const previous = readStoredReminderSchedule();
+  if (!previous) return;
+  await persistReminderSchedule({ ...previous, lastFiredDate: localDateKey() });
+}
+
+export async function pingReminderCheck() {
+  const registration = await registerServiceWorker();
+  const worker = registration?.active ?? navigator.serviceWorker?.controller;
+  worker?.postMessage({ type: "CHECK_REMINDER" });
+}
+
 export function useNotifications() {
   useEffect(() => {
     void registerServiceWorker();
+    const onVisible = () => {
+      if (document.visibilityState === "visible") void pingReminderCheck();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("focus", onVisible);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("focus", onVisible);
+    };
   }, []);
 }

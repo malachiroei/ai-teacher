@@ -5,6 +5,7 @@ import { savePracticeProgress } from "@/lib/chat-history";
 import {
   alreadyNotifiedToday,
   loadPracticeSnapshot,
+  markNotifiedToday,
   mergePracticeSeconds,
   msUntilTime,
   practicedMinutes,
@@ -12,6 +13,11 @@ import {
   showPracticeNotification,
   todayDateKey,
 } from "@/lib/practice";
+import {
+  persistReminderSchedule,
+  pingReminderCheck,
+  readStoredReminderSchedule,
+} from "@/hooks/useNotifications";
 import { recordWeekMinutes } from "@/lib/learning-progress";
 import { createClient } from "@/lib/supabase/client";
 import type { Profile } from "@/lib/supabase/types";
@@ -174,16 +180,27 @@ export function useDailyPractice(options: {
   }, [userMessageCount, goalMinutes, tryCelebrate]);
 
   useEffect(() => {
-    if (!remindersEnabled || !enabled) return;
+    if (!remindersEnabled || !enabled) {
+      void persistReminderSchedule({
+        hhmm: reminderTime,
+        enabled: false,
+        tutorName: characterName,
+        tutorId: characterId || "emma",
+        kidName: kidName ?? "",
+        goalMinutes,
+        lastFiredDate: readStoredReminderSchedule()?.lastFiredDate,
+      });
+      return;
+    }
     if (typeof window === "undefined" || !("Notification" in window)) return;
     if (Notification.permission !== "granted") return;
 
-    const fireIfDue = () => {
+    function fireIfDue() {
       if (alreadyNotifiedToday()) return;
       if (practicedMinutes(secondsRef.current) >= goalMinutes) return;
       const [hours, minutes] = reminderTime.split(":").map(Number);
       const now = new Date();
-      if (now.getHours() === hours && now.getMinutes() === minutes) {
+      if (now.getHours() > hours || (now.getHours() === hours && now.getMinutes() >= minutes)) {
         void showPracticeNotification({
           tutorName: characterName,
           tutorId: characterId || "emma",
@@ -191,9 +208,34 @@ export function useDailyPractice(options: {
           goalMinutes,
         });
       }
-    };
+    }
 
-    fireIfDue();
+    const stored = readStoredReminderSchedule();
+    void (async () => {
+      try {
+        const cache = await caches.open("buddyai-reminder");
+        const response = await cache.match("/__buddyai/reminder-config");
+        const fromSw = response ? ((await response.json()) as { lastFiredDate?: string }) : null;
+        if (fromSw?.lastFiredDate === todayDateKey() || stored?.lastFiredDate === todayDateKey()) {
+          markNotifiedToday();
+        }
+      } catch {
+        if (stored?.lastFiredDate === todayDateKey()) markNotifiedToday();
+      }
+      fireIfDue();
+    })();
+
+    void persistReminderSchedule({
+      hhmm: reminderTime,
+      enabled: true,
+      tutorName: characterName,
+      tutorId: characterId || "emma",
+      kidName: kidName ?? "",
+      goalMinutes,
+      lastFiredDate: alreadyNotifiedToday() ? todayDateKey() : stored?.lastFiredDate,
+    });
+    void pingReminderCheck();
+
     const delay = msUntilTime(reminderTime);
     const timeout = window.setTimeout(() => {
       if (practicedMinutes(secondsRef.current) < goalMinutes) {
@@ -206,10 +248,20 @@ export function useDailyPractice(options: {
       }
     }, delay);
     const poll = window.setInterval(fireIfDue, 30000);
+    const onVisible = () => {
+      if (document.visibilityState === "visible") {
+        fireIfDue();
+        void pingReminderCheck();
+      }
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("focus", onVisible);
 
     return () => {
       window.clearTimeout(timeout);
       window.clearInterval(poll);
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("focus", onVisible);
     };
   }, [remindersEnabled, enabled, reminderTime, characterName, characterId, kidName, goalMinutes]);
 

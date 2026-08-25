@@ -50,7 +50,7 @@ import { quickHebrewSubtitle, shouldSkipLlmTranslate, isCleanHebrewSubtitle } fr
 import { logConversationPedagogyReport } from "@/lib/conversation-pedagogy";
 import { parseTutorNicknames, profilePayload, withTutorDisplayName } from "@/lib/learner";
 import { consumeChatStream, speakableSentences } from "@/lib/chat-stream";
-import { createQuickGame, extractGameFromText, GAME_XP_REWARD, stripGameTag, type ChatGame } from "@/lib/chat-games";
+import { createQuickGameRound, expandToGameRound, extractGameFromText, GAME_XP_REWARD, stripGameTag, type ChatGame } from "@/lib/chat-games";
 import {
   logPipelineLatencyReport,
   type PipelineClientMetrics,
@@ -197,7 +197,7 @@ export default function HomePage() {
   const latencyReportPrintedRef = useRef(false);
   const [spokenReply, setSpokenReply] = useState("");
   const [spokenTranslation, setSpokenTranslation] = useState("");
-  const [activeGame, setActiveGame] = useState<ChatGame | null>(null);
+  const [gameRound, setGameRound] = useState<ChatGame[] | null>(null);
   const [awaitingGreeting, setAwaitingGreeting] = useState(false);
   const viewport = useVisualViewport();
   const needsOnboarding = Boolean(user && profileChecked && !isProfileComplete(profile));
@@ -392,7 +392,7 @@ export default function HomePage() {
 
   const applyLiveCaption = useCallback((caption: string, translation: string) => {
     const { spoken, game } = extractGameFromText(caption);
-    if (game) setActiveGame(game);
+    if (game) setGameRound(expandToGameRound(game));
     setSpokenReply(spoken);
     const next = translation.trim();
     if (next) setSpokenTranslation(next);
@@ -400,7 +400,7 @@ export default function HomePage() {
 
   const ingestTutorReply = useCallback((raw: string) => {
     const { spoken, game } = extractGameFromText(raw);
-    if (game) setActiveGame(game);
+    if (game) setGameRound(expandToGameRound(game));
     return spoken;
   }, []);
 
@@ -1475,22 +1475,26 @@ export default function HomePage() {
           disabled={isLoading || awaitingGreeting || !chatUnlocked}
           onToggleMic={handleToggleMic}
           onChangeTopic={() => void handleAnotherQuestion()}
-          onStartQuickGame={() => setActiveGame(createQuickGame())}
+          onStartQuickGame={() => setGameRound(createQuickGameRound())}
           gameOverlay={
-            activeGame ? (
+            gameRound ? (
               <ChatGameCard
-                game={activeGame}
+                games={gameRound}
                 onSpeakPrompt={(word) => {
                   unlockSpeech();
                   speak(word);
                 }}
-                onClose={() => setActiveGame(null)}
-                onComplete={(choice, correct) => {
-                  setActiveGame(null);
-                  if (!correct) return;
+                onClose={() => setGameRound(null)}
+                onQuestionCorrect={() => {
                   awardGameXp();
+                  void playReminderSound("pop");
+                }}
+                onRoundComplete={(answers) => {
+                  setGameRound(null);
                   void playReminderSound("fanfare");
-                  void sendMessage(`I got it! The answer was ${choice}.`);
+                  void sendMessage(
+                    `I finished the 3-question game! My answers were ${answers.join(", ")}.`,
+                  );
                 }}
               />
             ) : null

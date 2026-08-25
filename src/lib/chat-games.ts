@@ -28,6 +28,8 @@ export interface ChatGame {
 }
 
 export const GAME_XP_REWARD = 15;
+export const GAME_ROUND_LENGTH = 3;
+export const GAME_ROUND_XP = GAME_XP_REWARD * GAME_ROUND_LENGTH;
 const GAME_TAG = /<<<GAME:\s*(\{[\s\S]*?\})\s*>>>/i;
 
 const PICTURE_BANK: PictureMatchData[] = [
@@ -74,6 +76,16 @@ const LISTEN_BANK: ListenPickData[] = [
       { emoji: "❄️", label: "Snow" },
     ],
     answer: "Sun",
+  },
+  {
+    prompt: "Tap the picture you heard",
+    speak: "fish",
+    options: [
+      { emoji: "🐠", label: "Fish" },
+      { emoji: "🐦", label: "Bird" },
+      { emoji: "🐢", label: "Turtle" },
+    ],
+    answer: "Fish",
   },
 ];
 
@@ -176,6 +188,30 @@ export function createQuickGame(type?: ChatGameType): ChatGame {
   if (next === "fill_missing") return { type: next, data: BLANK_BANK[gameCursor % BLANK_BANK.length] };
   if (next === "listen_pick") return { type: next, data: LISTEN_BANK[gameCursor % LISTEN_BANK.length] };
   return { type: "picture_match", data: PICTURE_BANK[gameCursor % PICTURE_BANK.length] };
+}
+
+export function createQuickGameRound(): ChatGame[] {
+  const seen = new Set<string>();
+  const round: ChatGame[] = [];
+  let guard = 0;
+  while (round.length < GAME_ROUND_LENGTH && guard < 24) {
+    const game = createQuickGame();
+    const key = `${game.type}:${getGameAnswer(game).toLowerCase()}`;
+    guard += 1;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    round.push(game);
+  }
+  while (round.length < GAME_ROUND_LENGTH) round.push(createQuickGame());
+  return round;
+}
+
+export function expandToGameRound(first?: ChatGame | null): ChatGame[] {
+  const rest = createQuickGameRound().filter(
+    (game) => !first || getGameAnswer(game).toLowerCase() !== getGameAnswer(first).toLowerCase(),
+  );
+  if (!first) return rest.slice(0, GAME_ROUND_LENGTH);
+  return [first, ...rest].slice(0, GAME_ROUND_LENGTH);
 }
 
 export function isCorrectGameChoice(game: ChatGame, choice: string) {
