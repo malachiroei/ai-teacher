@@ -81,6 +81,26 @@ export function rememberTutorMet(userId: string, tutorId: string) {
   }
 }
 
+const GAMES_KEY = (userId: string) => `buddyai:games-won:${userId}`;
+
+export function recordGameWin(userId: string, amount = 1) {
+  if (typeof window === "undefined" || !userId) return;
+  try {
+    window.localStorage.setItem(GAMES_KEY(userId), String(loadGamesWon(userId) + amount));
+  } catch {
+    /* ignore */
+  }
+}
+
+export function loadGamesWon(userId: string) {
+  if (typeof window === "undefined" || !userId) return 0;
+  try {
+    return Math.max(0, Number(window.localStorage.getItem(GAMES_KEY(userId))) || 0);
+  } catch {
+    return 0;
+  }
+}
+
 export function loadTutorsMet(userId: string): string[] {
   if (typeof window === "undefined" || !userId) return [];
   try {
@@ -130,11 +150,9 @@ export function activeStreak(weekMinutes: Record<string, number>) {
 }
 
 function skillBand(percent: number) {
-  if (percent >= 90) return "Expert";
-  if (percent >= 80) return "Advanced";
-  if (percent >= 60) return "Intermediate";
-  if (percent >= 40) return "Rising";
-  return "Starter";
+  if (percent >= 71) return "Expert";
+  if (percent >= 31) return "Intermediate";
+  return "Beginner";
 }
 
 export function buildLearningSnapshot(input: {
@@ -146,21 +164,19 @@ export function buildLearningSnapshot(input: {
   currentTutorId: string;
   goalMinutes: number;
   practicedMinutesToday: number;
+  gamesWon?: number;
 }) {
-  const userTurns = input.messages.filter((message) => message.sender === "user");
-  const aiTurns = input.messages.filter((message) => message.sender === "ai");
-  const voiceLike = userTurns.filter((message) => message.text.trim().split(/\s+/).length >= 3).length;
-  const typed = userTurns.filter((message) => message.text.trim().split(/\s+/).length < 3).length;
-  const grammarHits = userTurns.filter((message) => message.grammarFeedback?.hasError).length;
-  const vocab = uniqueEnglishWords([...input.messages, ...input.sessions.flatMap((session) => session.messages)]);
+  const allMessages = [...input.messages, ...input.sessions.flatMap((session) => session.messages)];
+  const allUserTurns = allMessages.filter((message) => message.sender === "user");
+  const vocab = uniqueEnglishWords(allMessages);
   const tutors = new Set([
     input.currentTutorId,
     ...input.tutorsMet,
     ...input.sessions.map((session) => session.characterId),
   ]);
-  const speaking = Math.min(98, 28 + voiceLike * 8 + Math.min(20, userTurns.length * 3));
-  const listening = Math.min(98, 32 + Math.min(aiTurns.length, 12) * 5 + Math.min(20, userTurns.length * 2));
-  const writing = Math.min(98, 24 + Math.min(vocab.length, 40) + typed * 4 - grammarHits * 3);
+  const speaking = Math.min(100, Math.round((allUserTurns.length / 30) * 100));
+  const gamesWon = Math.max(0, input.gamesWon ?? 0);
+  const writing = Math.min(100, Math.round((vocab.length / 50) * 100));
   const days = weekDays(input.weekMinutes, input.goalMinutes).map((day) =>
     day.key === dateKey(0)
       ? {
@@ -170,11 +186,9 @@ export function buildLearningSnapshot(input: {
         }
       : day,
   );
+  const listenMinutes = days.reduce((sum, day) => sum + day.minutes, 0);
+  const listening = Math.min(100, Math.round((gamesWon / 8) * 50 + (listenMinutes / 40) * 50));
   const goalDays = days.filter((day) => day.complete).length;
-  const allUserTurns = [
-    ...userTurns,
-    ...input.sessions.flatMap((session) => session.messages.filter((message) => message.sender === "user")),
-  ];
   const progress = progressInLevel(input.xp);
   const current = levelFromXp(input.xp);
   const next = nextLevelInfo(current.level);
@@ -186,15 +200,39 @@ export function buildLearningSnapshot(input: {
     percent: progress.percent,
     streak: activeStreak(input.weekMinutes) || (input.practicedMinutesToday > 0 ? 1 : 0),
     skills: [
-      { id: "speaking", emoji: "🗣️", title: "Speaking & Fluency", titleHe: "דיבור ושטף", percent: Math.max(12, speaking), band: skillBand(speaking) },
-      { id: "listening", emoji: "👂", title: "Listening & Comprehension", titleHe: "הבנה והקשבה", percent: Math.max(12, listening), band: skillBand(listening) },
-      { id: "writing", emoji: "✍️", title: "Vocabulary & Grammar", titleHe: "אוצר מילים וכתיבה", percent: Math.max(12, writing), band: skillBand(writing) },
+      {
+        id: "speaking",
+        emoji: "🗣️",
+        title: "Speaking & Fluency",
+        titleHe: "דיבור ושטף",
+        percent: speaking,
+        band: skillBand(speaking),
+        detail: `${allUserTurns.length} turns spoken`,
+      },
+      {
+        id: "listening",
+        emoji: "👂",
+        title: "Listening & Comprehension",
+        titleHe: "הבנה והקשבה",
+        percent: listening,
+        band: skillBand(listening),
+        detail: `${gamesWon} games · ${listenMinutes} min`,
+      },
+      {
+        id: "writing",
+        emoji: "✍️",
+        title: "Vocabulary & Grammar",
+        titleHe: "אוצר מילים וכתיבה",
+        percent: writing,
+        band: skillBand(writing),
+        detail: `${vocab.length} words mastered`,
+      },
     ],
     days,
     achievements: [
       { id: "first-words", emoji: "🌟", title: "First Words", hint: "Completed first chat", unlocked: allUserTurns.length >= 1 },
       { id: "explorer", emoji: "🚀", title: "Chat Explorer", hint: "Spoke with 3 tutors", unlocked: tutors.size >= 3 },
-      { id: "goal-crusher", emoji: "🎯", title: "Goal Crusher", hint: "Hit 100% daily goal 5 days", unlocked: goalDays >= 5 || activeStreak(input.weekMinutes) >= 5 },
+      { id: "goal-crusher", emoji: "🎯", title: "Goal Crusher", hint: "Hit 100% daily goal 5 days", unlocked: goalDays >= 5 },
       { id: "vocab-master", emoji: "🏆", title: "Vocab Master", hint: "Used 50+ unique English words", unlocked: vocab.length >= 50 },
     ],
     vocabCount: vocab.length,

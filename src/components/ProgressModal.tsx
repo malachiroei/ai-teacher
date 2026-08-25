@@ -2,7 +2,8 @@
 
 import { motion } from "framer-motion";
 import { X } from "lucide-react";
-import { buildLearningSnapshot, type LearningSnapshot } from "@/lib/learning-progress";
+import { useUserProgress } from "@/hooks/useUserProgress";
+import type { LearningSnapshot } from "@/lib/learning-progress";
 import type { ArchivedChatSession } from "@/lib/chat-history";
 import type { Message } from "@/types/chat";
 import { cn } from "@/lib/utils";
@@ -16,6 +17,7 @@ interface ProgressModalProps {
   currentTutorId: string;
   goalMinutes: number;
   practicedMinutesToday: number;
+  gamesWon?: number;
   onClose: () => void;
 }
 
@@ -28,9 +30,10 @@ export function ProgressModal({
   currentTutorId,
   goalMinutes,
   practicedMinutesToday,
+  gamesWon = 0,
   onClose,
 }: ProgressModalProps) {
-  const snapshot = buildLearningSnapshot({
+  const snapshot = useUserProgress({
     xp,
     messages,
     sessions,
@@ -39,6 +42,7 @@ export function ProgressModal({
     currentTutorId,
     goalMinutes,
     practicedMinutesToday,
+    gamesWon,
   });
 
   return (
@@ -98,7 +102,7 @@ export function ProgressModal({
                   >
                     <div
                       className={cn("w-2 rounded-t-full", day.complete ? "bg-emerald-300" : "bg-amber-300/70")}
-                      style={{ height: `${Math.max(8, Math.min(100, (day.minutes / Math.max(1, day.goalMinutes)) * 100))}%` }}
+                      style={{ height: day.minutes <= 0 ? "0%" : `${Math.min(100, (day.minutes / Math.max(1, day.goalMinutes)) * 100)}%` }}
                     />
                   </div>
                   <span className="text-[10px] text-white/45">{day.label}</span>
@@ -146,6 +150,7 @@ function SkillList({ snapshot }: { snapshot: LearningSnapshot }) {
             </span>
           </div>
           <p className="mb-1 text-[11px] text-white/40">{skill.titleHe}</p>
+          {skill.detail ? <p className="mb-1 text-[11px] text-white/55">{skill.detail}</p> : null}
           <div className="h-1.5 overflow-hidden rounded-full bg-white/10">
             <div className="h-full rounded-full bg-gradient-to-r from-amber-300 to-emerald-300" style={{ width: `${skill.percent}%` }} />
           </div>

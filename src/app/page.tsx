@@ -21,7 +21,7 @@ import { VoiceStage } from "@/components/VoiceStage";
 import { useSpeech, SPEECH_UNAVAILABLE_MESSAGE, MIC_PERMISSION_MESSAGE } from "@/hooks/useSpeech";
 import { useVisualViewport } from "@/hooks/useVisualViewport";
 import { useNotifications, playReminderSound } from "@/hooks/useNotifications";
-import { loadWeekMinutes, loadTutorsMet, rememberTutorMet } from "@/lib/learning-progress";
+import { loadWeekMinutes, loadTutorsMet, loadGamesWon, rememberTutorMet, recordGameWin } from "@/lib/learning-progress";
 import {
   archiveCurrentChat,
   describeProfileSaveError,
@@ -1511,6 +1511,7 @@ export default function HomePage() {
                 }}
                 onRoundComplete={(answers) => {
                   setGameRound(null);
+                  if (user?.id) recordGameWin(user.id);
                   void playReminderSound("fanfare");
                   void sendMessage(
                     `I finished the 3-question game! My answers were ${answers.join(", ")}.`,
@@ -1632,6 +1633,7 @@ export default function HomePage() {
             currentTutorId={character.id}
             goalMinutes={practiceSettings.daily_goal_minutes}
             practicedMinutesToday={practicedMinutes}
+            gamesWon={user?.id ? loadGamesWon(user.id) : 0}
             onClose={() => setProgressOpen(false)}
           />
         ) : null}

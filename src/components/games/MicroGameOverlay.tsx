@@ -11,7 +11,6 @@ import {
   fillPatternParts,
   getGameAnswer,
   isCorrectGameChoice,
-  transcriptMatchesChoice,
   type ChatGame,
   type FillMissingData,
   type ListenPickData,
@@ -19,6 +18,16 @@ import {
 } from "@/lib/chat-games";
 import { playGameSfx, playTryAgainSound } from "@/hooks/useNotifications";
 import { cn } from "@/lib/utils";
+
+function getGameRecognition() {
+  if (typeof window === "undefined") return null;
+  const Ctor = window.SpeechRecognition || window.webkitSpeechRecognition;
+  return Ctor ? new Ctor() : null;
+}
+
+function normalizeHeard(text: string) {
+  return text.toLowerCase().replace(/[^a-z0-9\s]/g, " ").replace(/\s+/g, " ").trim();
+}
 
 const BALLOON_SKINS = [
   "from-cyan-300 via-sky-500 to-blue-700",
@@ -53,11 +62,7 @@ export const ChatGameCard = MicroGameOverlay;
 
 function ArcadeStage({
   games,
-  liveTranscript = "",
-  listening = false,
-  isSpeaking = false,
   audioLevel = 0,
-  onRequestListen,
   onStopListen,
   onStopSpeaking,
   onSpeakPrompt,
@@ -72,16 +77,16 @@ function ArcadeStage({
   const [popped, setPopped] = useState("");
   const [summary, setSummary] = useState(false);
   const [answers, setAnswers] = useState<string[]>([]);
+  const [talkState, setTalkState] = useState<"idle" | "listening">("idle");
   const heardRef = useRef("");
   const hasSpokenStageRef = useRef<number | null>(null);
-  const heardTtsRef = useRef(false);
-  const listenArmedRef = useRef(false);
   const speakPromptRef = useRef(onSpeakPrompt);
-  const requestListenRef = useRef(onRequestListen);
   const stopListenRef = useRef(onStopListen);
   const stopSpeakRef = useRef(onStopSpeaking);
+  const recRef = useRef<ReturnType<typeof getGameRecognition>>(null);
+  const talkTimerRef = useRef<number | null>(null);
+  const lastTapRef = useRef(0);
   speakPromptRef.current = onSpeakPrompt;
-  requestListenRef.current = onRequestListen;
   stopListenRef.current = onStopListen;
   stopSpeakRef.current = onStopSpeaking;
 
@@ -99,9 +104,77 @@ function ArcadeStage({
     setAnswers([]);
     heardRef.current = "";
     hasSpokenStageRef.current = null;
-    heardTtsRef.current = false;
-    listenArmedRef.current = false;
+    setTalkState("idle");
   }, [games]);
+
+  function abortGameListen() {
+    if (talkTimerRef.current != null) {
+      window.clearTimeout(talkTimerRef.current);
+      talkTimerRef.current = null;
+    }
+    const rec = recRef.current;
+    recRef.current = null;
+    if (rec) {
+      rec.onresult = null;
+      rec.onerror = null;
+      rec.onend = null;
+      try {
+        rec.abort();
+      } catch {
+        /* ignore */
+      }
+    }
+    setTalkState("idle");
+  }
+
+  function startPushToTalk() {
+    if (won || summary || !game) return;
+    abortGameListen();
+    stopListenRef.current?.();
+    stopSpeakRef.current?.();
+    try {
+      window.speechSynthesis.cancel();
+    } catch {
+      /* ignore */
+    }
+    const rec = getGameRecognition();
+    if (!rec) {
+      setTalkState("idle");
+      return;
+    }
+    const targets = gameOptions(game);
+    rec.lang = "en-US";
+    rec.continuous = false;
+    rec.interimResults = true;
+    rec.maxAlternatives = 3;
+    recRef.current = rec;
+    setTalkState("listening");
+    const finishIdle = () => {
+      abortGameListen();
+    };
+    rec.onresult = (event) => {
+      let blob = "";
+      for (let i = 0; i < event.results.length; i += 1) {
+        blob += ` ${event.results[i][0]?.transcript ?? ""}`;
+      }
+      const heard = normalizeHeard(blob);
+      const hit = targets.find((option) => heard.includes(normalizeHeard(option)));
+      if (hit) {
+        abortGameListen();
+        choose(hit);
+      }
+    };
+    rec.onerror = () => finishIdle();
+    rec.onend = () => {
+      if (recRef.current === rec) finishIdle();
+    };
+    talkTimerRef.current = window.setTimeout(() => finishIdle(), 4000);
+    try {
+      rec.start();
+    } catch {
+      finishIdle();
+    }
+  }
 
   const answerKey = game ? getGameAnswer(game) : "";
 
@@ -109,9 +182,8 @@ function ArcadeStage({
     if (!game || summary) return;
     if (hasSpokenStageRef.current === index) return;
     hasSpokenStageRef.current = index;
-    heardTtsRef.current = false;
-    listenArmedRef.current = false;
     heardRef.current = "";
+    abortGameListen();
     stopListenRef.current?.();
     try {
       window.speechSynthesis.cancel();
@@ -125,14 +197,11 @@ function ArcadeStage({
           ? `Say it out loud to unlock the treasure! ${(game.data as ListenPickData).speak}`
           : `Tap the missing letter!`;
     speakPromptRef.current?.(line);
-    const fallback = window.setTimeout(() => {
-      heardTtsRef.current = true;
-    }, 900);
-    return () => window.clearTimeout(fallback);
   }, [index, summary, game, answerKey]);
 
   useEffect(() => {
     return () => {
+      abortGameListen();
       stopListenRef.current?.();
       stopSpeakRef.current?.();
       try {
@@ -143,31 +212,16 @@ function ArcadeStage({
     };
   }, []);
 
-  useEffect(() => {
-    if (!game || won || summary) return;
-    if (hasSpokenStageRef.current !== index) return;
-    if (isSpeaking) {
-      heardTtsRef.current = true;
-      stopListenRef.current?.();
-      return;
-    }
-    if (!heardTtsRef.current || listenArmedRef.current) return;
-    const timer = window.setTimeout(() => {
-      if (hasSpokenStageRef.current !== index || listenArmedRef.current) return;
-      listenArmedRef.current = true;
-      requestListenRef.current?.();
-    }, 300);
-    return () => window.clearTimeout(timer);
-  }, [isSpeaking, index, won, summary, game]);
-
-  useEffect(() => {
-    if (!game || won || summary || isSpeaking || !listenArmedRef.current) return;
-    if (!liveTranscript.trim()) return;
-    if (liveTranscript === heardRef.current) return;
-    heardRef.current = liveTranscript;
-    const hit = gameOptions(game).find((option) => transcriptMatchesChoice(liveTranscript, option));
-    if (hit) choose(hit);
-  }, [liveTranscript, game, won, summary, isSpeaking]);
+  function tapChoice(choice: string, event?: { preventDefault: () => void; stopPropagation: () => void }) {
+    event?.preventDefault();
+    event?.stopPropagation();
+    const now = Date.now();
+    if (now - lastTapRef.current < 220) return;
+    lastTapRef.current = now;
+    if (game?.type === "fill_missing") void playGameSfx("bounce");
+    else void playGameSfx("bubble");
+    choose(choice);
+  }
 
   function markWrong(choice: string) {
     setWrongPicks((current) => (current.includes(choice) ? current : [...current, choice]));
@@ -188,7 +242,7 @@ function ArcadeStage({
       markWrong(choice);
       return;
     }
-    listenArmedRef.current = false;
+    abortGameListen();
     stopListenRef.current?.();
     stopSpeakRef.current?.();
     setWon(true);
@@ -272,32 +326,36 @@ function ArcadeStage({
                   wrong={wrongPicks}
                   popped={popped}
                   disabled={won}
-                  onPick={choose}
+                  onPick={tapChoice}
                 />
               ) : game.type === "listen_pick" ? (
                 <VoiceCrystal
                   data={game.data as ListenPickData}
-                  listening={listening}
+                  listening={talkState === "listening"}
                   audioLevel={audioLevel}
                   unlocked={won}
-                  onListen={() => onRequestListen?.()}
+                  onListen={startPushToTalk}
                 />
               ) : (
                 <LetterBoard
                   data={game.data as FillMissingData}
                   wrong={wrongPicks}
                   locked={won}
-                  onPick={choose}
+                  onPick={tapChoice}
                 />
               )}
             </div>
             {game.type !== "listen_pick" ? (
               <button
                 type="button"
-                onClick={() => onRequestListen?.()}
-                className="mt-4 min-h-12 w-full rounded-2xl border border-cyan-300/40 bg-cyan-400/15 px-4 py-3 text-base font-semibold text-cyan-50"
+                onClick={startPushToTalk}
+                onTouchEnd={(event) => {
+                  event.preventDefault();
+                  startPushToTalk();
+                }}
+                className="mt-4 min-h-12 w-full touch-manipulation rounded-2xl border border-cyan-300/40 bg-cyan-400/15 px-4 py-3 text-base font-semibold text-cyan-50"
               >
-                {listening ? "Listening… say the word!" : "🎤 Hold or Speak · אמור את המילה בקול"}
+                {talkState === "listening" ? "Listening… say the word!" : "🎤 Tap to Speak · אמור את המילה בקול"}
               </button>
             ) : null}
           </>
@@ -346,9 +404,21 @@ function BalloonBoard({
             key={label}
             type="button"
             disabled={disabled || missed}
-            onClick={() => onPick(label)}
+            onPointerUp={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              onPick(label);
+            }}
+            onTouchEnd={(event) => {
+              event.preventDefault();
+              onPick(label);
+            }}
+            onClick={(event) => {
+              event.preventDefault();
+              onPick(label);
+            }}
             className={cn(
-              "balloon-float relative flex w-24 flex-col items-center md:w-32",
+              "balloon-float relative flex w-24 touch-manipulation flex-col items-center md:w-32",
               missed && "opacity-40 grayscale",
             )}
             style={{ animationDelay: `${index * 0.18}s` }}
@@ -440,11 +510,10 @@ function VoiceCrystal({
       </div>
       <button
         type="button"
-        onPointerDown={onListen}
         onClick={onListen}
-        className="mt-5 min-h-14 w-full max-w-sm rounded-2xl bg-gradient-to-r from-fuchsia-500 to-cyan-400 px-4 py-3 text-base font-bold text-slate-950 shadow-[0_8px_24px_rgba(34,211,238,0.35)]"
+        className="mt-5 min-h-14 w-full max-w-sm touch-manipulation rounded-2xl bg-gradient-to-r from-fuchsia-500 to-cyan-400 px-4 py-3 text-base font-bold text-slate-950 shadow-[0_8px_24px_rgba(34,211,238,0.35)]"
       >
-        {unlocked ? "Unlocked!" : listening ? "Listening… say it!" : "🎤 Hold or Speak / אמור את המילה בקול"}
+        {unlocked ? "Unlocked!" : listening ? "Listening… say it!" : "🎤 Tap to Speak / אמור את המילה בקול"}
       </button>
     </div>
   );
@@ -490,9 +559,21 @@ function LetterBoard({
               type="button"
               disabled={locked || missed}
               whileTap={{ scale: missed ? 1 : 0.9 }}
-              onClick={() => onPick(letter)}
+              onPointerUp={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                onPick(letter);
+              }}
+              onTouchEnd={(event) => {
+                event.preventDefault();
+                onPick(letter);
+              }}
+              onClick={(event) => {
+                event.preventDefault();
+                onPick(letter);
+              }}
               className={cn(
-                "flex h-16 w-16 items-center justify-center rounded-2xl text-2xl font-black shadow-lg md:h-20 md:w-20 md:text-3xl",
+                "flex h-16 w-16 touch-manipulation items-center justify-center rounded-2xl text-2xl font-black shadow-lg md:h-20 md:w-20 md:text-3xl",
                 chosen
                   ? "bg-emerald-400 text-emerald-950"
                   : missed
