@@ -15,6 +15,7 @@ import {
   type ChatGame,
   type FillMissingData,
   type ListenPickData,
+  type MathMatchData,
   type PictureMatchData,
 } from "@/lib/chat-games";
 import { playGameSfx, playTryAgainSound } from "@/hooks/useNotifications";
@@ -230,6 +231,8 @@ function ArcadeStage({
     const line =
       game.type === "picture_match"
         ? `Pop the word: ${game.data.answer}!`
+        : game.type === "math_match"
+          ? `What is ${(game.data as MathMatchData).equation}`
         : game.type === "listen_pick"
           ? `Say it out loud to unlock the treasure! ${(game.data as ListenPickData).speak}`
           : `Tap the missing letter!`;
@@ -364,6 +367,14 @@ function ArcadeStage({
                   disabled={won}
                   onPick={tapChoice}
                 />
+              ) : game.type === "math_match" ? (
+                <MathBalloonBoard
+                  data={game.data as MathMatchData}
+                  wrong={wrongPicks}
+                  popped={popped}
+                  disabled={won}
+                  onPick={tapChoice}
+                />
               ) : game.type === "listen_pick" ? (
                 <VoiceCrystal
                   data={game.data as ListenPickData}
@@ -408,6 +419,10 @@ function ArcadeStage({
 }
 
 function headline(game: ChatGame) {
+  if (game.type === "math_match") {
+    const data = game.data as MathMatchData;
+    return `${data.equation} ${data.emoji || "➕"}`;
+  }
   if (game.type === "picture_match") {
     const data = game.data as PictureMatchData;
     return `Pop the word: ${data.answer.toUpperCase()} ${data.emoji}`;
@@ -419,6 +434,7 @@ function headline(game: ChatGame) {
 function gameOptions(game: ChatGame) {
   if (game.type === "listen_pick") return (game.data as ListenPickData).options.map((item) => item.label);
   if (game.type === "fill_missing") return (game.data as FillMissingData).options;
+  if (game.type === "math_match") return (game.data as MathMatchData).options;
   return (game.data as PictureMatchData).options;
 }
 
@@ -489,6 +505,40 @@ function BalloonBoard({
           </button>
         );
       })}
+    </div>
+  );
+}
+
+function MathBalloonBoard({
+  data,
+  wrong,
+  popped,
+  disabled,
+  onPick,
+}: {
+  data: MathMatchData;
+  wrong: string[];
+  popped: string;
+  disabled?: boolean;
+  onPick: (choice: string) => void;
+}) {
+  return (
+    <div className="flex w-full flex-col items-center">
+      <p className="mb-4 rounded-2xl border border-amber-300/40 bg-amber-400/15 px-4 py-3 text-center text-2xl font-black tracking-wide text-amber-100 md:text-3xl">
+        {data.equation}
+      </p>
+      <BalloonBoard
+        data={{
+          prompt: data.prompt,
+          emoji: data.emoji || "➕",
+          options: data.options,
+          answer: data.answer,
+        }}
+        wrong={wrong}
+        popped={popped}
+        disabled={disabled}
+        onPick={onPick}
+      />
     </div>
   );
 }

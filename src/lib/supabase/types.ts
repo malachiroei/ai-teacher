@@ -57,6 +57,7 @@ export interface ProfileInput {
   placement_completed?: boolean | null;
   xp?: number | null;
   level?: number | null;
+  child_memory?: unknown;
 }
 
 export interface ChatMessageRow {

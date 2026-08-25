@@ -50,7 +50,9 @@ import { quickHebrewSubtitle, shouldSkipLlmTranslate, isCleanHebrewSubtitle } fr
 import { logConversationPedagogyReport } from "@/lib/conversation-pedagogy";
 import { parseTutorNicknames, profilePayload, withTutorDisplayName } from "@/lib/learner";
 import { consumeChatStream, speakableSentences } from "@/lib/chat-stream";
-import { createQuickGameRound, expandToGameRound, extractGameFromText, GAME_XP_REWARD, stripGameTag, type ChatGame } from "@/lib/chat-games";
+import { createQuickGameRound, createMathGameRound, expandToGameRound, extractGameFromText, GAME_XP_REWARD, stripGameTag, type ChatGame } from "@/lib/chat-games";
+import { looksLikeMathTalk } from "@/lib/child-memory";
+import { useMemoryExtractor } from "@/hooks/useMemoryExtractor";
 import {
   logPipelineLatencyReport,
   type PipelineClientMetrics,
@@ -180,6 +182,7 @@ export default function HomePage() {
   const [savingProfileDetails, setSavingProfileDetails] = useState(false);
   const [profileEditError, setProfileEditError] = useState("");
   const [memories, setMemories] = useState<UserMemory[]>([]);
+  const { childMemory, ingestUtterance } = useMemoryExtractor(user?.id, profile);
   const [savingSettings, setSavingSettings] = useState(false);
   const [settingsError, setSettingsError] = useState("");
   const [notice, setNotice] = useState("");
@@ -706,6 +709,7 @@ export default function HomePage() {
       history: Message[];
       activeProfile?: Profile | null;
       clientSendAt?: number;
+      childMemory?: typeof childMemory;
     },
     live?: {
       onCaption?: (text: string, translation: string) => void;
@@ -732,6 +736,7 @@ export default function HomePage() {
         profile: profilePayload(activeProfile),
         characterId: character.id,
         memories: memories.slice(0, 20),
+        childMemory: payload.childMemory ?? childMemory,
         placement: !placementCompleted && isPlacementActive(payload.history, placementCompleted),
         placementCompleted,
         isFirstSessionToday: !payload.history.some(
@@ -765,6 +770,8 @@ export default function HomePage() {
     const text = rawText.trim();
     if (!text || sendingRef.current || isLoading || !chatUnlocked || !user) return;
 
+    const nextMemory = ingestUtterance(text);
+
     sendingRef.current = true;
     const { live: latencyLive } = beginLatencyTurn(text);
 
@@ -785,7 +792,7 @@ export default function HomePage() {
 
     // CRITICAL: initiate HTTP immediately on this tick — no state/XP after this.
     const replyPromise = requestReply(
-      { userMessage: text, history, activeProfile: profileSnapshot },
+      { userMessage: text, history, activeProfile: profileSnapshot, childMemory: nextMemory },
       {
         ...latencyLive,
         onCaption: (caption, translation) => {
@@ -867,6 +874,9 @@ export default function HomePage() {
       if (!autoSpeak) maybePrintLatencyReport();
       fetchHebrewTranslation(data.aiResponse, profileSnapshot?.gender ?? profile?.gender, text);
       const spoken = ingestTutorReply(data.aiResponse);
+      if (!extractGameFromText(data.aiResponse).game && looksLikeMathTalk(text)) {
+        setGameRound(createMathGameRound());
+      }
       const grammar: GrammarFeedback = data.grammarAnalysis;
       const aiMessage: Message = {
         id: createId(),

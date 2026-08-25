@@ -12,6 +12,9 @@ import {
   stripUnsolicitedScaffold,
 } from "@/lib/language";
 import { buildLearnerContext, profilePayload } from "@/lib/learner";
+import { buildChildMemoryPrompt, buildSystemPromptSections } from "@/lib/systemPromptBuilder";
+import type { ChildMemoryProfile } from "@/types/childProfile";
+import { parseChildMemory } from "@/lib/child-memory";
 import { normalizeNewMemories, parseFavoriteThing, extractFactsFromUtterance, type UserMemory } from "@/lib/memory";
 import { guessSpokenName, isPlacementActive, placementAnswerTurns, placementFollowUp } from "@/lib/placement";
 import {
@@ -73,6 +76,8 @@ MICRO-GAMES (optional, about 1 in 8 turns after placement, or when they ask to p
 - picture_match data: prompt, emoji, options (3–4 words), answer
 - fill_missing data: prompt, emoji, pattern (e.g. "P _ Z Z A"), options (letters), answer
 - listen_pick data: prompt, speak (target word), options [{emoji,label}], answer
+- math_match data: prompt, equation (e.g. "TWO + THREE = ?"), options like "5 — FIVE", answer
+- If they talk about math/times tables, prefer a math_match game on that turn.
 - Never put the GAME tag in spoken English. Never mention JSON.
 
 MICRO-COACHING (when needed — still one short spoken reply):
@@ -155,6 +160,7 @@ interface ChatRequestBody {
   profile?: ProfileInput | null;
   characterId?: string | null;
   memories?: UserMemory[];
+  childMemory?: ChildMemoryProfile | null;
   isFirstSessionToday?: boolean;
   placement?: boolean;
   placementCompleted?: boolean;
@@ -1068,6 +1074,7 @@ async function streamGemini(
   characterId: string | null | undefined,
   extras: {
     memories?: UserMemory[];
+    childMemory?: ChildMemoryProfile | null;
     isFirstSessionToday?: boolean;
     placement?: boolean;
     placementCompleted?: boolean;
@@ -1125,24 +1132,23 @@ Use memories when relevant. One punchy sentence + one open question. Under 25 wo
     isFirstSessionToday: Boolean(extras?.isFirstSessionToday || action === "daily_open"),
   });
   const character = getCharacter(characterId ?? profile?.selected_character);
-  const system = [
+  const system = buildSystemPromptSections([
     BASE_TUTOR_RULES,
     VOICE_LATENCY_RULE,
     character.systemPrompt,
     learnerContext,
     formatStructuredUserProfile(profile),
+    buildChildMemoryPrompt(extras?.childMemory ?? null),
     formatSessionHistory(history),
     namingHint(history, profile),
     languageHint,
-    "When asked about past facts, age, grade, or preferences, consult ### USER PROFILE & MEMORIES. Answer accurately, warmly, and directly.",
+    "When asked about past facts, age, grade, or preferences, consult ### USER PROFILE & MEMORIES and CHILD PROFILE MEMORY. Answer accurately, warmly, and directly.",
     "Keep the FULL conversation history. Never drop earlier turns or memories.",
     `Never break character. You are ${character.name} (${character.title}).`,
     profile?.custom_tutor_name && profile.custom_tutor_name !== character.name
       ? `The learner calls you "${profile.custom_tutor_name}". Introduce and refer to yourself as ${profile.custom_tutor_name} while keeping this persona.`
       : "",
-  ]
-    .filter(Boolean)
-    .join("\n\n");
+  ]);
 
   const latestText =
     action === "daily_open"
@@ -1334,6 +1340,7 @@ export async function POST(request: Request) {
 
     const extras = {
       memories,
+      childMemory: parseChildMemory(body.childMemory),
       isFirstSessionToday,
       placement,
       placementCompleted,

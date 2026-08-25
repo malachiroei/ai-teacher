@@ -133,3 +133,4 @@ alter table public.profiles add column if not exists preferred_voice text defaul
 alter table public.profiles add column if not exists placement_completed boolean default false;
 alter table public.profiles add column if not exists xp integer default 0;
 alter table public.profiles add column if not exists level integer default 1;
+alter table public.profiles add column if not exists child_memory jsonb default '{}'::jsonb;

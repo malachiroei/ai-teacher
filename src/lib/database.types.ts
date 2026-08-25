@@ -27,6 +27,7 @@ export interface Database {
           placement_completed: boolean | null;
           xp: number | null;
           level: number | null;
+          child_memory: Json | null;
           created_at: string;
           updated_at: string;
         };
@@ -53,6 +54,7 @@ export interface Database {
           placement_completed?: boolean | null;
           xp?: number | null;
           level?: number | null;
+          child_memory?: Json | null;
           created_at?: string;
           updated_at?: string;
         };
@@ -79,6 +81,7 @@ export interface Database {
           placement_completed?: boolean | null;
           xp?: number | null;
           level?: number | null;
+          child_memory?: Json | null;
           created_at?: string;
           updated_at?: string;
         };

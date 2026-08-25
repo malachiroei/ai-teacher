@@ -1,4 +1,4 @@
-export type ChatGameType = "picture_match" | "fill_missing" | "listen_pick";
+export type ChatGameType = "picture_match" | "fill_missing" | "listen_pick" | "math_match";
 
 export interface PictureMatchData {
   prompt: string;
@@ -22,9 +22,17 @@ export interface ListenPickData {
   answer: string;
 }
 
+export interface MathMatchData {
+  prompt: string;
+  equation: string;
+  options: string[];
+  answer: string;
+  emoji?: string;
+}
+
 export interface ChatGame {
   type: ChatGameType;
-  data: PictureMatchData | FillMissingData | ListenPickData;
+  data: PictureMatchData | FillMissingData | ListenPickData | MathMatchData;
 }
 
 export const GAME_XP_REWARD = 15;
@@ -145,6 +153,25 @@ export function extractGameFromText(text: string): { spoken: string; game: ChatG
         };
       }
     }
+    if (type === "math_match") {
+      const options = asStringArray(data.options);
+      const answer = String(data.answer || options[0] || "").trim();
+      if (options.length >= 2 && answer) {
+        return {
+          spoken: stripGameTag(raw),
+          game: {
+            type,
+            data: {
+              prompt: String(data.prompt || "What is the answer in English?"),
+              equation: String(data.equation || data.prompt || "TWO + THREE = ?"),
+              options: options.slice(0, 4),
+              answer,
+              emoji: String(data.emoji || "➕"),
+            },
+          },
+        };
+      }
+    }
     if (type === "listen_pick") {
       const options = Array.isArray(data.options)
         ? data.options
@@ -179,12 +206,47 @@ export function extractGameFromText(text: string): { spoken: string; game: ChatG
   return { spoken: stripGameTag(raw), game: null };
 }
 
+const MATH_BANK: MathMatchData[] = [
+  {
+    prompt: "Pop the English answer!",
+    equation: "TWO + THREE = ?",
+    options: ["4 — FOUR", "5 — FIVE", "6 — SIX"],
+    answer: "5 — FIVE",
+    emoji: "➕",
+  },
+  {
+    prompt: "Pop the English answer!",
+    equation: "THREE × FOUR = ?",
+    options: ["7 — SEVEN", "12 — TWELVE", "8 — EIGHT"],
+    answer: "12 — TWELVE",
+    emoji: "✖️",
+  },
+  {
+    prompt: "Pop the English answer!",
+    equation: "FIVE + TWO = ?",
+    options: ["6 — SIX", "7 — SEVEN", "9 — NINE"],
+    answer: "7 — SEVEN",
+    emoji: "➕",
+  },
+];
+
 let gameCursor = 0;
+
+export function createMathEnglishGame(): ChatGame {
+  const data = MATH_BANK[gameCursor % MATH_BANK.length];
+  gameCursor += 1;
+  return { type: "math_match", data };
+}
+
+export function createMathGameRound(): ChatGame[] {
+  return [createMathEnglishGame(), createQuickGame("listen_pick"), createQuickGame("fill_missing")];
+}
 
 export function createQuickGame(type?: ChatGameType): ChatGame {
   const kinds: ChatGameType[] = ["picture_match", "fill_missing", "listen_pick"];
   const next = type ?? kinds[gameCursor % kinds.length];
   gameCursor += 1;
+  if (next === "math_match") return createMathEnglishGame();
   if (next === "fill_missing") return { type: next, data: BLANK_BANK[gameCursor % BLANK_BANK.length] };
   if (next === "listen_pick") return { type: next, data: LISTEN_BANK[gameCursor % LISTEN_BANK.length] };
   return { type: "picture_match", data: PICTURE_BANK[gameCursor % PICTURE_BANK.length] };
@@ -220,6 +282,11 @@ const SPEECH_ALIASES: Record<string, string[]> = {
   lion: ["lying", "lyon", "leon"],
   dog: ["dawg", "doug"],
   pizza: ["pitsa", "piza"],
+  five: ["5", "five"],
+  four: ["4", "for", "four"],
+  six: ["6", "six"],
+  seven: ["7", "seven"],
+  twelve: ["12", "twelve"],
 };
 
 function editDistance(a: string, b: string) {
@@ -246,11 +313,12 @@ export function transcriptMatchesChoice(spoken: string, choice: string) {
   const needle = choice.toLowerCase().trim();
   if (!hay || !needle) return false;
   const words = hay.split(/\s+/).filter(Boolean);
+  const tokens = needle.split(/[^a-z0-9]+/).filter(Boolean);
   if (hay === needle || hay.includes(needle) || words.includes(needle)) return true;
-  const aliases = SPEECH_ALIASES[needle] ?? [];
+  if (tokens.some((token) => token.length > 1 && (hay.includes(token) || words.includes(token)))) return true;
+  const aliases = [...tokens, needle].flatMap((token) => SPEECH_ALIASES[token] ?? []);
   if (aliases.some((alias) => hay.includes(alias) || words.includes(alias))) return true;
-  const maxDist = needle.length <= 3 ? 1 : 1;
-  return words.some((word) => word.length >= 2 && editDistance(word, needle) <= maxDist);
+  return words.some((word) => word.length >= 2 && tokens.some((token) => editDistance(word, token) <= 1));
 }
 
 const WORD_EMOJI: Record<string, string> = {
@@ -273,6 +341,11 @@ const WORD_EMOJI: Record<string, string> = {
   apple: "🍎",
   banana: "🍌",
   grapes: "🍇",
+  four: "4️⃣",
+  five: "5️⃣",
+  six: "6️⃣",
+  seven: "7️⃣",
+  twelve: "1️⃣2️⃣",
   sun: "☀️",
   rain: "🌧️",
   snow: "❄️",
@@ -285,7 +358,10 @@ const WORD_EMOJI: Record<string, string> = {
 
 /** Icon for a balloon/option label. Never reuse another option's emoji. */
 export function emojiForOptionLabel(label: string) {
-  return WORD_EMOJI[label.trim().toLowerCase()] || "";
+  const raw = label.trim().toLowerCase();
+  if (WORD_EMOJI[raw]) return WORD_EMOJI[raw];
+  const last = raw.split(/[^a-z0-9]+/).filter(Boolean).pop() || "";
+  return WORD_EMOJI[last] || "";
 }
 
 export function fillPatternParts(pattern: string) {
