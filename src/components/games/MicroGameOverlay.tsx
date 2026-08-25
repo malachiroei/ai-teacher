@@ -11,6 +11,7 @@ import {
   fillPatternParts,
   getGameAnswer,
   isCorrectGameChoice,
+  transcriptMatchesChoice,
   type ChatGame,
   type FillMissingData,
   type ListenPickData,
@@ -23,10 +24,6 @@ function getGameRecognition() {
   if (typeof window === "undefined") return null;
   const Ctor = window.SpeechRecognition || window.webkitSpeechRecognition;
   return Ctor ? new Ctor() : null;
-}
-
-function normalizeHeard(text: string) {
-  return text.toLowerCase().replace(/[^a-z0-9\s]/g, " ").replace(/\s+/g, " ").trim();
 }
 
 const BALLOON_SKINS = [
@@ -78,6 +75,7 @@ function ArcadeStage({
   const [summary, setSummary] = useState(false);
   const [answers, setAnswers] = useState<string[]>([]);
   const [talkState, setTalkState] = useState<"idle" | "listening">("idle");
+  const [heardPreview, setHeardPreview] = useState("");
   const heardRef = useRef("");
   const hasSpokenStageRef = useRef<number | null>(null);
   const speakPromptRef = useRef(onSpeakPrompt);
@@ -85,6 +83,7 @@ function ArcadeStage({
   const stopSpeakRef = useRef(onStopSpeaking);
   const recRef = useRef<ReturnType<typeof getGameRecognition>>(null);
   const talkTimerRef = useRef<number | null>(null);
+  const listenGenRef = useRef(0);
   const lastTapRef = useRef(0);
   speakPromptRef.current = onSpeakPrompt;
   stopListenRef.current = onStopListen;
@@ -105,9 +104,11 @@ function ArcadeStage({
     heardRef.current = "";
     hasSpokenStageRef.current = null;
     setTalkState("idle");
+    setHeardPreview("");
   }, [games]);
 
   function abortGameListen() {
+    listenGenRef.current += 1;
     if (talkTimerRef.current != null) {
       window.clearTimeout(talkTimerRef.current);
       talkTimerRef.current = null;
@@ -119,9 +120,13 @@ function ArcadeStage({
       rec.onerror = null;
       rec.onend = null;
       try {
-        rec.abort();
+        rec.stop();
       } catch {
-        /* ignore */
+        try {
+          rec.abort();
+        } catch {
+          /* ignore */
+        }
       }
     }
     setTalkState("idle");
@@ -132,48 +137,84 @@ function ArcadeStage({
     abortGameListen();
     stopListenRef.current?.();
     stopSpeakRef.current?.();
-    try {
-      window.speechSynthesis.cancel();
-    } catch {
-      /* ignore */
-    }
-    const rec = getGameRecognition();
-    if (!rec) {
-      setTalkState("idle");
-      return;
-    }
+    const gen = listenGenRef.current;
+    const deadline = Date.now() + 7500;
     const targets = gameOptions(game);
-    rec.lang = "en-US";
-    rec.continuous = false;
-    rec.interimResults = true;
-    rec.maxAlternatives = 3;
-    recRef.current = rec;
+    setHeardPreview("");
     setTalkState("listening");
+
     const finishIdle = () => {
+      if (listenGenRef.current !== gen) return;
       abortGameListen();
     };
-    rec.onresult = (event) => {
-      let blob = "";
-      for (let i = 0; i < event.results.length; i += 1) {
-        blob += ` ${event.results[i][0]?.transcript ?? ""}`;
-      }
-      const heard = normalizeHeard(blob);
-      const hit = targets.find((option) => heard.includes(normalizeHeard(option)));
+
+    const handleBlob = (blob: string) => {
+      if (listenGenRef.current !== gen) return;
+      const heard = blob.toLowerCase().replace(/[^a-z0-9\s]/g, " ").replace(/\s+/g, " ").trim();
+      if (heard) setHeardPreview(heard);
+      const hit = targets.find((option) => transcriptMatchesChoice(heard, option));
       if (hit) {
         abortGameListen();
         choose(hit);
       }
     };
-    rec.onerror = () => finishIdle();
-    rec.onend = () => {
-      if (recRef.current === rec) finishIdle();
+
+    const startRec = () => {
+      if (listenGenRef.current !== gen || Date.now() >= deadline) {
+        finishIdle();
+        return;
+      }
+      const rec = getGameRecognition();
+      if (!rec) {
+        finishIdle();
+        return;
+      }
+      rec.lang = "en-US";
+      rec.continuous = true;
+      rec.interimResults = true;
+      rec.maxAlternatives = 3;
+      recRef.current = rec;
+      rec.onresult = (event) => {
+        let blob = "";
+        for (let i = 0; i < event.results.length; i += 1) {
+          blob += ` ${event.results[i][0]?.transcript ?? ""}`;
+        }
+        handleBlob(blob);
+      };
+      rec.onerror = (event) => {
+        const err = String(event.error || "");
+        if (err === "no-speech" || err === "aborted") return;
+        if (err === "not-allowed" || err === "service-not-allowed") {
+          finishIdle();
+        }
+      };
+      rec.onend = () => {
+        if (listenGenRef.current !== gen) return;
+        if (Date.now() < deadline) {
+          window.setTimeout(() => {
+            if (listenGenRef.current !== gen) return;
+            try {
+              rec.start();
+            } catch {
+              startRec();
+            }
+          }, 120);
+          return;
+        }
+        finishIdle();
+      };
+      try {
+        rec.start();
+      } catch {
+        window.setTimeout(() => {
+          if (listenGenRef.current !== gen) return;
+          startRec();
+        }, 200);
+      }
     };
-    talkTimerRef.current = window.setTimeout(() => finishIdle(), 4000);
-    try {
-      rec.start();
-    } catch {
-      finishIdle();
-    }
+
+    talkTimerRef.current = window.setTimeout(() => finishIdle(), 8000);
+    window.setTimeout(startRec, 350);
   }
 
   const answerKey = game ? getGameAnswer(game) : "";
@@ -183,20 +224,20 @@ function ArcadeStage({
     if (hasSpokenStageRef.current === index) return;
     hasSpokenStageRef.current = index;
     heardRef.current = "";
+    setHeardPreview("");
     abortGameListen();
     stopListenRef.current?.();
-    try {
-      window.speechSynthesis.cancel();
-    } catch {
-      /* ignore */
-    }
     const line =
       game.type === "picture_match"
         ? `Pop the word: ${game.data.answer}!`
         : game.type === "listen_pick"
           ? `Say it out loud to unlock the treasure! ${(game.data as ListenPickData).speak}`
           : `Tap the missing letter!`;
-    speakPromptRef.current?.(line);
+    const speakTimer = window.setTimeout(() => {
+      if (hasSpokenStageRef.current !== index) return;
+      speakPromptRef.current?.(line);
+    }, 80);
+    return () => window.clearTimeout(speakTimer);
   }, [index, summary, game, answerKey]);
 
   useEffect(() => {
@@ -204,11 +245,6 @@ function ArcadeStage({
       abortGameListen();
       stopListenRef.current?.();
       stopSpeakRef.current?.();
-      try {
-        window.speechSynthesis.cancel();
-      } catch {
-        /* ignore */
-      }
     };
   }, []);
 
@@ -332,9 +368,11 @@ function ArcadeStage({
                 <VoiceCrystal
                   data={game.data as ListenPickData}
                   listening={talkState === "listening"}
+                  heardPreview={heardPreview}
                   audioLevel={audioLevel}
                   unlocked={won}
                   onListen={startPushToTalk}
+                  onUnlock={() => tapChoice((game.data as ListenPickData).answer)}
                 />
               ) : (
                 <LetterBoard
@@ -355,7 +393,11 @@ function ArcadeStage({
                 }}
                 className="mt-4 min-h-12 w-full touch-manipulation rounded-2xl border border-cyan-300/40 bg-cyan-400/15 px-4 py-3 text-base font-semibold text-cyan-50"
               >
-                {talkState === "listening" ? "Listening… say the word!" : "🎤 Tap to Speak · אמור את המילה בקול"}
+                {talkState === "listening"
+                  ? heardPreview
+                    ? `Heard: “${heardPreview}”`
+                    : "Listening… say the word!"
+                  : "🎤 Tap to Speak · אמור את המילה בקול"}
               </button>
             ) : null}
           </>
@@ -472,30 +514,54 @@ function SparkBurst() {
 function VoiceCrystal({
   data,
   listening,
+  heardPreview,
   audioLevel,
   unlocked,
   onListen,
+  onUnlock,
 }: {
   data: ListenPickData;
   listening?: boolean;
+  heardPreview?: string;
   audioLevel?: number;
   unlocked?: boolean;
   onListen: () => void;
+  onUnlock: () => void;
 }) {
   const match = data.options.find((item) => item.label.toLowerCase() === data.answer.toLowerCase());
   const level = Math.max(0.12, listening ? audioLevel ?? 0.2 : 0.18);
   return (
     <div className="flex w-full flex-col items-center">
-      <motion.div
-        animate={{ scale: unlocked ? 1.08 : 1 + level * 0.12 }}
-        className="relative flex h-44 w-44 items-center justify-center rounded-full border-4 border-cyan-300/70 bg-gradient-to-br from-violet-500/40 to-cyan-400/20 shadow-[0_0_40px_rgba(34,211,238,0.45)] md:h-52 md:w-52"
+      <button
+        type="button"
+        disabled={unlocked}
+        onPointerUp={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          onUnlock();
+        }}
+        onTouchEnd={(event) => {
+          event.preventDefault();
+          onUnlock();
+        }}
+        onClick={(event) => {
+          event.preventDefault();
+          onUnlock();
+        }}
+        className="touch-manipulation"
       >
-        <span className="absolute inset-3 animate-pulse rounded-full border border-amber-300/50" />
-        <div className="text-center">
-          <p className="text-6xl md:text-7xl">{match?.emoji || "💎"}</p>
-          <p className="mt-2 text-2xl font-black tracking-wide text-white">{data.answer.toUpperCase()}</p>
-        </div>
-      </motion.div>
+        <motion.div
+          animate={{ scale: unlocked ? 1.08 : 1 + level * 0.12 }}
+          className="relative flex h-44 w-44 items-center justify-center rounded-full border-4 border-cyan-300/70 bg-gradient-to-br from-violet-500/40 to-cyan-400/20 shadow-[0_0_40px_rgba(34,211,238,0.45)] md:h-52 md:w-52"
+        >
+          <span className="absolute inset-3 animate-pulse rounded-full border border-amber-300/50" />
+          <div className="text-center">
+            <p className="text-6xl md:text-7xl">{match?.emoji || "💎"}</p>
+            <p className="mt-2 text-2xl font-black tracking-wide text-white">{data.answer.toUpperCase()}</p>
+            <p className="mt-1 text-[11px] font-semibold text-cyan-100">Tap to unlock</p>
+          </div>
+        </motion.div>
+      </button>
       <div className="mt-5 flex h-12 items-end justify-center gap-1.5">
         {Array.from({ length: 12 }, (_, bar) => (
           <span
@@ -513,7 +579,13 @@ function VoiceCrystal({
         onClick={onListen}
         className="mt-5 min-h-14 w-full max-w-sm touch-manipulation rounded-2xl bg-gradient-to-r from-fuchsia-500 to-cyan-400 px-4 py-3 text-base font-bold text-slate-950 shadow-[0_8px_24px_rgba(34,211,238,0.35)]"
       >
-        {unlocked ? "Unlocked!" : listening ? "Listening… say it!" : "🎤 Tap to Speak / אמור את המילה בקול"}
+        {unlocked
+          ? "Unlocked!"
+          : listening
+            ? heardPreview
+              ? `Heard: “${heardPreview}”`
+              : "Listening… say it!"
+            : "🎤 Tap to Speak / אמור את המילה בקול"}
       </button>
     </div>
   );

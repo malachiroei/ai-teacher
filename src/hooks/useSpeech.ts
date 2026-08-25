@@ -988,7 +988,8 @@ export function useSpeech(options?: {
         retry.rate = utterance.rate;
         retry.pitch = utterance.pitch;
         retry.volume = Math.max(0, Math.min(1, volumeRef.current));
-        if (voice) retry.voice = voice;
+        if (voice && voiceFitsRequiredGender(voice, male ? "male" : "female")) retry.voice = voice;
+        else retry.pitch = male ? 0.72 : 1.14;
         retry.onstart = utterance.onstart;
         retry.onend = utterance.onend;
         retry.onerror = utterance.onerror;

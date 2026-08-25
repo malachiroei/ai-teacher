@@ -214,11 +214,43 @@ export function getGameAnswer(game: ChatGame) {
   return game.data.answer;
 }
 
+const SPEECH_ALIASES: Record<string, string[]> = {
+  sun: ["son", "sung", "some"],
+  cat: ["kat", "cap", "cut"],
+  lion: ["lying", "lyon", "leon"],
+  dog: ["dawg", "doug"],
+  pizza: ["pitsa", "piza"],
+};
+
+function editDistance(a: string, b: string) {
+  if (a === b) return 0;
+  const rows = a.length + 1;
+  const cols = b.length + 1;
+  const grid = Array.from({ length: rows }, () => Array(cols).fill(0));
+  for (let i = 0; i < rows; i += 1) grid[i][0] = i;
+  for (let j = 0; j < cols; j += 1) grid[0][j] = j;
+  for (let i = 1; i < rows; i += 1) {
+    for (let j = 1; j < cols; j += 1) {
+      grid[i][j] = Math.min(
+        grid[i - 1][j] + 1,
+        grid[i][j - 1] + 1,
+        grid[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1),
+      );
+    }
+  }
+  return grid[a.length][b.length];
+}
+
 export function transcriptMatchesChoice(spoken: string, choice: string) {
   const hay = spoken.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
   const needle = choice.toLowerCase().trim();
   if (!hay || !needle) return false;
-  return hay.split(" ").includes(needle) || hay.includes(needle);
+  const words = hay.split(/\s+/).filter(Boolean);
+  if (hay === needle || hay.includes(needle) || words.includes(needle)) return true;
+  const aliases = SPEECH_ALIASES[needle] ?? [];
+  if (aliases.some((alias) => hay.includes(alias) || words.includes(alias))) return true;
+  const maxDist = needle.length <= 3 ? 1 : 1;
+  return words.some((word) => word.length >= 2 && editDistance(word, needle) <= maxDist);
 }
 
 const WORD_EMOJI: Record<string, string> = {
