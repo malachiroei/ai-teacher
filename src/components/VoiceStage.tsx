@@ -3,12 +3,11 @@
 import { useRef, useState, type MouseEvent, type ReactNode, type TouchEvent } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { Keyboard, Mic, RefreshCw, Send, Volume1, Volume2, VolumeX } from "lucide-react";
-import { MixedBidiText } from "@/components/MixedBidiText";
 import { VoiceWave, type VoiceWaveMode } from "@/components/VoiceWave";
 import { Avatar3DStage } from "@/components/Avatar3DStage";
+import { ChatSubtitleBox } from "@/components/ChatSubtitleBox";
 import { splitCaptionLines } from "@/lib/hebrew";
 import { getCharacter, isCharacterId, SELECTED_TUTOR_STORAGE_KEY, type Character } from "@/lib/characters";
-import { sortMessagesNewestFirst } from "@/lib/exportTranscript";
 import type { Message } from "@/types/chat";
 import { cn } from "@/lib/utils";
 
@@ -97,18 +96,12 @@ export function VoiceStage({
   const mode: VoiceWaveMode = speaking ? "speaking" : thinking ? "thinking" : listening ? "listening" : "idle";
   const liveWave = speaking || thinking || (listening && audioLevel >= 0.05);
   const trimmedTranscript = transcript.trim();
-  const statusCaption = thinking && !aiCaption.trim()
-    ? `${tutorName} is thinking...`
-    : listening
-      ? trimmedTranscript
-        ? `Listening: ${trimmedTranscript}`
-        : "Listening…"
-      : !speaking && !aiCaption.trim()
-        ? "Tap mic to talk"
-        : "";
-  const captionLines = !listening || thinking ? splitCaptionLines(aiCaption, aiTranslation) : { english: "", hebrew: "" };
-  const showAiCaption = (!listening || thinking) && Boolean(captionLines.english);
-  const showStatus = Boolean(statusCaption) && !showAiCaption;
+  const lastChild = [...messages].reverse().find((message) => message.sender === "user")?.text.trim() || "";
+  const lastTutorStored = [...messages].reverse().find((message) => message.sender === "ai")?.text.trim() || "";
+  const childLine = listening ? trimmedTranscript || lastChild : lastChild;
+  const captionLines = splitCaptionLines(aiCaption || lastTutorStored, aiTranslation);
+  const tutorLine = captionLines.english || lastTutorStored;
+  const idleHint = thinking || childLine || tutorLine ? "" : listening ? "Listening…" : "Tap mic to talk";
 
   function submitDraft() {
     const text = draft.trim();
@@ -159,80 +152,17 @@ export function VoiceStage({
         className="relative z-20 mt-auto px-6 pb-[max(1rem,env(safe-area-inset-bottom))]"
         onPointerDown={(event) => event.stopPropagation()}
       >
-        {messages.length > 0 ? (
-          <div className="mb-2 max-h-[28vh] overflow-y-auto rounded-2xl border border-white/10 bg-black/25 px-3 py-2">
-            {sortMessagesNewestFirst(messages).slice(0, 40).map((message) => (
-              <p key={message.id} className="mb-1.5 text-[13px] leading-snug text-white/85 last:mb-0">
-                <span className="text-[10px] font-semibold uppercase tracking-wide text-white/45">
-                  {message.sender === "ai" ? tutorName : childName}
-                </span>{" "}
-                {message.text}
-              </p>
-            ))}
-          </div>
-        ) : null}
-
-        {!showAiCaption && !showStatus ? (
-          <p className="mb-2 text-center text-[12px] font-medium tracking-[0.18em] text-white/55 uppercase">
-            Speaking with {tutorName}
-          </p>
-        ) : null}
-
-        <div className="mb-3 flex min-h-[3.5rem] items-end justify-center">
-          <AnimatePresence mode="wait">
-            {showStatus ? (
-              statusCaption === "Tap mic to talk" || listening ? (
-                <motion.button
-                  key={listening ? "listen" : "idle"}
-                  type="button"
-                  initial={{ opacity: 0, y: 8 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -6 }}
-                  transition={{ duration: 0.2 }}
-                  dir="ltr"
-                  disabled={Boolean(disabled && !listening)}
-                  className="voice-subtitle max-w-[22rem] cursor-pointer text-center text-[15px] font-medium leading-snug text-white transition-transform active:scale-95"
-                  {...bindImmediateTap(micTouchRef, onToggleMic)}
-                >
-                  {statusCaption}
-                </motion.button>
-              ) : (
-                <motion.p
-                  key={thinking ? "think" : "status"}
-                  initial={{ opacity: 0, y: 8 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -6 }}
-                  transition={{ duration: 0.2 }}
-                  dir="ltr"
-                  className="voice-subtitle max-w-[22rem] text-center text-[15px] font-medium leading-snug text-white"
-                >
-                  {statusCaption}
-                </motion.p>
-              )
-            ) : showAiCaption ? (
-              <motion.div
-                key="caption"
-                initial={{ opacity: 0, y: 8 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -6 }}
-                transition={{ duration: 0.2 }}
-                className="voice-subtitle flex max-w-[22rem] flex-col items-center gap-1 text-center"
-              >
-                <p dir="ltr" className="text-[15px] font-medium leading-snug text-white">
-                  {captionLines.english}
-                </p>
-                {captionLines.hebrew ? (
-                  <p
-                    dir="rtl"
-                    className="relative z-30 max-h-[140px] overflow-y-auto px-4 text-center text-sm leading-snug text-gray-300 [unicode-bidi:isolate]"
-                  >
-                    <MixedBidiText text={captionLines.hebrew} />
-                  </p>
-                ) : null}
-              </motion.div>
-            ) : null}
-          </AnimatePresence>
-        </div>
+        <ChatSubtitleBox
+          tutorName={tutorName}
+          childName={childName}
+          tutorLine={tutorLine}
+          tutorHebrew={captionLines.hebrew}
+          childLine={childLine}
+          listening={listening}
+          thinking={thinking}
+          idleHint={idleHint}
+          onIdleHintTap={idleHint === "Tap mic to talk" ? onToggleMic : undefined}
+        />
 
         <AnimatePresence initial={false}>
           {keyboardOpen ? (
