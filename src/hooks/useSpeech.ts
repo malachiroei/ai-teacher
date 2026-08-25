@@ -412,7 +412,8 @@ function kickUtterance(
   }
 }
 
-const ANDROID_MALE_NAME_RE = /male_1|\bmale\b|david|george|james|aaron|guy|\biol\b/i;
+const ANDROID_MALE_NAME_RE =
+  /male_1|\bmale\b|david|george|james|aaron|guy|\biol\b|\brjs\b|en-us-x-iol|en-gb-x-rjs|wavenet-d|neural2-d/i;
 
 const MALE_VOICE_NEEDLES = [
   "google us english male",
@@ -428,6 +429,9 @@ const MALE_VOICE_NEEDLES = [
   "us english male",
   "male_1",
   "en-us-x-tpd",
+  "en-us-x-iol",
+  "en-gb-x-rjs",
+  "rjs",
   "iol",
   "arthur",
   "daniel",
@@ -499,11 +503,16 @@ function pickPreferredVoice(voices: SpeechSynthesisVoice[], character?: Characte
   if (preferred && voiceFitsRequiredGender(preferred, gender)) return preferred;
 
   if (gender === "male") {
-    const priority = english.filter((voice) => voiceFitsRequiredGender(voice, "male") && ANDROID_MALE_NAME_RE.test(`${voice.name} ${voice.voiceURI}`));
+    const withoutFemaleTokens = english.filter((voice) => {
+      const blob = `${voice.name} ${voice.voiceURI}`.toLowerCase();
+      if (/\bsfg\b|sfg-|female|woman|girl/.test(blob) && !ANDROID_MALE_NAME_RE.test(blob)) return false;
+      return voiceFitsRequiredGender(voice, "male") || ANDROID_MALE_NAME_RE.test(blob);
+    });
+    const priority = withoutFemaleTokens.filter((voice) => ANDROID_MALE_NAME_RE.test(`${voice.name} ${voice.voiceURI}`));
     if (priority[0]) return priority[0];
-    const ranked = rankVoicesByNeedles(english.filter((voice) => voiceFitsRequiredGender(voice, "male")), MALE_VOICE_NEEDLES, "male");
+    const ranked = rankVoicesByNeedles(withoutFemaleTokens, MALE_VOICE_NEEDLES, "male");
     if (ranked[0] && voiceFitsRequiredGender(ranked[0].voice, "male")) return ranked[0].voice;
-    const strict = english.find((voice) => voiceFitsRequiredGender(voice, "male"));
+    const strict = withoutFemaleTokens.find((voice) => voiceFitsRequiredGender(voice, "male"));
     if (strict) return strict;
     const picked = pickCharacterVoice(voices, character);
     return picked && voiceFitsRequiredGender(picked, "male") ? picked : null;
@@ -931,9 +940,10 @@ export function useSpeech(options?: {
       activeUtterance = utterance;
       currentOutputVolume = volume;
       lastSpokenVolumeRef.current = volume;
-      utterance.rate = Math.min(1.4, Math.max(0.6, (character?.voice.rate ?? (male ? 0.92 : 0.95)) * speed));
-      const maleNamed = Boolean(voice && ANDROID_MALE_NAME_RE.test(`${voice.name} ${voice.voiceURI}`));
-      utterance.pitch = character?.voice.pitch ?? (male ? (maleNamed ? 0.78 : 0.85) : 1.02);
+      utterance.rate = male
+        ? 0.92
+        : Math.min(1.4, Math.max(0.6, (character?.voice.rate ?? 0.95) * speed));
+      utterance.pitch = male ? 0.72 : character?.voice.pitch ?? 1.02;
       window.speechSynthesis.resume();
       if (voice && voiceFitsRequiredGender(voice, male ? "male" : "female")) {
         utterance.voice = voice;

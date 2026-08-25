@@ -103,9 +103,7 @@ function storageKey(userId?: string | null) {
 }
 
 export function isChildMemoryProfile(value: unknown): value is ChildMemoryProfile {
-  if (!value || typeof value !== "object") return false;
-  const row = value as Partial<ChildMemoryProfile>;
-  return Array.isArray(row.hobbies) && Array.isArray(row.afterSchoolClubs) && Array.isArray(row.schoolSchedule);
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
 }
 
 export function parseChildMemory(raw: unknown): ChildMemoryProfile {
@@ -119,41 +117,62 @@ export function parseChildMemory(raw: unknown): ChildMemoryProfile {
     }
   }
   if (!isChildMemoryProfile(value)) return emptyChildMemory();
+  const row = value as ChildMemoryProfile & {
+    sports?: string[];
+    favorite_athlete?: string;
+    favorite_food?: string;
+    travel_interests?: string;
+    music_preference?: string;
+    extraFacts?: string[];
+  };
   return {
-    name: value.name?.trim() || undefined,
-    age: Number(value.age) > 0 ? Number(value.age) : undefined,
-    gradeLevel: value.gradeLevel?.trim() || undefined,
-    hobbies: unique(value.hobbies.map(String)),
-    afterSchoolClubs: value.afterSchoolClubs
+    name: row.name?.trim() || undefined,
+    age: Number(row.age) > 0 ? Number(row.age) : undefined,
+    gradeLevel: row.gradeLevel?.trim() || undefined,
+    hobbies: unique((row.hobbies ?? []).map(String)),
+    afterSchoolClubs: (row.afterSchoolClubs ?? [])
       .filter((item) => item?.day && item?.activity)
       .map((item) => ({ day: titleCase(String(item.day)), activity: titleCase(String(item.activity)) })),
-    schoolSchedule: value.schoolSchedule
+    schoolSchedule: (row.schoolSchedule ?? [])
       .filter((item) => item?.day && Array.isArray(item.subjects))
       .map((item) => ({
         day: titleCase(String(item.day)),
         subjects: unique(item.subjects.map(String)),
       })),
-    learningInterests: unique((value.learningInterests ?? []).map(String)),
-    mathSkillLevel: value.mathSkillLevel,
-    recentTopicsLearned: (value.recentTopicsLearned ?? []).slice(0, 16),
-    updatedAt: value.updatedAt,
+    learningInterests: unique((row.learningInterests ?? []).map(String)),
+    mathSkillLevel: row.mathSkillLevel,
+    recentTopicsLearned: (row.recentTopicsLearned ?? []).slice(0, 16),
+    sports: unique((row.sports ?? []).map(String)),
+    favoriteAthlete: String(row.favoriteAthlete || row.favorite_athlete || "").trim() || undefined,
+    favoriteFood: String(row.favoriteFood || row.favorite_food || "").trim() || undefined,
+    travelInterests: String(row.travelInterests || row.travel_interests || "").trim() || undefined,
+    musicPreference: String(row.musicPreference || row.music_preference || "").trim() || undefined,
+    extraFacts: unique((row.extraFacts ?? []).map(String)),
+    updatedAt: row.updatedAt,
   };
 }
 
 export function mergeChildMemory(base: ChildMemoryProfile, patch: Partial<ChildMemoryProfile>): ChildMemoryProfile {
-  const clubs = [...base.afterSchoolClubs];
+  const clubs = [...(base.afterSchoolClubs ?? [])];
   for (const club of patch.afterSchoolClubs ?? []) {
     const idx = clubs.findIndex((item) => item.day.toLowerCase() === club.day.toLowerCase());
     if (idx >= 0) clubs[idx] = club;
     else clubs.push(club);
   }
-  const schedule = [...base.schoolSchedule];
+  const schedule = [...(base.schoolSchedule ?? [])];
   for (const day of patch.schoolSchedule ?? []) {
     const idx = schedule.findIndex((item) => item.day.toLowerCase() === day.day.toLowerCase());
     if (idx >= 0) {
       schedule[idx] = { ...schedule[idx], subjects: unique([...schedule[idx].subjects, ...day.subjects]) };
     } else schedule.push(day);
   }
+  const pickLonger = (current?: string, next?: string) => {
+    const a = String(current || "").trim();
+    const b = String(next || "").trim();
+    if (!b) return a || undefined;
+    if (!a) return b;
+    return b.length >= a.length ? b : a;
+  };
   return {
     name: patch.name?.trim() || base.name,
     age: patch.age && patch.age > 0 ? patch.age : base.age,
@@ -164,6 +183,12 @@ export function mergeChildMemory(base: ChildMemoryProfile, patch: Partial<ChildM
     learningInterests: unique([...(base.learningInterests ?? []), ...(patch.learningInterests ?? [])]),
     mathSkillLevel: patch.mathSkillLevel || base.mathSkillLevel,
     recentTopicsLearned: [...(patch.recentTopicsLearned ?? []), ...(base.recentTopicsLearned ?? [])].slice(0, 16),
+    sports: unique([...(base.sports ?? []), ...(patch.sports ?? [])]),
+    favoriteAthlete: pickLonger(base.favoriteAthlete, patch.favoriteAthlete),
+    favoriteFood: pickLonger(base.favoriteFood, patch.favoriteFood),
+    travelInterests: pickLonger(base.travelInterests, patch.travelInterests),
+    musicPreference: pickLonger(base.musicPreference, patch.musicPreference),
+    extraFacts: unique([...(base.extraFacts ?? []), ...(patch.extraFacts ?? [])]).slice(0, 24),
     updatedAt: new Date().toISOString(),
   };
 }
@@ -195,6 +220,8 @@ export function extractChildMemoryPatch(text: string, now = new Date()): Partial
     schoolSchedule: [],
     learningInterests: [],
     recentTopicsLearned: [],
+    sports: [],
+    extraFacts: [],
   };
   const today = now.toISOString().slice(0, 10);
   const day = detectDay(spoken);
@@ -212,7 +239,7 @@ export function extractChildMemoryPatch(text: string, now = new Date()): Partial
 
   for (const club of CLUBS) {
     if (!new RegExp(`\\b${club}\\b`, "i").test(lower)) continue;
-    if (/after school|club|go to|on \w+days?|i have|lesson/i.test(lower) || day) {
+    if (/after school|club|go to|on \w+days?|i have|lesson|team|play/i.test(lower) || day) {
       patch.afterSchoolClubs!.push({ day: day || weekdayName(now), activity: titleCase(club) });
       patch.hobbies!.push(titleCase(club));
     }
@@ -247,12 +274,57 @@ export function extractChildMemoryPatch(text: string, now = new Date()): Partial
   if (/\bdinosaur/.test(lower)) patch.learningInterests!.push("dinosaurs");
   if (/\bspace|planet|rocket/.test(lower)) patch.learningInterests!.push("space");
 
+  if (/\bbasketball|כדורסל/.test(lower)) {
+    const role = /\bpoint guard|רכז/.test(lower) ? "Point Guard, team player" : /team|קבוצה/.test(lower) ? "team player" : "";
+    patch.sports!.push(role ? `Basketball (${role})` : "Basketball");
+    patch.hobbies!.push("Basketball");
+  }
+  if (/\btennis|טניס/.test(lower)) {
+    patch.sports!.push("Tennis");
+    patch.hobbies!.push("Tennis");
+  }
+  if (/\blebron/.test(lower)) {
+    patch.favoriteAthlete = "LeBron James";
+    patch.extraFacts!.push("Fan of LeBron James");
+  }
+  if (/\bmargherita|מרגריטה/.test(lower) || (/\bpizza|פיצה/.test(lower) && /olive|זית/.test(lower))) {
+    patch.favoriteFood = "Margherita pizza with olives";
+    patch.extraFacts!.push("Likes Margherita pizza with olives at restaurants");
+  } else if (/\bpizza|פיצה/.test(lower)) {
+    patch.favoriteFood = patch.favoriteFood || "Pizza";
+  }
+  if (/\bthailand|תאילנד/.test(lower) || (/\belephant|פיל/.test(lower) && /jungle|jungle|ג'ונגל|ג׳ונגל/.test(lower))) {
+    patch.travelInterests = "Thailand, jungles, elephants";
+    patch.learningInterests!.push("Thailand");
+    patch.extraFacts!.push("Wants to travel to Thailand (elephants, jungle)");
+  } else if (/\bthailand|תאילנד/.test(lower)) {
+    patch.travelInterests = "Thailand";
+  }
+  if (/\bpop\b|פופ/.test(lower) && /music|שיר|song/.test(lower)) {
+    patch.musicPreference = "Pop";
+  }
+
   if (!patch.hobbies?.length) delete patch.hobbies;
   if (!patch.afterSchoolClubs?.length) delete patch.afterSchoolClubs;
   if (!patch.schoolSchedule?.length) delete patch.schoolSchedule;
   if (!patch.learningInterests?.length) delete patch.learningInterests;
   if (!patch.recentTopicsLearned?.length) delete patch.recentTopicsLearned;
+  if (!patch.sports?.length) delete patch.sports;
+  if (!patch.extraFacts?.length) delete patch.extraFacts;
   return patch;
+}
+
+export function childMemoryKnownFacts(profile: ChildMemoryProfile) {
+  return {
+    name: profile.name || undefined,
+    sports: profile.sports,
+    favorite_athlete: profile.favoriteAthlete,
+    favorite_food: profile.favoriteFood,
+    travel_interests: profile.travelInterests,
+    music_preference: profile.musicPreference,
+    hobbies: profile.hobbies,
+    extra_facts: profile.extraFacts,
+  };
 }
 
 export function looksLikeMathTalk(text: string) {

@@ -26,6 +26,12 @@ export interface ChildMemoryProfile {
   learningInterests: string[];
   mathSkillLevel?: MathSkillLevel;
   recentTopicsLearned: LearnedTopic[];
+  sports: string[];
+  favoriteAthlete?: string;
+  favoriteFood?: string;
+  travelInterests?: string;
+  musicPreference?: string;
+  extraFacts: string[];
   updatedAt?: string;
 }
 
@@ -35,6 +41,8 @@ export const EMPTY_CHILD_MEMORY: ChildMemoryProfile = {
   schoolSchedule: [],
   learningInterests: [],
   recentTopicsLearned: [],
+  sports: [],
+  extraFacts: [],
 };
 
 export const WEEKDAYS = [
@@ -58,5 +66,7 @@ export function emptyChildMemory(): ChildMemoryProfile {
     schoolSchedule: [],
     learningInterests: [],
     recentTopicsLearned: [],
+    sports: [],
+    extraFacts: [],
   };
 }

@@ -64,18 +64,40 @@ export function useMemoryExtractor(userId?: string | null, account?: {
   }, [userId, account?.nickname, account?.age]);
 
   const ingestUtterance = useCallback(
-    (text: string) => {
+    (text: string, id?: string | null) => {
+      const uid = id ?? userId;
       const patch = extractChildMemoryPatch(text);
       if (!Object.keys(patch).length) return memoryRef.current;
       const next = mergeChildMemory(memoryRef.current, patch);
       memoryRef.current = next;
       setChildMemory(next);
-      saveChildMemoryLocal(next, userId);
-      if (userId) void syncChildMemoryToSupabase(userId, next);
+      saveChildMemoryLocal(next, uid);
+      if (uid) void syncChildMemoryToSupabase(uid, next);
       return next;
     },
     [userId],
   );
 
-  return { childMemory, ingestUtterance };
+  const ingestConversation = useCallback(
+    (turns: Array<{ text?: string }>, id?: string | null) => {
+      const uid = id ?? userId;
+      let next = memoryRef.current;
+      let changed = false;
+      for (const turn of turns) {
+        const patch = extractChildMemoryPatch(String(turn.text || ""));
+        if (!Object.keys(patch).length) continue;
+        next = mergeChildMemory(next, patch);
+        changed = true;
+      }
+      if (!changed) return next;
+      memoryRef.current = next;
+      setChildMemory(next);
+      saveChildMemoryLocal(next, uid);
+      if (uid) void syncChildMemoryToSupabase(uid, next);
+      return next;
+    },
+    [userId],
+  );
+
+  return { childMemory, ingestUtterance, ingestConversation };
 }

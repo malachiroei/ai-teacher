@@ -1142,7 +1142,7 @@ Use memories when relevant. One punchy sentence + one open question. Under 25 wo
     formatSessionHistory(history),
     namingHint(history, profile),
     languageHint,
-    "When asked about past facts, age, grade, or preferences, consult ### USER PROFILE & MEMORIES and CHILD PROFILE MEMORY. Answer accurately, warmly, and directly.",
+    "When asked about past facts, age, grade, or preferences, consult ### USER PROFILE & MEMORIES and KNOWN FACTS ABOUT THIS CHILD. If they ask what you know about them, list the specific sports, foods, travel, and people stored there — never only generic onboarding interests.",
     "Keep the FULL conversation history. Never drop earlier turns or memories.",
     `Never break character. You are ${character.name} (${character.title}).`,
     profile?.custom_tutor_name && profile.custom_tutor_name !== character.name

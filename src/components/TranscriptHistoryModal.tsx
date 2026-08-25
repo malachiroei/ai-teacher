@@ -7,6 +7,8 @@ import { MixedBidiText } from "@/components/MixedBidiText";
 import { getCharacter } from "@/lib/characters";
 import type { ArchivedChatSession } from "@/lib/chat-history";
 import { smartSessionTitle } from "@/lib/learning-progress";
+import { buildTranscriptText, groupMessagesByDayNewestFirst, messageTimestamp, sortMessagesNewestFirst } from "@/lib/exportTranscript";
+import { sortConversationsNewestFirst } from "@/hooks/useChat";
 import type { Message } from "@/types/chat";
 
 interface TranscriptHistoryModalProps {
@@ -27,54 +29,6 @@ function formatClock(ts: number) {
   } catch {
     return "";
   }
-}
-
-function formatDay(ts: number) {
-  try {
-    return new Date(ts).toLocaleDateString([], {
-      weekday: "short",
-      month: "short",
-      day: "numeric",
-      year: "numeric",
-    });
-  } catch {
-    return "";
-  }
-}
-
-function dayKey(ts: number) {
-  const date = new Date(ts);
-  return `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
-}
-
-function groupByDay(messages: Message[]) {
-  const groups: Array<{ key: string; label: string; messages: Message[] }> = [];
-  for (const message of messages) {
-    const key = dayKey(message.timestamp);
-    const last = groups[groups.length - 1];
-    if (last?.key === key) last.messages.push(message);
-    else groups.push({ key, label: formatDay(message.timestamp), messages: [message] });
-  }
-  return groups;
-}
-
-export function buildTranscriptText(messages: Message[], tutorName: string, childName = "You") {
-  const header = `BuddyAI transcript\n${new Date().toLocaleString()}\n`;
-  const body = groupByDay(messages)
-    .map((group) => {
-      const lines = group.messages.map((message) => {
-        const who = message.sender === "ai" ? tutorName : childName;
-        const time = formatClock(message.timestamp);
-        const block = [`[${group.label} ${time}] ${who}: ${message.text.trim()}`];
-        if (message.sender === "ai" && message.translation?.trim()) {
-          block.push(`  HE: ${message.translation.trim()}`);
-        }
-        return block.join("\n");
-      });
-      return lines.join("\n\n");
-    })
-    .join("\n\n");
-  return `${header}\n${body}\n`;
 }
 
 export function TranscriptHistoryModal({
@@ -103,7 +57,8 @@ export function TranscriptHistoryModal({
     window.setTimeout(() => URL.revokeObjectURL(url), 1500);
   }
 
-  const groups = groupByDay(messages);
+  const groups = useMemo(() => groupMessagesByDayNewestFirst(messages), [messages]);
+  const orderedSessions = useMemo(() => sortConversationsNewestFirst(sessions), [sessions]);
 
   return (
     <div className="absolute inset-0 z-[60] flex items-end justify-center p-3 sm:items-center">
@@ -129,7 +84,7 @@ export function TranscriptHistoryModal({
             <div className="min-w-0">
               <h2 className="truncate text-base font-semibold text-white">Chat & Transcript History</h2>
               <p className="text-xs text-white/45" dir="rtl">
-                היסטוריית שיחה
+                היסטוריית שיחה · חדש למעלה
               </p>
             </div>
           </div>
@@ -165,12 +120,11 @@ export function TranscriptHistoryModal({
               {sessionsError ? <p className="px-1 pb-2 text-sm text-rose-300">{sessionsError}</p> : null}
               {sessionsLoading ? <p className="px-1 pb-2 text-sm text-white/45">Loading…</p> : null}
               <div className="space-y-2">
-                {[...sessions]
-                  .sort((a, b) => (b.archivedAt || b.createdAt) - (a.archivedAt || a.createdAt))
-                  .map((session) => {
+                {orderedSessions.map((session) => {
                     const tutor = getCharacter(session.characterId);
                     const title = smartSessionTitle(session.messages, session.title);
                     const open = expandedId === session.id;
+                    const sessionTurns = sortMessagesNewestFirst(session.messages);
                     return (
                       <div key={session.id} className="overflow-hidden rounded-2xl border border-white/8 bg-white/[0.04]">
                         <button
@@ -190,7 +144,7 @@ export function TranscriptHistoryModal({
                         {open ? (
                           <div className="border-t border-white/8 px-3 py-2">
                             <ol className="max-h-48 space-y-2 overflow-y-auto">
-                              {session.messages.map((message) => (
+                              {sessionTurns.map((message) => (
                                 <li key={message.id} className="text-[13px] text-white/80">
                                   <span className="text-[11px] font-semibold text-white/45">
                                     {message.sender === "ai" ? tutor.name : childName}:
@@ -220,7 +174,7 @@ export function TranscriptHistoryModal({
           ) : null}
 
           <section>
-            <p className="mb-2 px-1 text-[11px] font-semibold uppercase tracking-wide text-white/40">This chat</p>
+            <p className="mb-2 px-1 text-[11px] font-semibold uppercase tracking-wide text-white/40">This chat · newest first</p>
             {messages.length === 0 ? (
               <p className="px-2 py-8 text-center text-sm text-white/45">No turns yet. Start talking to build a transcript.</p>
             ) : (
@@ -234,7 +188,7 @@ export function TranscriptHistoryModal({
                           <span className="text-[11px] font-semibold tracking-wide text-white/55">
                             {message.sender === "ai" ? tutorName : childName}
                           </span>
-                          <span className="text-[10px] text-white/35">{formatClock(message.timestamp)}</span>
+                          <span className="text-[10px] text-white/35">{formatClock(messageTimestamp(message))}</span>
                         </div>
                         <p dir="ltr" className="text-[14px] leading-snug text-white/90">
                           {message.text}

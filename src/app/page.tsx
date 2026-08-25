@@ -182,7 +182,7 @@ export default function HomePage() {
   const [savingProfileDetails, setSavingProfileDetails] = useState(false);
   const [profileEditError, setProfileEditError] = useState("");
   const [memories, setMemories] = useState<UserMemory[]>([]);
-  const { childMemory, ingestUtterance } = useMemoryExtractor(user?.id, profile);
+  const { childMemory, ingestUtterance, ingestConversation } = useMemoryExtractor(user?.id, profile);
   const [savingSettings, setSavingSettings] = useState(false);
   const [settingsError, setSettingsError] = useState("");
   const [notice, setNotice] = useState("");
@@ -547,6 +547,7 @@ export default function HomePage() {
           if (placementDone && mergedHistory.length > 0) {
             setMessages(mergedHistory);
             writeTranscriptCache(nextUser.id, mergedHistory);
+            ingestConversation(mergedHistory, nextUser.id);
           } else if (placementDone) {
             setMessages([]);
           } else {
@@ -574,7 +575,7 @@ export default function HomePage() {
       setHistoryReady(true);
       setAuthReady(true);
     }
-  }, [flash]);
+  }, [flash, ingestConversation]);
 
   useEffect(() => {
     if (!profileChecked) return;
@@ -903,6 +904,8 @@ export default function HomePage() {
       }
 
       void persistMemories(data.newMemories, text, history, placementTurn);
+      ingestUtterance(spoken);
+      ingestConversation([{ text }, { text: spoken }]);
       void persistMessages(user.id, [
         { id: userMessage.id, sender: "user", text, grammarFeedback: grammar, createdAt: userMessage.timestamp },
         {
@@ -1077,6 +1080,7 @@ export default function HomePage() {
     const thread = session.messages?.length ? session.messages : [];
     setMessages(thread);
     writeTranscriptCache(user.id, thread);
+    ingestConversation(thread);
     setOpenTranslations({});
     if (profile) {
       setProfile({ ...profile, selected_character: nextCharacter.id });
@@ -1479,6 +1483,8 @@ export default function HomePage() {
         <VoiceStage
           character={character}
           tutorName={character.name}
+          childName={profile?.nickname || "You"}
+          messages={messages}
           thinking={isLoading || awaitingGreeting}
           speaking={isSpeaking}
           listening={isListening}

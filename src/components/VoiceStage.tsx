@@ -8,6 +8,8 @@ import { VoiceWave, type VoiceWaveMode } from "@/components/VoiceWave";
 import { Avatar3DStage } from "@/components/Avatar3DStage";
 import { splitCaptionLines } from "@/lib/hebrew";
 import { getCharacter, isCharacterId, SELECTED_TUTOR_STORAGE_KEY, type Character } from "@/lib/characters";
+import { sortMessagesNewestFirst } from "@/lib/exportTranscript";
+import type { Message } from "@/types/chat";
 import { cn } from "@/lib/utils";
 
 interface VoiceStageProps {
@@ -35,6 +37,8 @@ interface VoiceStageProps {
   onOpenCharacters: () => void;
   onSendText: (text: string) => void;
   offsetForBanner?: boolean;
+  messages?: Message[];
+  childName?: string;
 }
 
 export function VoiceStage({
@@ -62,6 +66,8 @@ export function VoiceStage({
   onSetVolume,
   onSendText,
   offsetForBanner = false,
+  messages = [],
+  childName = "You",
 }: VoiceStageProps) {
   const [keyboardOpen, setKeyboardOpen] = useState(false);
   const [draft, setDraft] = useState("");
@@ -153,6 +159,19 @@ export function VoiceStage({
         className="relative z-20 mt-auto px-6 pb-[max(1rem,env(safe-area-inset-bottom))]"
         onPointerDown={(event) => event.stopPropagation()}
       >
+        {messages.length > 0 ? (
+          <div className="mb-2 max-h-[28vh] overflow-y-auto rounded-2xl border border-white/10 bg-black/25 px-3 py-2">
+            {sortMessagesNewestFirst(messages).slice(0, 40).map((message) => (
+              <p key={message.id} className="mb-1.5 text-[13px] leading-snug text-white/85 last:mb-0">
+                <span className="text-[10px] font-semibold uppercase tracking-wide text-white/45">
+                  {message.sender === "ai" ? tutorName : childName}
+                </span>{" "}
+                {message.text}
+              </p>
+            ))}
+          </div>
+        ) : null}
+
         {!showAiCaption && !showStatus ? (
           <p className="mb-2 text-center text-[12px] font-medium tracking-[0.18em] text-white/55 uppercase">
             Speaking with {tutorName}

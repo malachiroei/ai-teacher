@@ -92,9 +92,9 @@ Stay age-appropriate. Keep helping with grammar and Hebrew translations as requi
     accentColor: "#FF9A1F",
     voice: {
       gender: "male",
-      pitch: 0.92,
-      rate: 1.0,
-      preferredNames: ["Daniel", "David", "Arthur", "en-US-GuyNeural", "en-US-Neural2-D", "en-US-Wavenet-D", "Google UK English Male", "en-us-x-sfg-local", "Alex"],
+      pitch: 0.72,
+      rate: 0.92,
+      preferredNames: ["en-us-x-iol-network", "en-gb-x-rjs-local", "en-US-Wavenet-D", "en-US-Neural2-D", "Daniel", "David", "Arthur", "en-US-GuyNeural", "Google UK English Male", "Alex"],
     },
     greetingTemplate:
       "Hey{{nameBit}}! I'm {{tutorName}} — let's have some fun in English.{{topic}} How's your day going so far?",
@@ -122,9 +122,9 @@ Stay age-appropriate. No body-shaming, no extreme training pressure.` + CONVERSA
     accentColor: "#3D9BFF",
     voice: {
       gender: "male",
-      pitch: 1.02,
-      rate: 1.04,
-      preferredNames: ["Matthew", "Brian", "Guy", "en-US-GuyNeural", "en-US-Neural2-J", "en-US-Wavenet-J", "Google US English Male", "Daniel"],
+      pitch: 0.72,
+      rate: 0.92,
+      preferredNames: ["en-us-x-iol-network", "en-gb-x-rjs-local", "en-US-Wavenet-D", "en-US-Neural2-D", "Matthew", "Brian", "Guy", "en-US-GuyNeural", "Google US English Male", "Daniel"],
     },
     greetingTemplate:
       "Hey{{nameBit}}! I'm {{tutorName}} — ready for a space-level English mission?{{topic}} How are you starting today?",
@@ -180,9 +180,9 @@ Stay age-appropriate. You still correct grammar kindly, keep replies 1–2 sente
     accentColor: "#22C55E",
     voice: {
       gender: "male",
-      pitch: 0.9,
-      rate: 0.98,
-      preferredNames: ["David", "Mark", "Ryan", "en-US-GuyNeural", "en-US-Neural2-D", "en-US-Wavenet-B", "Google UK English Male", "Arthur"],
+      pitch: 0.72,
+      rate: 0.92,
+      preferredNames: ["en-us-x-iol-network", "en-gb-x-rjs-local", "en-US-Wavenet-D", "en-US-Neural2-D", "David", "Mark", "Ryan", "en-US-GuyNeural", "Google UK English Male", "Arthur"],
     },
     greetingTemplate:
       "Hey{{nameBit}}! I'm {{tutorName}} — adventure English starts now.{{topic}} What's the coolest thing in your day?",
@@ -268,9 +268,9 @@ export function writeStoredTutorId(id?: string | null) {
 }
 
 const FEMALE_VOICE_HINT =
-  /samantha|victoria|karen|moira|tessa|zira|hazel|fiona|kathy|siri|nicky|jenny|aria|eva|sfg#female|female|woman|girl|us english female|uk english female|google us english(?! male)|jennyneural|en-us-jenny|neural2-[af]|wavenet-[afc]/i;
+  /samantha|victoria|karen|moira|tessa|zira|hazel|fiona|kathy|siri|nicky|jenny|aria|eva|sfg|female|woman|girl|us english female|uk english female|google us english(?! male)|jennyneural|en-us-jenny|neural2-[af]|wavenet-[afc]/i;
 const MALE_VOICE_HINT =
-  /daniel|fred|david|mark|arthur|\btom\b|oliver|aaron|rishi|ravi|george|thomas|james|tony|echo|onyx|\balex\b|male_1|#male|\biol\b|male|man|\bguy\b|\bboy\b|us english male|uk english male|guyneural|en-us-guy|en-us-x-tpd|neural2-[dj]|wavenet-[dj]|standard-[bcdj]/i;
+  /daniel|fred|david|mark|arthur|\btom\b|oliver|aaron|rishi|ravi|george|thomas|james|tony|echo|onyx|\balex\b|male_1|#male|\biol\b|\brjs\b|male|man|\bguy\b|\bboy\b|us english male|uk english male|guyneural|en-us-guy|en-us-x-tpd|en-us-x-iol|en-gb-x-rjs|neural2-[dj]|wavenet-[dj]|standard-[bcdj]/i;
 const NOVELTY_VOICE_HINT =
   /compact|novelty|whisper|bad news|good news|bells|boing|bubbles|cellos|trinoids|zarvox|deranged|hysterical|superstar|wobble/i;
 
@@ -291,7 +291,7 @@ function voiceBlob(voice: SpeechSynthesisVoice) {
 
 export function isVoiceLikelyMale(voice: SpeechSynthesisVoice) {
   const blob = voiceBlob(voice);
-  if (/\bfemale\b|woman|girl|samantha|victoria|karen|moira|tessa|zira/.test(blob) && !MALE_VOICE_HINT.test(blob)) {
+  if (/\bsfg\b|sfg-|female|woman|girl|samantha|victoria|karen|moira|tessa|zira/.test(blob) && !/\bmale\b|\biol\b|\brjs\b|wavenet-d|neural2-d/.test(blob)) {
     return false;
   }
   return MALE_VOICE_HINT.test(blob);

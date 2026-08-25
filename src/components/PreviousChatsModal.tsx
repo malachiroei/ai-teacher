@@ -4,6 +4,7 @@ import { motion } from "framer-motion";
 import { History, X } from "lucide-react";
 import { getCharacter } from "@/lib/characters";
 import type { ArchivedChatSession } from "@/lib/chat-history";
+import { sortConversationsNewestFirst } from "@/hooks/useChat";
 
 interface PreviousChatsModalProps {
   sessions: ArchivedChatSession[];
@@ -71,7 +72,7 @@ export function PreviousChatsModal({
             </p>
           ) : (
             <div className="space-y-2">
-              {sessions.map((session) => (
+              {sortConversationsNewestFirst(sessions).map((session) => (
                 <button
                   key={session.id}
                   type="button"
