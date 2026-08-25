@@ -154,8 +154,8 @@ function playFanfare(ctx: AudioContext, t0: number) {
 }
 
 function playTryAgain(ctx: AudioContext, t0: number) {
-  tone(ctx, "square", 180, t0, 0.14, 0.08, 90);
-  tone(ctx, "sawtooth", 140, t0 + 0.08, 0.18, 0.06, 70);
+  tone(ctx, "sine", 220, t0, 0.12, 0.15, 140);
+  tone(ctx, "sine", 200, t0 + 0.09, 0.11, 0.1, 130);
 }
 
 export async function playTryAgainSound() {
