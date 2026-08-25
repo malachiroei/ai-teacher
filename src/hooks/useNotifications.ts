@@ -399,6 +399,62 @@ function armPageReminderAlarm(config: ReminderScheduleConfig) {
   }, delayMs);
 }
 
+function urlBase64ToUint8Array(base64String: string) {
+  const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
+  const raw = window.atob(base64);
+  const output = new Uint8Array(raw.length);
+  for (let i = 0; i < raw.length; i += 1) output[i] = raw.charCodeAt(i);
+  return output;
+}
+
+async function syncWebPushSubscription(config: ReminderScheduleConfig) {
+  const publicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY?.trim();
+  if (!publicKey || !("serviceWorker" in navigator) || !("PushManager" in window)) return false;
+  if (Notification.permission !== "granted") return false;
+  try {
+    const registration = await navigator.serviceWorker.ready;
+    if (!config.enabled) {
+      const existing = await registration.pushManager.getSubscription();
+      await fetch("/api/notifications/subscribe", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          subscription: existing,
+          preferredTime: config.hhmm,
+          timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+          enabled: false,
+        }),
+      });
+      return true;
+    }
+    let subscription = await registration.pushManager.getSubscription();
+    if (!subscription) {
+      subscription = await registration.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(publicKey),
+      });
+    }
+    const response = await fetch("/api/notifications/subscribe", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        subscription,
+        preferredTime: config.hhmm,
+        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+        enabled: true,
+        tutorName: config.tutorName,
+        kidName: config.kidName,
+        goalMinutes: config.goalMinutes,
+      }),
+    });
+    return response.ok;
+  } catch (error) {
+    console.warn("Could not sync web push subscription:", error);
+    return false;
+  }
+}
+
 export async function persistReminderSchedule(config: ReminderScheduleConfig) {
   if (typeof window === "undefined") return;
   const withTarget = { ...config, nextFireAt: nextReminderTimestamp(config.hhmm) };
@@ -424,6 +480,14 @@ export async function persistReminderSchedule(config: ReminderScheduleConfig) {
   const registration = await registerServiceWorker();
   const worker = registration?.active ?? registration?.waiting ?? registration?.installing;
   worker?.postMessage({ type: "SAVE_REMINDER", config: withTarget });
+  const pushOk = await syncWebPushSubscription(withTarget);
+  if (pushOk) {
+    if (pageAlarmTimer != null) {
+      window.clearTimeout(pageAlarmTimer);
+      pageAlarmTimer = null;
+    }
+    return;
+  }
   armPageReminderAlarm(withTarget);
 }
 
@@ -439,6 +503,9 @@ export function useNotifications() {
   useEffect(() => {
     void registerServiceWorker();
     const stored = readStoredReminderSchedule();
-    if (stored?.enabled) armPageReminderAlarm(stored);
+    if (!stored?.enabled) return;
+    void syncWebPushSubscription(stored).then((pushOk) => {
+      if (!pushOk) armPageReminderAlarm(stored);
+    });
   }, []);
 }

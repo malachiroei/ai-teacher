@@ -150,6 +150,57 @@ export interface Database {
         };
         Relationships: [];
       };
+      push_subscriptions: {
+        Row: {
+          id: string;
+          user_id: string;
+          endpoint: string;
+          p256dh: string;
+          auth: string;
+          preferred_time: string;
+          timezone: string;
+          enabled: boolean;
+          last_sent_date: string | null;
+          tutor_name: string | null;
+          kid_name: string | null;
+          goal_minutes: number | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          endpoint: string;
+          p256dh: string;
+          auth: string;
+          preferred_time?: string;
+          timezone?: string;
+          enabled?: boolean;
+          last_sent_date?: string | null;
+          tutor_name?: string | null;
+          kid_name?: string | null;
+          goal_minutes?: number | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          user_id?: string;
+          endpoint?: string;
+          p256dh?: string;
+          auth?: string;
+          preferred_time?: string;
+          timezone?: string;
+          enabled?: boolean;
+          last_sent_date?: string | null;
+          tutor_name?: string | null;
+          kid_name?: string | null;
+          goal_minutes?: number | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
       user_memories: {
         Row: {
           id: string;

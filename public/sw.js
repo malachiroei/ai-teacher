@@ -18,6 +18,21 @@ self.addEventListener("message", (event) => {
   }
 });
 
+self.addEventListener("push", (event) => {
+  const data = event.data ? event.data.json() : {};
+  const title = data.title || "🚀 Alex is waiting for you!";
+  const options = {
+    body: data.body || "Ready for today's quick English practice?",
+    icon: data.icon || "/icon-192.png",
+    badge: data.badge || "/icon-192.png",
+    vibrate: [200, 100, 200],
+    data: { url: data.url || "/" },
+    tag: "buddyai-daily-practice",
+    renotify: true,
+  };
+  event.waitUntil(self.registration.showNotification(title, options));
+});
+
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
   const targetUrl = event.notification?.data?.url || "/";
