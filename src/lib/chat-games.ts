@@ -191,19 +191,11 @@ export function createQuickGame(type?: ChatGameType): ChatGame {
 }
 
 export function createQuickGameRound(): ChatGame[] {
-  const seen = new Set<string>();
-  const round: ChatGame[] = [];
-  let guard = 0;
-  while (round.length < GAME_ROUND_LENGTH && guard < 24) {
-    const game = createQuickGame();
-    const key = `${game.type}:${getGameAnswer(game).toLowerCase()}`;
-    guard += 1;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    round.push(game);
-  }
-  while (round.length < GAME_ROUND_LENGTH) round.push(createQuickGame());
-  return round;
+  return [
+    createQuickGame("picture_match"),
+    createQuickGame("listen_pick"),
+    createQuickGame("fill_missing"),
+  ];
 }
 
 export function expandToGameRound(first?: ChatGame | null): ChatGame[] {
@@ -220,4 +212,18 @@ export function isCorrectGameChoice(game: ChatGame, choice: string) {
 
 export function getGameAnswer(game: ChatGame) {
   return game.data.answer;
+}
+
+export function transcriptMatchesChoice(spoken: string, choice: string) {
+  const hay = spoken.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+  const needle = choice.toLowerCase().trim();
+  if (!hay || !needle) return false;
+  return hay.split(" ").includes(needle) || hay.includes(needle);
+}
+
+export function fillPatternParts(pattern: string) {
+  return String(pattern || "")
+    .split(/\s+/)
+    .map((part) => part.trim())
+    .filter(Boolean);
 }

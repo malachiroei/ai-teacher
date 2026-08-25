@@ -198,6 +198,7 @@ export default function HomePage() {
   const [spokenReply, setSpokenReply] = useState("");
   const [spokenTranslation, setSpokenTranslation] = useState("");
   const [gameRound, setGameRound] = useState<ChatGame[] | null>(null);
+  const gameActiveRef = useRef(false);
   const [awaitingGreeting, setAwaitingGreeting] = useState(false);
   const viewport = useVisualViewport();
   const needsOnboarding = Boolean(user && profileChecked && !isProfileComplete(profile));
@@ -216,6 +217,10 @@ export default function HomePage() {
   useEffect(() => {
     if (user?.id) rememberTutorMet(user.id, character.id);
   }, [user?.id, character.id]);
+
+  useEffect(() => {
+    gameActiveRef.current = Boolean(gameRound);
+  }, [gameRound]);
 
   const maybePrintLatencyReport = useCallback(() => {
     if (latencyReportPrintedRef.current) return;
@@ -270,7 +275,10 @@ export default function HomePage() {
     character,
     rateMultiplier: voiceSpeed,
     preferredVoiceUri: practiceSettings.preferred_voice,
-    onFinalTranscript: (text) => sendSpokenRef.current(text),
+    onFinalTranscript: (text) => {
+      if (gameActiveRef.current) return;
+      sendSpokenRef.current(text);
+    },
     onListenError: (reason) => {
       const text = reason === "not-allowed" ? MIC_PERMISSION_MESSAGE : SPEECH_UNAVAILABLE_MESSAGE;
       setNotice(text);
@@ -1480,6 +1488,13 @@ export default function HomePage() {
             gameRound ? (
               <ChatGameCard
                 games={gameRound}
+                liveTranscript={transcript}
+                listening={isListening}
+                audioLevel={audioLevel}
+                onRequestListen={() => {
+                  unlockSpeech();
+                  startListening("en-US");
+                }}
                 onSpeakPrompt={(word) => {
                   unlockSpeech();
                   speak(word);

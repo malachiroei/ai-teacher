@@ -158,6 +158,35 @@ function playTryAgain(ctx: AudioContext, t0: number) {
   tone(ctx, "sine", 200, t0 + 0.09, 0.11, 0.1, 130);
 }
 
+export async function playGameSfx(kind: "bubble" | "lock" | "bounce" | "win" | "sparkle") {
+  const ctx = getAudioContext();
+  if (!ctx) return false;
+  try {
+    if (ctx.state === "suspended") await ctx.resume();
+    const t0 = ctx.currentTime + 0.01;
+    if (kind === "bubble") {
+      tone(ctx, "sine", 620, t0, 0.09, 0.12, 980);
+      tone(ctx, "sine", 980, t0 + 0.04, 0.08, 0.08, 1400);
+    } else if (kind === "lock") {
+      tone(ctx, "triangle", 740, t0, 0.07, 0.12);
+      tone(ctx, "sine", 1180, t0 + 0.05, 0.12, 0.08);
+    } else if (kind === "bounce") {
+      tone(ctx, "sine", 260, t0, 0.1, 0.1, 180);
+    } else if (kind === "sparkle") {
+      [880, 1174, 1568].forEach((freq, index) => {
+        tone(ctx, "sine", freq, t0 + index * 0.05, 0.16, 0.08);
+      });
+    } else {
+      [523.25, 659.25, 783.99, 1046.5].forEach((freq, index) => {
+        tone(ctx, "triangle", freq, t0 + index * 0.08, 0.22, 0.12);
+      });
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export async function playTryAgainSound() {
   const ctx = getAudioContext();
   if (!ctx) return false;
