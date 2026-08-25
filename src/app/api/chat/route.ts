@@ -14,7 +14,7 @@ import {
 import { buildLearnerContext, profilePayload } from "@/lib/learner";
 import { buildChildMemoryPrompt, buildSystemPromptSections } from "@/lib/systemPromptBuilder";
 import type { ChildMemoryProfile } from "@/types/childProfile";
-import { parseChildMemory } from "@/lib/child-memory";
+import { parseChildMemory, hydrateChildMemoryFromTurns } from "@/lib/child-memory";
 import { normalizeNewMemories, parseFavoriteThing, extractFactsFromUtterance, type UserMemory } from "@/lib/memory";
 import { guessSpokenName, isPlacementActive, placementAnswerTurns, placementFollowUp } from "@/lib/placement";
 import {
@@ -188,7 +188,7 @@ function formatStructuredUserProfile(profile?: ProfileInput | null) {
         ? "INTERMEDIATE: short everyday sentences, one idea at a time."
         : "Keep it kid-simple and under 25 words total."
   }
-- Passions / Interests: ${interests} — weave naturally when relevant; follow THEIR lead if they pivot.
+- Passions / Interests (onboarding only — IGNORE these if PERSISTENT CHILD MEMORY PROFILE has real sports/food/travel facts): ${interests}.
 - Daily Practice Target: ${targetDaily} min/day.
 Use Level and Interests. Never re-ask for facts already stored here. Never force their name into every reply.`;
 }
@@ -1131,18 +1131,22 @@ Use memories when relevant. One punchy sentence + one open question. Under 25 wo
     memories: extras?.memories,
     isFirstSessionToday: Boolean(extras?.isFirstSessionToday || action === "daily_open"),
   });
+  const childMemory = hydrateChildMemoryFromTurns(
+    parseChildMemory(extras?.childMemory ?? null),
+    [...history, { text: userMessage }],
+  );
   const character = getCharacter(characterId ?? profile?.selected_character);
   const system = buildSystemPromptSections([
+    buildChildMemoryPrompt(childMemory),
     BASE_TUTOR_RULES,
     VOICE_LATENCY_RULE,
     character.systemPrompt,
     learnerContext,
     formatStructuredUserProfile(profile),
-    buildChildMemoryPrompt(extras?.childMemory ?? null),
     formatSessionHistory(history),
     namingHint(history, profile),
     languageHint,
-    "When asked about past facts, age, grade, or preferences, consult ### USER PROFILE & MEMORIES and KNOWN FACTS ABOUT THIS CHILD. If they ask what you know about them, list the specific sports, foods, travel, and people stored there — never only generic onboarding interests.",
+    "When asked what you know about them, use === PERSISTENT CHILD MEMORY PROFILE === first. Never answer with only generic onboarding interests.",
     "Keep the FULL conversation history. Never drop earlier turns or memories.",
     `Never break character. You are ${character.name} (${character.title}).`,
     profile?.custom_tutor_name && profile.custom_tutor_name !== character.name
@@ -1340,7 +1344,10 @@ export async function POST(request: Request) {
 
     const extras = {
       memories,
-      childMemory: parseChildMemory(body.childMemory),
+      childMemory: hydrateChildMemoryFromTurns(parseChildMemory(body.childMemory), [
+        ...history,
+        { text: userMessage },
+      ]),
       isFirstSessionToday,
       placement,
       placementCompleted,

@@ -283,7 +283,7 @@ export function extractChildMemoryPatch(text: string, now = new Date()): Partial
     patch.sports!.push("Tennis");
     patch.hobbies!.push("Tennis");
   }
-  if (/\blebron/.test(lower)) {
+  if (/\blebron|לברון/.test(lower)) {
     patch.favoriteAthlete = "LeBron James";
     patch.extraFacts!.push("Fan of LeBron James");
   }
@@ -331,6 +331,19 @@ export function looksLikeMathTalk(text: string) {
   return /\bmath|times tables|\d+\s*(times|x|\+)\s*\d+|multiplication|fraction|plus|חיבור|כפל|מתמטיקה|חשבון/i.test(
     text,
   );
+}
+
+export function hydrateChildMemoryFromTurns(
+  base: ChildMemoryProfile,
+  turns: Array<{ text?: string; content?: string } | string>,
+) {
+  let next = base;
+  for (const turn of turns) {
+    const text = typeof turn === "string" ? turn : String(turn.text || turn.content || "");
+    const patch = extractChildMemoryPatch(text);
+    if (Object.keys(patch).length) next = mergeChildMemory(next, patch);
+  }
+  return next;
 }
 
 export function loadChildMemoryLocal(userId?: string | null): ChildMemoryProfile {

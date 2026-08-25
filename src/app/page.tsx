@@ -51,7 +51,8 @@ import { logConversationPedagogyReport } from "@/lib/conversation-pedagogy";
 import { parseTutorNicknames, profilePayload, withTutorDisplayName } from "@/lib/learner";
 import { consumeChatStream, speakableSentences } from "@/lib/chat-stream";
 import { createQuickGameRound, createMathGameRound, expandToGameRound, extractGameFromText, GAME_XP_REWARD, stripGameTag, type ChatGame } from "@/lib/chat-games";
-import { looksLikeMathTalk } from "@/lib/child-memory";
+import { hydrateChildMemoryFromTurns, looksLikeMathTalk } from "@/lib/child-memory";
+import { readChildMemoryForChat } from "@/hooks/useChat";
 import { useMemoryExtractor } from "@/hooks/useMemoryExtractor";
 import {
   logPipelineLatencyReport,
@@ -737,7 +738,10 @@ export default function HomePage() {
         profile: profilePayload(activeProfile),
         characterId: character.id,
         memories: memories.slice(0, 20),
-        childMemory: payload.childMemory ?? childMemory,
+        childMemory: hydrateChildMemoryFromTurns(
+          payload.childMemory ?? childMemory ?? readChildMemoryForChat(user?.id),
+          payload.history,
+        ),
         placement: !placementCompleted && isPlacementActive(payload.history, placementCompleted),
         placementCompleted,
         isFirstSessionToday: !payload.history.some(

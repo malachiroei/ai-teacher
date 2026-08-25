@@ -8,7 +8,7 @@ import { getCharacter } from "@/lib/characters";
 import type { ArchivedChatSession } from "@/lib/chat-history";
 import { smartSessionTitle } from "@/lib/learning-progress";
 import { buildTranscriptText, groupMessagesByDayNewestFirst, messageTimestamp, sortMessagesNewestFirst } from "@/lib/exportTranscript";
-import { sortConversationsNewestFirst } from "@/hooks/useChat";
+import { getTimestamp } from "@/hooks/useChat";
 import type { Message } from "@/types/chat";
 
 interface TranscriptHistoryModalProps {
@@ -58,7 +58,10 @@ export function TranscriptHistoryModal({
   }
 
   const groups = useMemo(() => groupMessagesByDayNewestFirst(messages), [messages]);
-  const orderedSessions = useMemo(() => sortConversationsNewestFirst(sessions), [sessions]);
+  const orderedSessions = useMemo(
+    () => [...sessions].sort((a, b) => getTimestamp(b) - getTimestamp(a)),
+    [sessions],
+  );
 
   return (
     <div className="absolute inset-0 z-[60] flex items-end justify-center p-3 sm:items-center">
