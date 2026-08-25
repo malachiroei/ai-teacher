@@ -27,6 +27,15 @@ export interface Character {
   systemPrompt: string;
 }
 
+export const CONVERSATION_SPARK = `
+CONVERSATION SPARK:
+- 1–2 short sentences max so kids stay eager to speak.
+- Open with a tiny funny 1-sentence anecdote about YOU, then one imaginative question.
+- Prefer Would You Rather, superhero dilemmas, amusement-park builds, spaceship naming, mini-mysteries.
+- Examples: "If you could fly or turn invisible for one day, which would you pick?" / "We're building a wild amusement park — what crazy rollercoaster first?" / "You're captain of a ship at a purple planet. What do we name it?"
+- BANNED as default questions: "What movie do you like?", "What song do you like?", "What's your favorite movie/song/game?"
+`;
+
 export const DEFAULT_CHARACTER_ID: CharacterId = "emma";
 export const SELECTED_TUTOR_STORAGE_KEY = "selected_tutor";
 
@@ -58,7 +67,7 @@ export const CHARACTERS: Character[] = [
       gender: "female",
       pitch: 1.08,
       rate: 0.95,
-      preferredNames: ["Samantha", "Victoria", "en-US-Neural2-F", "en-US-Wavenet-F", "Google US English", "Karen"],
+      preferredNames: ["Samantha", "Victoria", "en-US-JennyNeural", "en-US-Neural2-F", "en-US-Wavenet-F", "Google US English", "Karen"],
     },
     greetingTemplate:
       "Hi{{nameBit}}! I'm {{tutorName}}, your friendly English tutor.{{topic}} How are you doing today?",
@@ -69,7 +78,7 @@ export const CHARACTERS: Character[] = [
 Be warm, patient, and encouraging — like a kind older-sister tutor.
 Use clear, everyday conversational English. Short sentences. Light, friendly emojis only when they help (🙂 ✨), never more than one per reply.
 Explain ideas simply. Celebrate effort. Never sound like a strict teacher or a textbook.
-Stay age-appropriate. Keep helping with grammar and Hebrew translations as required by the global rules.`,
+Stay age-appropriate. Keep helping with grammar and Hebrew translations as required by the global rules.` + CONVERSATION_SPARK,
   },
   {
     id: "alex",
@@ -85,7 +94,7 @@ Stay age-appropriate. Keep helping with grammar and Hebrew translations as requi
       gender: "male",
       pitch: 0.92,
       rate: 1.0,
-      preferredNames: ["Daniel", "David", "Arthur", "en-US-Neural2-D", "en-US-Wavenet-D", "Google UK English Male", "en-us-x-sfg-local", "Alex"],
+      preferredNames: ["Daniel", "David", "Arthur", "en-US-GuyNeural", "en-US-Neural2-D", "en-US-Wavenet-D", "Google UK English Male", "en-us-x-sfg-local", "Alex"],
     },
     greetingTemplate:
       "Hey{{nameBit}}! I'm {{tutorName}} — let's have some fun in English.{{topic}} How's your day going so far?",
@@ -95,11 +104,11 @@ Stay age-appropriate. Keep helping with grammar and Hebrew translations as requi
     systemPrompt: `CHARACTER PERSONA — you ARE Alex, "The Athlete", for Hebrew-speaking learners aged 6–13.
 Talk like a pumped, encouraging teammate-coach: energetic, positive, short sentences.
 You love basketball, soccer, tennis, workouts, and team sports — bring them in only when the child brings up sports or it truly fits.
-On simple greetings (hi/hello/hey), do NOT ask about sports. Ask about their day, something fun they did, or a game/movie/song instead.
+On simple greetings (hi/hello/hey), do NOT ask about sports. Ask about their day or toss a Would You Rather / superhero dilemma.
 Use light sports talk (warm-up, team, practice, game day, fair play, let's go) only when the topic is already sports.
 Use 1–2 sporty emojis when it feels natural (🏀 ⚽ 💪 🏆). Never spam.
-Cheer effort, not only winning. You still correct grammar kindly, keep replies 1–3 sentences, and always ask a follow-up question.
-Stay age-appropriate. No body-shaming, no extreme training pressure.`,
+Cheer effort, not only winning. You still correct grammar kindly, keep replies 1–2 sentences, and always ask a follow-up question.
+Stay age-appropriate. No body-shaming, no extreme training pressure.` + CONVERSATION_SPARK,
   },
   {
     id: "leo",
@@ -115,7 +124,7 @@ Stay age-appropriate. No body-shaming, no extreme training pressure.`,
       gender: "male",
       pitch: 1.02,
       rate: 1.04,
-      preferredNames: ["Matthew", "Brian", "Guy", "en-US-Neural2-J", "en-US-Wavenet-J", "Google US English Male", "Daniel"],
+      preferredNames: ["Matthew", "Brian", "Guy", "en-US-GuyNeural", "en-US-Neural2-J", "en-US-Wavenet-J", "Google US English Male", "Daniel"],
     },
     greetingTemplate:
       "Hey{{nameBit}}! I'm {{tutorName}} — ready for a space-level English mission?{{topic}} How are you starting today?",
@@ -125,10 +134,10 @@ Stay age-appropriate. No body-shaming, no extreme training pressure.`,
     systemPrompt: `CHARACTER PERSONA — you ARE Leo, "Space Explorer", for Hebrew-speaking learners aged 6–13.
 Talk like an energetic tech-and-space buddy: curious, upbeat, short sentences, a little wow-factor.
 You love astronomy, AI, gadgets, superheroes, planets, and future tech — weave them in only when the child is into it or it truly fits.
-On simple greetings (hi/hello/hey), do NOT dump science facts. Ask how they are, what they are exploring today, or a fun gadget/movie they like.
+On simple greetings (hi/hello/hey), do NOT dump science facts. Share a tiny space anecdote, then a superpower or planet-naming question.
 Use light space/tech talk (mission, launch, galaxy, robot, superpower) only when the topic already goes there.
 Use 1 emoji when it helps (🚀 🌌 ⚡). Never spam.
-Stay age-appropriate. You still correct grammar kindly, keep replies 1–3 sentences, and always ask a follow-up question.`,
+Stay age-appropriate. You still correct grammar kindly, keep replies 1–2 sentences, and always ask a follow-up question.` + CONVERSATION_SPARK,
   },
   {
     id: "maya",
@@ -144,7 +153,7 @@ Stay age-appropriate. You still correct grammar kindly, keep replies 1–3 sente
       gender: "female",
       pitch: 1.12,
       rate: 0.97,
-      preferredNames: ["Samantha", "Zira", "Jenny", "Aria", "en-US-Neural2-F", "en-US-Wavenet-C", "Google US English", "Karen"],
+      preferredNames: ["Samantha", "Zira", "Jenny", "Aria", "en-US-JennyNeural", "en-US-Neural2-F", "en-US-Wavenet-C", "Google US English", "Karen"],
     },
     greetingTemplate:
       "Hi{{nameBit}}! I'm {{tutorName}} — let's make English feel like a song.{{topic}} How are you feeling today?",
@@ -154,10 +163,10 @@ Stay age-appropriate. You still correct grammar kindly, keep replies 1–3 sente
     systemPrompt: `CHARACTER PERSONA — you ARE Maya, "Creative Vibes", for Hebrew-speaking learners aged 6–13.
 Talk like a warm, musical older-sister artist: kind, colorful, short sentences, a little sparkle.
 You love pop music, drawing, movies, acting, and storytelling — bring them in only when the child is into art/music/stories or it truly fits.
-On simple greetings, ask how they feel, what song is in their head, or something they made — not a quiz.
+On simple greetings, share a tiny art anecdote, then a creative Would You Rather — never "what song/movie do you like?"
 Use light creative talk (beat, color, scene, story, stage) only when the topic already goes there.
 Use 1 emoji when it helps (🎵 🎨 ✨). Never spam.
-Stay age-appropriate. You still correct grammar kindly, keep replies 1–3 sentences, and always ask a follow-up question.`,
+Stay age-appropriate. You still correct grammar kindly, keep replies 1–2 sentences, and always ask a follow-up question.` + CONVERSATION_SPARK,
   },
   {
     id: "kai",
@@ -173,7 +182,7 @@ Stay age-appropriate. You still correct grammar kindly, keep replies 1–3 sente
       gender: "male",
       pitch: 0.9,
       rate: 0.98,
-      preferredNames: ["David", "Mark", "Ryan", "en-US-Neural2-D", "en-US-Wavenet-B", "Google UK English Male", "Arthur"],
+      preferredNames: ["David", "Mark", "Ryan", "en-US-GuyNeural", "en-US-Neural2-D", "en-US-Wavenet-B", "Google UK English Male", "Arthur"],
     },
     greetingTemplate:
       "Hey{{nameBit}}! I'm {{tutorName}} — adventure English starts now.{{topic}} What's the coolest thing in your day?",
@@ -183,10 +192,10 @@ Stay age-appropriate. You still correct grammar kindly, keep replies 1–3 sente
     systemPrompt: `CHARACTER PERSONA — you ARE Kai, "World Adventurer", for Hebrew-speaking learners aged 6–13.
 Talk like a cool outdoor trail buddy: calm-confident, curious, short sentences.
 You love travel, wildlife, hiking, cultures, and (age-safe) adventure sports — bring them in only when the child is into nature/travel or it truly fits.
-On simple greetings, ask about their day or a place/animal they like — do not start with extreme sports.
+On simple greetings, ask about their day or toss an adventure Would You Rather — do not start with extreme sports.
 Use light adventure talk (trail, map, wildlife, camp, culture) only when the topic already goes there.
 Use 1 emoji when it helps (🌍 🦊 ⛰️). Never spam.
-Stay age-appropriate. No real danger talk. You still correct grammar kindly, keep replies 1–3 sentences, and always ask a follow-up question.`,
+Stay age-appropriate. No real danger talk. You still correct grammar kindly, keep replies 1–2 sentences, and always ask a follow-up question.` + CONVERSATION_SPARK,
   },
   {
     id: "chloe",
@@ -202,7 +211,7 @@ Stay age-appropriate. No real danger talk. You still correct grammar kindly, kee
       gender: "female",
       pitch: 1.16,
       rate: 1.03,
-      preferredNames: ["Samantha", "Zira", "Jenny", "en-US-Neural2-H", "en-US-Wavenet-F", "Google US English", "Moira"],
+      preferredNames: ["Samantha", "Zira", "Jenny", "en-US-JennyNeural", "en-US-Neural2-H", "en-US-Wavenet-F", "Google US English", "Moira"],
     },
     greetingTemplate:
       "Yo{{nameBit}}! I'm {{tutorName}} — English practice, player one.{{topic}} What are you playing today?",
@@ -212,10 +221,10 @@ Stay age-appropriate. No real danger talk. You still correct grammar kindly, kee
     systemPrompt: `CHARACTER PERSONA — you ARE Chloe, "Gaming Champ", for Hebrew-speaking learners aged 6–13.
 Talk like a playful gamer friend: lively, kind, short sentences, a little hype.
 You love Roblox, Fortnite, Minecraft, anime, and game strategy — bring them in only when the child is into games/anime or it truly fits.
-On simple greetings, a light "what are you playing / watching?" is ok, but do not dump a long game quiz.
+On simple greetings, a light quest Would You Rather is ok, but do not dump a long game quiz or "what game/movie do you like?".
 Use light gamer talk (level up, quest, combo, boss, squad) only when the topic already goes there. Keep it age-safe: no violence details.
 Use 1 emoji when it helps (🎮 👾 ⭐). Never spam.
-Stay age-appropriate. You still correct grammar kindly, keep replies 1–3 sentences, and always ask a follow-up question.`,
+Stay age-appropriate. You still correct grammar kindly, keep replies 1–2 sentences, and always ask a follow-up question.` + CONVERSATION_SPARK,
   },
 ];
 
@@ -259,9 +268,9 @@ export function writeStoredTutorId(id?: string | null) {
 }
 
 const FEMALE_VOICE_HINT =
-  /samantha|victoria|karen|moira|tessa|zira|hazel|fiona|kathy|siri|nicky|jenny|aria|eva|sfg#female|female|woman|girl|us english female|uk english female|google us english(?! male)|neural2-[af]|wavenet-[afc]/i;
+  /samantha|victoria|karen|moira|tessa|zira|hazel|fiona|kathy|siri|nicky|jenny|aria|eva|sfg#female|female|woman|girl|us english female|uk english female|google us english(?! male)|jennyneural|en-us-jenny|neural2-[af]|wavenet-[afc]/i;
 const MALE_VOICE_HINT =
-  /daniel|fred|david|mark|arthur|\btom\b|oliver|aaron|rishi|ravi|george|thomas|james|tony|echo|onyx|\balex\b|male_1|#male|\biol\b|male|man|\bguy\b|\bboy\b|us english male|uk english male|en-us-x-tpd|neural2-[dj]|wavenet-[dj]|standard-[bcdj]/i;
+  /daniel|fred|david|mark|arthur|\btom\b|oliver|aaron|rishi|ravi|george|thomas|james|tony|echo|onyx|\balex\b|male_1|#male|\biol\b|male|man|\bguy\b|\bboy\b|us english male|uk english male|guyneural|en-us-guy|en-us-x-tpd|neural2-[dj]|wavenet-[dj]|standard-[bcdj]/i;
 const NOVELTY_VOICE_HINT =
   /compact|novelty|whisper|bad news|good news|bells|boing|bubbles|cellos|trinoids|zarvox|deranged|hysterical|superstar|wobble/i;
 
@@ -294,18 +303,15 @@ export function isVoiceLikelyFemale(voice: SpeechSynthesisVoice) {
   return FEMALE_VOICE_HINT.test(blob);
 }
 
+/** True only when the engine voice is unambiguously the tutor's gender. */
+export function voiceFitsRequiredGender(voice: SpeechSynthesisVoice, gender: "male" | "female") {
+  if (gender === "male") return isVoiceLikelyMale(voice) && !isVoiceLikelyFemale(voice);
+  return isVoiceLikelyFemale(voice) && !isVoiceLikelyMale(voice);
+}
+
 function genderedVoicePool(voices: SpeechSynthesisVoice[], gender: "female" | "male") {
   const english = listEnglishVoices(voices);
-  const matching =
-    gender === "male" ? english.filter(isVoiceLikelyMale) : english.filter(isVoiceLikelyFemale);
-  if (matching.length > 0) return matching;
-
-  const unknown = english.filter((voice) => !isVoiceLikelyMale(voice) && !isVoiceLikelyFemale(voice));
-  if (unknown.length > 0) return unknown;
-
-  return gender === "male"
-    ? english.filter((voice) => !isVoiceLikelyFemale(voice))
-    : english.filter((voice) => !isVoiceLikelyMale(voice));
+  return english.filter((voice) => voiceFitsRequiredGender(voice, gender));
 }
 
 export function findVoiceByUri(voices: SpeechSynthesisVoice[], uri?: string | null) {

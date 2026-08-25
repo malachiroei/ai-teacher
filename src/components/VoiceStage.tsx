@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, type MouseEvent, type TouchEvent } from "react";
+import { useRef, useState, type MouseEvent, type ReactNode, type TouchEvent } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { Keyboard, Mic, RefreshCw, Send, Volume1, Volume2, VolumeX } from "lucide-react";
 import { MixedBidiText } from "@/components/MixedBidiText";
@@ -28,6 +28,8 @@ interface VoiceStageProps {
   disabled?: boolean;
   onToggleMic: () => void;
   onChangeTopic?: () => void;
+  onStartQuickGame?: () => void;
+  gameOverlay?: ReactNode;
   onToggleSpeak: () => void;
   onCycleVoiceSpeed: () => void;
   onOpenCharacters: () => void;
@@ -52,6 +54,8 @@ export function VoiceStage({
   disabled,
   onToggleMic,
   onChangeTopic,
+  onStartQuickGame,
+  gameOverlay,
   onToggleSpeak,
   onCycleVoiceSpeed,
   onOpenCharacters,
@@ -247,24 +251,43 @@ export function VoiceStage({
           ) : null}
         </AnimatePresence>
 
-        {onChangeTopic ? (
-          <div className="mb-3 flex justify-center">
-            <button
-              type="button"
-              disabled={Boolean(disabled)}
-              onClick={onChangeTopic}
-              aria-label="Change topic"
-              className="inline-flex items-center gap-2 rounded-full border border-white/14 bg-white/8 px-4 py-2 text-sm font-medium text-white/90 shadow-[0_8px_24px_rgba(0,0,0,0.22)] backdrop-blur-md transition hover:bg-white/12 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40"
-            >
-              <RefreshCw className="h-3.5 w-3.5 opacity-80" aria-hidden />
-              <span dir="ltr">Change Topic</span>
-              <span className="text-white/35" aria-hidden>
-                ·
-              </span>
-              <span dir="rtl">שנה נושא</span>
-            </button>
+        {onChangeTopic || onStartQuickGame ? (
+          <div className="mb-3 flex flex-wrap items-center justify-center gap-2">
+            {onChangeTopic ? (
+              <button
+                type="button"
+                disabled={Boolean(disabled)}
+                onClick={onChangeTopic}
+                aria-label="Change topic"
+                className="inline-flex items-center gap-2 rounded-full border border-white/14 bg-white/8 px-4 py-2 text-sm font-medium text-white/90 shadow-[0_8px_24px_rgba(0,0,0,0.22)] backdrop-blur-md transition hover:bg-white/12 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                <RefreshCw className="h-3.5 w-3.5 opacity-80" aria-hidden />
+                <span dir="ltr">Change Topic</span>
+                <span className="text-white/35" aria-hidden>
+                  ·
+                </span>
+                <span dir="rtl">שנה נושא</span>
+              </button>
+            ) : null}
+            {onStartQuickGame ? (
+              <button
+                type="button"
+                disabled={Boolean(disabled)}
+                onClick={onStartQuickGame}
+                aria-label="Quick game"
+                className="inline-flex items-center gap-2 rounded-full border border-amber-300/35 bg-amber-400/12 px-4 py-2 text-sm font-medium text-amber-100 shadow-[0_8px_24px_rgba(251,191,36,0.12)] backdrop-blur-md transition hover:bg-amber-400/18 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                <span aria-hidden>🎮</span>
+                <span dir="ltr">Quick Game</span>
+                <span className="text-amber-100/35" aria-hidden>
+                  ·
+                </span>
+                <span dir="rtl">בוא נשחק משחקון</span>
+              </button>
+            ) : null}
           </div>
         ) : null}
+        {gameOverlay}
 
         <div className={cn("relative mx-[-0.5rem]", liveWave && "wave-glow")}>
           <VoiceWave

@@ -16,10 +16,11 @@ import { ProfileEditModal, type ProfileEditPayload } from "@/components/ProfileE
 import { SettingsModal } from "@/components/SettingsModal";
 import { ProgressModal } from "@/components/ProgressModal";
 import { PracticeMomentsRecorder } from "@/components/PracticeMomentsRecorder";
+import { ChatGameCard } from "@/components/ChatGameCard";
 import { VoiceStage } from "@/components/VoiceStage";
 import { useSpeech, SPEECH_UNAVAILABLE_MESSAGE, MIC_PERMISSION_MESSAGE } from "@/hooks/useSpeech";
 import { useVisualViewport } from "@/hooks/useVisualViewport";
-import { useNotifications } from "@/hooks/useNotifications";
+import { useNotifications, playReminderSound } from "@/hooks/useNotifications";
 import { loadWeekMinutes, loadTutorsMet, rememberTutorMet } from "@/lib/learning-progress";
 import {
   archiveCurrentChat,
@@ -49,6 +50,7 @@ import { quickHebrewSubtitle, shouldSkipLlmTranslate, isCleanHebrewSubtitle } fr
 import { logConversationPedagogyReport } from "@/lib/conversation-pedagogy";
 import { parseTutorNicknames, profilePayload, withTutorDisplayName } from "@/lib/learner";
 import { consumeChatStream, speakableSentences } from "@/lib/chat-stream";
+import { createQuickGame, extractGameFromText, GAME_XP_REWARD, stripGameTag, type ChatGame } from "@/lib/chat-games";
 import {
   logPipelineLatencyReport,
   type PipelineClientMetrics,
@@ -195,6 +197,7 @@ export default function HomePage() {
   const latencyReportPrintedRef = useRef(false);
   const [spokenReply, setSpokenReply] = useState("");
   const [spokenTranslation, setSpokenTranslation] = useState("");
+  const [activeGame, setActiveGame] = useState<ChatGame | null>(null);
   const [awaitingGreeting, setAwaitingGreeting] = useState(false);
   const viewport = useVisualViewport();
   const needsOnboarding = Boolean(user && profileChecked && !isProfileComplete(profile));
@@ -388,13 +391,39 @@ export default function HomePage() {
   }, []);
 
   const applyLiveCaption = useCallback((caption: string, translation: string) => {
-    setSpokenReply(caption);
+    const { spoken, game } = extractGameFromText(caption);
+    if (game) setActiveGame(game);
+    setSpokenReply(spoken);
     const next = translation.trim();
     if (next) setSpokenTranslation(next);
   }, []);
 
+  const ingestTutorReply = useCallback((raw: string) => {
+    const { spoken, game } = extractGameFromText(raw);
+    if (game) setActiveGame(game);
+    return spoken;
+  }, []);
+
+  const awardGameXp = useCallback(() => {
+    if (!user || !profile) return;
+    const progressed = applyXp(Number(profile.xp) || 0, GAME_XP_REWARD);
+    const next = { ...profile, xp: progressed.xp, level: progressed.level };
+    writeProgressionLocal(user.id, {
+      xp: progressed.xp,
+      level: progressed.level,
+      placement_completed: Boolean(next.placement_completed),
+    });
+    void saveProgression(createClient(), user.id, {
+      xp: progressed.xp,
+      level: progressed.level,
+      placement_completed: Boolean(next.placement_completed),
+    });
+    if (progressed.leveledUp) setLevelUp(progressed.info);
+    setProfile(next);
+  }, [profile, user]);
+
   const fetchHebrewTranslation = useCallback((english: string, gender?: Profile["gender"] | null, userInput = "") => {
-    const text = english.trim();
+    const text = stripGameTag(english).trim();
     if (!text) return;
 
     const finishPedagogy = (hebrew: string) => {
@@ -759,7 +788,7 @@ export default function HomePage() {
           setIsLoading(false);
           if (!autoSpeak) return;
           streamedSpeech = true;
-          enqueueSpeak(sentence);
+          enqueueSpeak(stripGameTag(sentence));
         },
       },
     );
@@ -829,11 +858,12 @@ export default function HomePage() {
       if (data.latency) latencyServerRef.current = data.latency;
       if (!autoSpeak) maybePrintLatencyReport();
       fetchHebrewTranslation(data.aiResponse, profileSnapshot?.gender ?? profile?.gender, text);
+      const spoken = ingestTutorReply(data.aiResponse);
       const grammar: GrammarFeedback = data.grammarAnalysis;
       const aiMessage: Message = {
         id: createId(),
         sender: "ai",
-        text: data.aiResponse,
+        text: spoken,
         timestamp: Date.now(),
         translation: data.translation,
       };
@@ -846,12 +876,12 @@ export default function HomePage() {
           .concat(aiMessage),
       );
       setSuggestions(data.suggestedAnswers ?? []);
-      setSpokenReply(data.aiResponse);
+      setSpokenReply(spoken);
       if (data.translation?.trim()) setSpokenTranslation(data.translation);
       setIsLoading(false);
       sendingRef.current = false;
       if (autoSpeak && !streamedSpeech) {
-        speak(data.aiResponse);
+        speak(spoken);
       }
 
       void persistMemories(data.newMemories, text, history, placementTurn);
@@ -860,7 +890,7 @@ export default function HomePage() {
         {
           id: aiMessage.id,
           sender: "ai",
-          text: data.aiResponse,
+          text: spoken,
           translation: data.translation,
           createdAt: aiMessage.timestamp,
         },
@@ -893,26 +923,27 @@ export default function HomePage() {
           setIsLoading(false);
           if (!autoSpeak) return;
           streamedSpeech = true;
-          enqueueSpeak(sentence);
+          enqueueSpeak(stripGameTag(sentence));
         },
       });
       if (data.latency) latencyServerRef.current = data.latency;
       if (!autoSpeak) maybePrintLatencyReport();
       fetchHebrewTranslation(data.aiResponse, profile?.gender, "(change topic)");
+      const spoken = ingestTutorReply(data.aiResponse);
       const aiMessage: Message = {
         id: createId(),
         sender: "ai",
-        text: data.aiResponse,
+        text: spoken,
         timestamp: Date.now(),
         translation: data.translation,
       };
       setMessages((current) => [...current, aiMessage]);
       setSuggestions(data.suggestedAnswers ?? []);
-      setSpokenReply(data.aiResponse);
+      setSpokenReply(spoken);
       if (data.translation?.trim()) setSpokenTranslation(data.translation);
-      if (autoSpeak && !streamedSpeech) speak(data.aiResponse);
+      if (autoSpeak && !streamedSpeech) speak(spoken);
       void persistMemories(data.newMemories);
-      void persistMessages(user.id, [{ id: aiMessage.id, sender: "ai", text: data.aiResponse, translation: data.translation, createdAt: aiMessage.timestamp }]);
+      void persistMessages(user.id, [{ id: aiMessage.id, sender: "ai", text: spoken, translation: data.translation, createdAt: aiMessage.timestamp }]);
     } catch {
       flash("Couldn't switch topics right now.");
     } finally {
@@ -1095,21 +1126,22 @@ export default function HomePage() {
           onCaption: applyLiveCaption,
           onSentence: (sentence) => {
             setIsLoading(false);
-            if (autoSpeak) enqueueSpeak(sentence);
+            if (autoSpeak) enqueueSpeak(stripGameTag(sentence));
           },
         });
         if (data.latency) latencyServerRef.current = data.latency;
         if (!autoSpeak) maybePrintLatencyReport();
         fetchHebrewTranslation(data.aiResponse, profile?.gender, "(daily open)");
+        const spoken = ingestTutorReply(data.aiResponse);
         const opener: Message = {
           id: createId(),
           sender: "ai",
-          text: data.aiResponse,
+          text: spoken,
           timestamp: Date.now(),
           translation: data.translation,
         };
         setMessages((current) => [...current, opener]);
-        setSpokenReply(data.aiResponse);
+        setSpokenReply(spoken);
         if (data.translation?.trim()) setSpokenTranslation(data.translation);
         // Fire-and-forget so greeting audio isn't blocked by chat persistence.
         void persistMessages(user.id, [{ id: opener.id, sender: "ai", text: opener.text, translation: opener.translation }]);
@@ -1443,6 +1475,26 @@ export default function HomePage() {
           disabled={isLoading || awaitingGreeting || !chatUnlocked}
           onToggleMic={handleToggleMic}
           onChangeTopic={() => void handleAnotherQuestion()}
+          onStartQuickGame={() => setActiveGame(createQuickGame())}
+          gameOverlay={
+            activeGame ? (
+              <ChatGameCard
+                game={activeGame}
+                onSpeakPrompt={(word) => {
+                  unlockSpeech();
+                  speak(word);
+                }}
+                onClose={() => setActiveGame(null)}
+                onComplete={(choice, correct) => {
+                  setActiveGame(null);
+                  if (!correct) return;
+                  awardGameXp();
+                  void playReminderSound("fanfare");
+                  void sendMessage(`I got it! The answer was ${choice}.`);
+                }}
+              />
+            ) : null
+          }
           onSendText={(text) => {
             unlockSpeech();
             void sendMessage(text);

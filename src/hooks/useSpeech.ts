@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { hasHebrewScript, type SpeechLang } from "@/lib/language";
-import { findVoiceByUri, isVoiceLikelyFemale, isVoiceLikelyMale, listEnglishVoices, pickCharacterVoice, type Character } from "@/lib/characters";
+import { findVoiceByUri, isVoiceLikelyFemale, isVoiceLikelyMale, listEnglishVoices, pickCharacterVoice, voiceFitsRequiredGender, type Character } from "@/lib/characters";
 
 export const SPEECH_UNAVAILABLE_MESSAGE =
   "Speech recognition is not fully supported or microphone access was denied";
@@ -413,11 +413,13 @@ function kickUtterance(
 }
 
 const ANDROID_MALE_NAME_RE = /male_1|\bmale\b|david|george|james|aaron|guy|\biol\b/i;
-const ANDROID_FEMALE_AVOID_RE = /female|zira|samantha|eva|victoria|sfg#female/i;
 
 const MALE_VOICE_NEEDLES = [
   "google us english male",
   "google uk english male",
+  "en-us-guyneural",
+  "guy neural",
+  "microsoft guy",
   "microsoft david",
   "en-us-standard-b",
   "en-us-neural2-d",
@@ -446,6 +448,9 @@ const MALE_VOICE_NEEDLES = [
 const FEMALE_VOICE_NEEDLES = [
   "google us english female",
   "google uk english female",
+  "en-us-jennyneural",
+  "jenny neural",
+  "microsoft jenny",
   "microsoft zira",
   "en-us-neural2-f",
   "en-us-wavenet-f",
@@ -491,36 +496,25 @@ function pickPreferredVoice(voices: SpeechSynthesisVoice[], character?: Characte
   const gender = character?.voice.gender ?? "female";
   const english = englishVoicePool(voices);
   const preferred = findVoiceByUri(voices, preferredUri);
-  if (preferred) {
-    const mismatch =
-      gender === "male" ? isVoiceLikelyFemale(preferred) : isVoiceLikelyMale(preferred);
-    if (!mismatch) return preferred;
-  }
+  if (preferred && voiceFitsRequiredGender(preferred, gender)) return preferred;
 
   if (gender === "male") {
-    const priority = english.filter((voice) => ANDROID_MALE_NAME_RE.test(`${voice.name} ${voice.voiceURI}`));
+    const priority = english.filter((voice) => voiceFitsRequiredGender(voice, "male") && ANDROID_MALE_NAME_RE.test(`${voice.name} ${voice.voiceURI}`));
     if (priority[0]) return priority[0];
-    const notFemale = english.filter(
-      (voice) => !ANDROID_FEMALE_AVOID_RE.test(`${voice.name} ${voice.voiceURI}`.toLowerCase()),
-    );
-    const ranked = rankVoicesByNeedles(notFemale.length > 0 ? notFemale : english, MALE_VOICE_NEEDLES, "male");
-    if (ranked[0] && !isVoiceLikelyFemale(ranked[0].voice)) return ranked[0].voice;
-    const strict = (notFemale.length > 0 ? notFemale : english).find(
-      (voice) => isVoiceLikelyMale(voice) && !isVoiceLikelyFemale(voice),
-    );
+    const ranked = rankVoicesByNeedles(english.filter((voice) => voiceFitsRequiredGender(voice, "male")), MALE_VOICE_NEEDLES, "male");
+    if (ranked[0] && voiceFitsRequiredGender(ranked[0].voice, "male")) return ranked[0].voice;
+    const strict = english.find((voice) => voiceFitsRequiredGender(voice, "male"));
     if (strict) return strict;
     const picked = pickCharacterVoice(voices, character);
-    if (picked && isVoiceLikelyFemale(picked)) return null;
-    return notFemale[0] ?? picked ?? null;
+    return picked && voiceFitsRequiredGender(picked, "male") ? picked : null;
   }
 
-  const ranked = rankVoicesByNeedles(english, FEMALE_VOICE_NEEDLES, "female");
-  if (ranked[0]) return ranked[0].voice;
-  const strict = english.find((voice) => isVoiceLikelyFemale(voice) && !isVoiceLikelyMale(voice));
+  const ranked = rankVoicesByNeedles(english.filter((voice) => voiceFitsRequiredGender(voice, "female")), FEMALE_VOICE_NEEDLES, "female");
+  if (ranked[0] && voiceFitsRequiredGender(ranked[0].voice, "female")) return ranked[0].voice;
+  const strict = english.find((voice) => voiceFitsRequiredGender(voice, "female"));
   if (strict) return strict;
   const picked = pickCharacterVoice(voices, character);
-  if (picked && isVoiceLikelyMale(picked)) return null;
-  return picked;
+  return picked && voiceFitsRequiredGender(picked, "female") ? picked : null;
 }
 
 function pickStreamingVoice(
@@ -937,9 +931,10 @@ export function useSpeech(options?: {
       const maleNamed = Boolean(voice && ANDROID_MALE_NAME_RE.test(`${voice.name} ${voice.voiceURI}`));
       utterance.pitch = character?.voice.pitch ?? (male ? (maleNamed ? 0.78 : 0.85) : 1.02);
       window.speechSynthesis.resume();
-      if (voice) {
-        const mismatch = male ? isVoiceLikelyFemale(voice) : isVoiceLikelyMale(voice);
-        if (!mismatch) utterance.voice = voice;
+      if (voice && voiceFitsRequiredGender(voice, male ? "male" : "female")) {
+        utterance.voice = voice;
+      } else {
+        utterance.pitch = male ? 0.72 : 1.14;
       }
 
       ttsBusyRef.current = true;

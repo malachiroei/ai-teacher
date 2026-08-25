@@ -143,7 +143,8 @@ export function normalizeSpeechKey(text: string) {
 }
 
 export function englishSpeechLine(text: string) {
-  return text
+  return String(text || "")
+    .replace(/<<<GAME:\s*\{[\s\S]*?\}\s*>>>/gi, " ")
     .replace(/[\u0590-\u05FF][\u0590-\u05FF\s,.'’"!?-]*/g, " ")
     .replace(/\p{Extended_Pictographic}/gu, " ")
     .replace(/[\uFE0F\u200D\u20E3]/g, "")
