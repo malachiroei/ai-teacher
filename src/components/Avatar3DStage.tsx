@@ -10,8 +10,10 @@ import { CHARACTERS, type Character } from "@/lib/characters";
 
 type Avatar3DStageProps = {
   character: Character;
-  isSpeaking: boolean;
+  isSpeaking?: boolean;
   spokenText?: string;
+  isSpeakingRef?: { current: boolean };
+  spokenTextRef?: { current: string };
   mouthLevelRef?: { current: number };
   modelUrl?: string | null;
   compact?: boolean;
@@ -177,14 +179,14 @@ function disposeAvatarScene(root: Object3D) {
 function GLTFTalkingAvatar({
   characterId,
   modelUrl,
-  isSpeaking,
-  spokenText,
+  isSpeakingRef,
+  spokenTextRef,
   mouthLevelRef,
 }: {
   characterId: string;
   modelUrl: string;
-  isSpeaking: boolean;
-  spokenText?: string;
+  isSpeakingRef?: { current: boolean };
+  spokenTextRef?: { current: string };
   mouthLevelRef?: { current: number };
 }) {
   const { scene } = useGLTF(modelUrl);
@@ -267,7 +269,7 @@ function GLTFTalkingAvatar({
   useFrame((state) => {
     const t = state.clock.elapsedTime;
     let mouthAmount = 0;
-    if (isSpeaking) {
+    if (isSpeakingRef?.current) {
       const pulse = 0.14 + Math.sin(t * 10) * 0.1 + Math.sin(t * 17) * 0.05;
       mouthAmount = Math.min(MAX_MOUTH_OPEN, Math.max(0.06, pulse));
     }
@@ -292,17 +294,17 @@ function GLTFTalkingAvatar({
       const node = jawOrHeadNodeRef.current;
       const initial = jawOrHeadInitialRotRef.current;
       if (node && initial) {
-        const targetX = initial.x + (isSpeaking ? mouthAmount * 0.1 : 0);
+        const targetX = initial.x + (isSpeakingRef?.current ? mouthAmount * 0.1 : 0);
         node.rotation.x = MathUtils.lerp(node.rotation.x, targetX, 0.18);
       }
       if (jawMeshNodeRef.current && jawMeshInitialPosRef.current) {
-        const targetY = jawMeshInitialPosRef.current.y + (isSpeaking ? mouthAmount * 0.012 : 0);
+        const targetY = jawMeshInitialPosRef.current.y + (isSpeakingRef?.current ? mouthAmount * 0.012 : 0);
         jawMeshNodeRef.current.position.y = MathUtils.lerp(jawMeshNodeRef.current.position.y, targetY, 0.18);
       }
     }
 
     if (mouthLevelRef) {
-      mouthLevelRef.current = MathUtils.lerp(mouthLevelRef.current, isSpeaking ? mouthAmount : 0, 0.14);
+      mouthLevelRef.current = MathUtils.lerp(mouthLevelRef.current, isSpeakingRef?.current ? mouthAmount : 0, 0.14);
     }
   });
 
@@ -315,8 +317,8 @@ function GLTFTalkingAvatar({
 
 export const Avatar3DStage = memo(function Avatar3DStage({
   character,
-  isSpeaking,
-  spokenText,
+  isSpeakingRef,
+  spokenTextRef,
   mouthLevelRef,
   compact = false,
 }: Avatar3DStageProps) {
@@ -386,8 +388,8 @@ export const Avatar3DStage = memo(function Avatar3DStage({
             key={characterId}
             characterId={characterId}
             modelUrl={modelUrl}
-            isSpeaking={isSpeaking}
-            spokenText={spokenText}
+            isSpeakingRef={isSpeakingRef}
+            spokenTextRef={spokenTextRef}
             mouthLevelRef={mouthLevelRef}
           />
         </AvatarGLTFErrorBoundary>
@@ -396,7 +398,9 @@ export const Avatar3DStage = memo(function Avatar3DStage({
   );
 }, (prev, next) => (
   prev.character.id === next.character.id &&
-  prev.isSpeaking === next.isSpeaking &&
+  prev.character.modelUrl === next.character.modelUrl &&
   prev.compact === next.compact &&
-  prev.mouthLevelRef === next.mouthLevelRef
+  prev.mouthLevelRef === next.mouthLevelRef &&
+  prev.isSpeakingRef === next.isSpeakingRef &&
+  prev.spokenTextRef === next.spokenTextRef
 ));

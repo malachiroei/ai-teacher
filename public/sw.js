@@ -139,16 +139,41 @@ function isDueToday(hhmm, from = new Date()) {
 
 async function saveAndSchedule(config) {
   if (!config) return;
-  await saveConfig(config);
-  if (!config.enabled) return;
+  const nextFireAt = nextTimestamp(config.hhmm);
+  const stored = { ...config, nextFireAt };
+  await saveConfig(stored);
+  if (!stored.enabled) return;
+  await scheduleTrigger(stored);
   await maybeFireMissedReminder();
-  await scheduleTrigger(config);
+  await keepWatching(stored);
+}
+
+async function keepWatching(config) {
+  const when = Number(config.nextFireAt) || nextTimestamp(config.hhmm);
+  const delay = when - Date.now();
+  if (delay <= 0) {
+    await maybeFireMissedReminder();
+    const latest = await loadConfig();
+    if (latest?.enabled) await scheduleTrigger(latest);
+    return;
+  }
+  const slice = Math.min(Math.max(1000, delay), 25000);
+  await new Promise((resolve) => setTimeout(resolve, slice));
+  const latest = await loadConfig();
+  if (!latest?.enabled) return;
+  if (Date.now() >= (Number(latest.nextFireAt) || nextTimestamp(latest.hhmm)) - 1500) {
+    await maybeFireMissedReminder();
+    await scheduleTrigger(latest);
+    return;
+  }
+  await keepWatching(latest);
 }
 
 async function scheduleTrigger(config) {
-  const when = nextTimestamp(config.hhmm);
+  const when = Number(config.nextFireAt) || nextTimestamp(config.hhmm);
   const Trigger = self.TimestampTrigger;
-  if (typeof Trigger !== "function" || !self.registration?.showNotification) return;
+  const canTrigger = typeof Trigger === "function" && "showTrigger" in Notification.prototype;
+  if (!canTrigger || !self.registration?.showNotification) return;
   try {
     const existing = await self.registration.getNotifications({ tag: REMINDER_TAG, includeTriggered: true });
     await Promise.all(existing.map((item) => item.close()));
@@ -205,7 +230,9 @@ async function maybeFireMissedReminder() {
   if (!self.registration?.showNotification) return;
   try {
     await self.registration.showNotification(titleFor(config), notificationOptions(config));
-    await saveConfig({ ...config, lastFiredDate: key });
+    const nextFireAt = nextTimestamp(config.hhmm);
+    await saveConfig({ ...config, lastFiredDate: key, nextFireAt });
+    await scheduleTrigger({ ...config, lastFiredDate: key, nextFireAt });
   } catch (error) {
     console.warn("Could not show missed practice reminder:", error);
   }

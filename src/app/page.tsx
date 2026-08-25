@@ -27,6 +27,7 @@ import {
   describeProfileSaveError,
   fetchProfile,
   listChatSessions,
+  shouldArchiveMessages,
   loadUserMemories,
   restoreChatSession,
   saveMessage,
@@ -48,11 +49,11 @@ import { getCharacter, isCharacterId, readStoredTutorId, writeStoredTutorId, typ
 import { useDailyPractice } from "@/hooks/useDailyPractice";
 import { quickHebrewSubtitle, shouldSkipLlmTranslate, isCleanHebrewSubtitle } from "@/lib/hebrew";
 import { logConversationPedagogyReport } from "@/lib/conversation-pedagogy";
-import { parseTutorNicknames, profilePayload, withTutorDisplayName } from "@/lib/learner";
+import { englishDisplayName, parseTutorNicknames, profilePayload, withTutorDisplayName } from "@/lib/learner";
 import { consumeChatStream, speakableSentences } from "@/lib/chat-stream";
 import { createQuickGameRound, createMathGameRound, expandToGameRound, extractGameFromText, GAME_XP_REWARD, stripGameTag, type ChatGame } from "@/lib/chat-games";
 import { hydrateChildMemoryFromTurns, looksLikeMathTalk } from "@/lib/child-memory";
-import { readChildMemoryForChat } from "@/hooks/useChat";
+import { buildWarmLaunchGreeting, readChildMemoryForChat, shouldStartFreshSession } from "@/hooks/useChat";
 import { useMemoryExtractor } from "@/hooks/useMemoryExtractor";
 import {
   logPipelineLatencyReport,
@@ -195,6 +196,7 @@ export default function HomePage() {
   const spokenOpenerRef = useRef("");
   const forcePlacementRef = useRef(false);
   const dailyGreetedRef = useRef("");
+  const idleLaunchRef = useRef("");
   const canAutoListenRef = useRef(false);
   const latencyClientRef = useRef<PipelineClientMetrics | null>(null);
   const latencyServerRef = useRef<PipelineServerMetrics | null>(null);
@@ -519,6 +521,7 @@ export default function HomePage() {
     setSpokenReply("");
     setSpokenTranslation("");
     spokenOpenerRef.current = "";
+    idleLaunchRef.current = "";
     setProfileError("");
     setAuthReady(true);
 
@@ -1109,6 +1112,59 @@ export default function HomePage() {
   }
 
   useEffect(() => {
+    if (!chatUnlocked || !historyReady || !user || !profile) return;
+    if (forcePlacementRef.current) return;
+    if (!hasCompletedKidsPlacement(user.id, messages, profile)) return;
+    if (isPlacementActive(messages, Boolean(profile.placement_completed))) return;
+    const launchKey = `${user.id}:launch`;
+    if (idleLaunchRef.current === launchKey) return;
+    idleLaunchRef.current = launchKey;
+    const dayKey = `${user.id}:${new Date().toDateString()}`;
+    dailyGreetedRef.current = dayKey;
+    setSpokenReply("");
+    setSpokenTranslation("");
+    if (!shouldStartFreshSession(messages)) return;
+
+    const snapshot = messages;
+    const greet = buildWarmLaunchGreeting({ childName: englishDisplayName(profile) });
+    const opener: Message = {
+      id: createId(),
+      sender: "ai",
+      text: greet.en,
+      timestamp: Date.now(),
+      translation: greet.he,
+    };
+    spokenOpenerRef.current = opener.id;
+    setMessages([opener]);
+    setSpokenReply(opener.text);
+    setSpokenTranslation(opener.translation ?? "");
+    setSuggestions(["I played a game!", "It was fun!", "I like that!"]);
+    unlockSpeech();
+    if (autoSpeak) speak(opener.text);
+
+    void (async () => {
+      const supabase = createClient();
+      try {
+        if (shouldArchiveMessages(snapshot)) {
+          const archived = await archiveCurrentChat(supabase, user.id, {
+            messages: snapshot,
+            characterId: character.id,
+            tutorName: character.name,
+          });
+          if (!archived.success) flash("Started a new chat, but the previous one couldn't be archived.");
+        }
+        await startFreshChat(supabase, user.id);
+        await persistMessages(user.id, [
+          { id: opener.id, sender: "ai", text: opener.text, translation: opener.translation, createdAt: opener.timestamp },
+        ]);
+        writeTranscriptCache(user.id, [opener]);
+      } catch {
+        flash("Started a new chat, but saving it failed.");
+      }
+    })();
+  }, [autoSpeak, character.id, character.name, chatUnlocked, flash, historyReady, messages, profile, speak, user]);
+
+  useEffect(() => {
     if (!chatUnlocked || !historyReady || !autoSpeak) return;
     const first = messages[0];
     if (!first || messages.length !== 1 || first.sender !== "ai" || !isPlacementOpener(first.text)) return;
@@ -1488,7 +1544,6 @@ export default function HomePage() {
           character={character}
           tutorName={character.name}
           childName={profile?.nickname || "You"}
-          messages={messages}
           thinking={isLoading || awaitingGreeting}
           speaking={isSpeaking}
           listening={isListening}

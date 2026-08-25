@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, type MouseEvent, type ReactNode, type TouchEvent } from "react";
+import { memo, useRef, useState, type MouseEvent, type ReactNode, type TouchEvent } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { Keyboard, Mic, RefreshCw, Send, Volume1, Volume2, VolumeX } from "lucide-react";
 import { VoiceWave, type VoiceWaveMode } from "@/components/VoiceWave";
@@ -8,7 +8,6 @@ import { Avatar3DStage } from "@/components/Avatar3DStage";
 import { ChatSubtitleBox } from "@/components/ChatSubtitleBox";
 import { splitCaptionLines } from "@/lib/hebrew";
 import { getCharacter, isCharacterId, SELECTED_TUTOR_STORAGE_KEY, type Character } from "@/lib/characters";
-import type { Message } from "@/types/chat";
 import { cn } from "@/lib/utils";
 
 interface VoiceStageProps {
@@ -36,9 +35,43 @@ interface VoiceStageProps {
   onOpenCharacters: () => void;
   onSendText: (text: string) => void;
   offsetForBanner?: boolean;
-  messages?: Message[];
   childName?: string;
 }
+
+const AvatarCanvasLayer = memo(function AvatarCanvasLayer({
+  character,
+  tutorName,
+  isSpeakingRef,
+  spokenTextRef,
+  mouthLevelRef,
+  onOpenCharacters,
+}: {
+  character: Character;
+  tutorName: string;
+  isSpeakingRef: { current: boolean };
+  spokenTextRef: { current: string };
+  mouthLevelRef: { current: number };
+  onOpenCharacters: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      className="absolute inset-x-0 top-0 bottom-[30%] z-0 cursor-default"
+      aria-label={`Change tutor. Current: ${tutorName}`}
+      onClick={onOpenCharacters}
+    >
+      <div className="avatar-portrait avatar-portrait-3d avatar-portrait-idle absolute inset-[-10%_0_8%]">
+        <Avatar3DStage
+          character={character}
+          isSpeakingRef={isSpeakingRef}
+          spokenTextRef={spokenTextRef}
+          mouthLevelRef={mouthLevelRef}
+        />
+      </div>
+      <div className="pointer-events-none absolute inset-x-0 bottom-0 h-[46%] bg-gradient-to-t from-[#050805] via-[#050805]/88 to-transparent" />
+    </button>
+  );
+}, (prev, next) => prev.character.id === next.character.id && prev.tutorName === next.tutorName);
 
 export function VoiceStage({
   character,
@@ -65,7 +98,6 @@ export function VoiceStage({
   onSetVolume,
   onSendText,
   offsetForBanner = false,
-  messages = [],
   childName = "You",
 }: VoiceStageProps) {
   const [keyboardOpen, setKeyboardOpen] = useState(false);
@@ -75,6 +107,10 @@ export function VoiceStage({
   // Avatar3DStage updates this ref in real-time (jawOpen proxy) so the waveform
   // can visually respond to TTS speaking even when the mic is idle.
   const mouthLevelRef3d = useRef(0);
+  const isSpeakingRef = useRef(speaking);
+  const spokenTextRef = useRef(speakingText ?? "");
+  isSpeakingRef.current = speaking;
+  spokenTextRef.current = speakingText ?? "";
 
   function bindImmediateTap(fromTouch: { current: boolean }, handler: () => void) {
     return {
@@ -96,11 +132,9 @@ export function VoiceStage({
   const mode: VoiceWaveMode = speaking ? "speaking" : thinking ? "thinking" : listening ? "listening" : "idle";
   const liveWave = speaking || thinking || (listening && audioLevel >= 0.05);
   const trimmedTranscript = transcript.trim();
-  const lastChild = [...messages].reverse().find((message) => message.sender === "user")?.text.trim() || "";
-  const lastTutorStored = [...messages].reverse().find((message) => message.sender === "ai")?.text.trim() || "";
-  const childLine = listening ? trimmedTranscript || lastChild : lastChild;
-  const captionLines = splitCaptionLines(aiCaption || lastTutorStored, aiTranslation);
-  const tutorLine = captionLines.english || lastTutorStored;
+  const childLine = listening ? trimmedTranscript : "";
+  const captionLines = splitCaptionLines(aiCaption, aiTranslation);
+  const tutorLine = captionLines.english;
   const idleHint = thinking || childLine || tutorLine ? "" : listening ? "Listening…" : "Tap mic to talk";
 
   function submitDraft() {
@@ -112,34 +146,14 @@ export function VoiceStage({
 
   return (
     <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden bg-[#050805]">
-      <button
-        type="button"
-        className="absolute inset-x-0 top-0 bottom-[30%] z-0 cursor-default"
-        aria-label={`Change tutor. Current: ${tutorName}`}
-        onClick={onOpenCharacters}
-      >
-        <div
-          className={cn(
-            "avatar-portrait avatar-portrait-3d absolute inset-[-10%_0_8%]",
-            speaking ? "avatar-portrait-speaking" : "avatar-portrait-idle",
-          )}
-          style={{
-            // Soft static glow only — no on/off flash between TTS chunks.
-            boxShadow: speaking
-              ? `0 0 0 2px color-mix(in srgb, var(--accent) 55%, transparent), 0 0 36px color-mix(in srgb, var(--accent) 28%, transparent)`
-              : `0 0 0 1px color-mix(in srgb, var(--accent) 18%, transparent)`,
-            transition: "box-shadow 0.5s ease",
-          }}
-        >
-          <Avatar3DStage
-            character={character}
-            isSpeaking={speaking}
-            spokenText={speakingText}
-            mouthLevelRef={mouthLevelRef3d}
-          />
-        </div>
-        <div className="pointer-events-none absolute inset-x-0 bottom-0 h-[46%] bg-gradient-to-t from-[#050805] via-[#050805]/88 to-transparent" />
-      </button>
+      <AvatarCanvasLayer
+        character={character}
+        tutorName={tutorName}
+        isSpeakingRef={isSpeakingRef}
+        spokenTextRef={spokenTextRef}
+        mouthLevelRef={mouthLevelRef3d}
+        onOpenCharacters={onOpenCharacters}
+      />
 
       <div className={cn("pointer-events-none relative z-10 flex flex-col items-center px-6", offsetForBanner ? "mb-4 pt-[calc(6.35rem+env(safe-area-inset-top))]" : "pt-[calc(2.75rem+env(safe-area-inset-top))]")}>
         <p className="text-[13px] font-medium tracking-[0.28em] text-white/55 uppercase">{character.title}</p>

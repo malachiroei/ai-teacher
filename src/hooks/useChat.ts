@@ -62,3 +62,28 @@ export function readChildMemoryForChat(userId?: string | null): ChildMemoryProfi
 }
 
 export { getTimestamp as sessionLatestTimestamp };
+
+export const FRESH_SESSION_IDLE_MS = 20 * 60 * 1000;
+
+export function lastInteractionAt(messages: Message[]) {
+  return messages.reduce((max, message) => Math.max(max, Number(message.timestamp) || 0), 0);
+}
+
+export function shouldStartFreshSession(messages: Message[], now = Date.now()) {
+  if (!messages.length) return true;
+  const last = lastInteractionAt(messages);
+  return last > 0 && now - last > FRESH_SESSION_IDLE_MS;
+}
+
+export function buildWarmLaunchGreeting(input: { childName?: string | null; hour?: number }) {
+  const hour = input.hour ?? new Date().getHours();
+  const part = hour >= 5 && hour < 12 ? "this morning" : hour >= 12 && hour < 18 ? "this afternoon" : "this evening";
+  const who = String(input.childName || "").trim();
+  const en = who
+    ? `Hey ${who}! Great to see you ${part}! Ready to practice some English?`
+    : `Hey! Great to see you ${part}! Ready to practice some English?`;
+  const he = who
+    ? `היי ${who}! כיף לראות אותך! מוכן לתרגל אנגלית?`
+    : `היי! כיף לראות אותך! מוכן לתרגל אנגלית?`;
+  return { en, he };
+}

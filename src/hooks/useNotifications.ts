@@ -298,6 +298,7 @@ export interface ReminderScheduleConfig {
   kidName: string;
   goalMinutes: number;
   lastFiredDate?: string;
+  nextFireAt?: number;
 }
 
 function localDateKey(date = new Date()) {
@@ -361,10 +362,81 @@ async function registerBackgroundWake(registration: ServiceWorkerRegistration) {
   }
 }
 
+export function nextReminderTimestamp(hhmm: string, from = new Date()) {
+  const [rawHour, rawMinute] = String(hhmm || "19:00").split(":");
+  const hours = Number(rawHour);
+  const minutes = Number(rawMinute);
+  const target = new Date(from);
+  target.setHours(Number.isFinite(hours) ? hours : 19, Number.isFinite(minutes) ? minutes : 0, 0, 0);
+  if (target.getTime() <= from.getTime()) target.setDate(target.getDate() + 1);
+  return target.getTime();
+}
+
+function TimestampTriggerCtor() {
+  return (globalThis as { TimestampTrigger?: new (when: number) => unknown }).TimestampTrigger;
+}
+
+async function scheduleTriggeredNotification(
+  registration: ServiceWorkerRegistration,
+  config: ReminderScheduleConfig,
+) {
+  const when = nextReminderTimestamp(config.hhmm);
+  const Trigger = TimestampTriggerCtor();
+  const options: NotificationOptions & Record<string, unknown> = {
+    body: pickBody(config.kidName, config.tutorName, config.goalMinutes),
+    icon: `/avatars/${config.tutorId || "emma"}.png`,
+    badge: `/avatars/${config.tutorId || "emma"}.png`,
+    tag: "buddyai-daily-practice",
+    renotify: true,
+    data: { url: "/", nextFireAt: when },
+    vibrate: [200, 100, 200],
+  };
+  if (Trigger && "showTrigger" in Notification.prototype) {
+    options.showTrigger = new Trigger(when);
+  }
+  try {
+    const existing = await registration.getNotifications({ tag: "buddyai-daily-practice" });
+    existing.forEach((item) => item.close());
+  } catch {
+    /* ignore */
+  }
+  await registration.showNotification(`🚀 ${config.tutorName || "BuddyAI"} is waiting for you!`, options);
+}
+
+let pageAlarmTimer: number | null = null;
+
+function armPageReminderAlarm(config: ReminderScheduleConfig) {
+  if (typeof window === "undefined") return;
+  if (pageAlarmTimer != null) window.clearTimeout(pageAlarmTimer);
+  if (!config.enabled) return;
+  const when = nextReminderTimestamp(config.hhmm);
+  const delay = Math.max(800, when - Date.now());
+  pageAlarmTimer = window.setTimeout(() => {
+    void (async () => {
+      const latest = readStoredReminderSchedule();
+      if (!latest?.enabled) return;
+      if (latest.lastFiredDate === localDateKey()) {
+        armPageReminderAlarm(latest);
+        return;
+      }
+      await showTutorPracticeNotification({
+        tutorName: latest.tutorName,
+        tutorId: latest.tutorId,
+        kidName: latest.kidName,
+        goalMinutes: latest.goalMinutes,
+      });
+      await markReminderFiredToday();
+      const again = readStoredReminderSchedule();
+      if (again) armPageReminderAlarm(again);
+    })();
+  }, delay);
+}
+
 export async function persistReminderSchedule(config: ReminderScheduleConfig) {
   if (typeof window === "undefined") return;
+  const withTarget = { ...config, nextFireAt: nextReminderTimestamp(config.hhmm) };
   try {
-    window.localStorage.setItem(REMINDER_SCHEDULE_STORAGE_KEY, JSON.stringify(config));
+    window.localStorage.setItem(REMINDER_SCHEDULE_STORAGE_KEY, JSON.stringify(withTarget));
   } catch {
     /* ignore */
   }
@@ -372,20 +444,30 @@ export async function persistReminderSchedule(config: ReminderScheduleConfig) {
     const cache = await caches.open(REMINDER_CACHE_NAME);
     await cache.put(
       REMINDER_CONFIG_URL,
-      new Response(JSON.stringify(config), { headers: { "Content-Type": "application/json" } }),
+      new Response(JSON.stringify(withTarget), { headers: { "Content-Type": "application/json" } }),
     );
   } catch {
     /* ignore */
   }
   try {
-    await writeReminderIndexedDb(config);
+    await writeReminderIndexedDb(withTarget);
   } catch {
     /* ignore */
   }
   const registration = await registerServiceWorker();
   const worker = registration?.active ?? registration?.waiting ?? registration?.installing;
-  worker?.postMessage({ type: "SCHEDULE_REMINDER", config });
-  if (registration) await registerBackgroundWake(registration);
+  worker?.postMessage({ type: "SCHEDULE_REMINDER", config: withTarget });
+  if (registration) {
+    await registerBackgroundWake(registration);
+    if (withTarget.enabled && Notification.permission === "granted") {
+      try {
+        await scheduleTriggeredNotification(registration, withTarget);
+      } catch (error) {
+        console.warn("Could not register notification trigger:", error);
+      }
+    }
+  }
+  armPageReminderAlarm(withTarget);
 }
 
 export async function markReminderFiredToday() {
@@ -403,6 +485,8 @@ export async function pingReminderCheck() {
 export function useNotifications() {
   useEffect(() => {
     void registerServiceWorker();
+    const stored = readStoredReminderSchedule();
+    if (stored?.enabled) armPageReminderAlarm(stored);
     const onVisible = () => {
       if (document.visibilityState === "visible") void pingReminderCheck();
     };
