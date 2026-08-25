@@ -7,6 +7,7 @@ import {
   GAME_ROUND_LENGTH,
   GAME_ROUND_XP,
   GAME_XP_REWARD,
+  emojiForOptionLabel,
   fillPatternParts,
   isCorrectGameChoice,
   transcriptMatchesChoice,
@@ -269,6 +270,7 @@ function BalloonBoard({
       {data.options.map((label, index) => {
         const missed = wrong.includes(label);
         const burst = popped.toLowerCase() === label.toLowerCase();
+        const icon = emojiForOptionLabel(label);
         return (
           <button
             key={label}
@@ -289,10 +291,15 @@ function BalloonBoard({
                 BALLOON_SKINS[index % BALLOON_SKINS.length],
               )}
             >
-              <span className="px-1 text-sm font-black uppercase leading-tight text-white drop-shadow md:text-lg">
-                {data.emoji}
-                <br />
-                {label}
+              <span className="px-2 text-sm font-black uppercase leading-tight text-white drop-shadow md:text-lg">
+                {icon ? (
+                  <>
+                    <span className="mb-0.5 block text-2xl md:text-3xl">{icon}</span>
+                    {label}
+                  </>
+                ) : (
+                  label
+                )}
               </span>
             </motion.span>
             {burst ? <SparkBurst /> : null}

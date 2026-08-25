@@ -221,6 +221,41 @@ export function transcriptMatchesChoice(spoken: string, choice: string) {
   return hay.split(" ").includes(needle) || hay.includes(needle);
 }
 
+const WORD_EMOJI: Record<string, string> = {
+  pizza: "🍕",
+  bread: "🍞",
+  cake: "🍰",
+  soup: "🍲",
+  lion: "🦁",
+  tiger: "🐯",
+  bear: "🐻",
+  cat: "🐱",
+  dog: "🐶",
+  fox: "🦊",
+  wolf: "🐺",
+  pig: "🐷",
+  rocket: "🚀",
+  car: "🚗",
+  boat: "⛵",
+  train: "🚂",
+  apple: "🍎",
+  banana: "🍌",
+  grapes: "🍇",
+  sun: "☀️",
+  rain: "🌧️",
+  snow: "❄️",
+  fish: "🐠",
+  bird: "🐦",
+  turtle: "🐢",
+  moon: "🌙",
+  star: "⭐",
+};
+
+/** Icon for a balloon/option label. Never reuse another option's emoji. */
+export function emojiForOptionLabel(label: string) {
+  return WORD_EMOJI[label.trim().toLowerCase()] || "";
+}
+
 export function fillPatternParts(pattern: string) {
   return String(pattern || "")
     .split(/\s+/)
