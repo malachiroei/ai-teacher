@@ -336,31 +336,7 @@ async function writeReminderIndexedDb(config: ReminderScheduleConfig) {
   });
 }
 
-async function registerBackgroundWake(registration: ServiceWorkerRegistration) {
-  const periodic = (registration as ServiceWorkerRegistration & {
-    periodicSync?: { register: (tag: string, options: { minInterval: number }) => Promise<void> };
-  }).periodicSync;
-  if (periodic) {
-    try {
-      const status = await navigator.permissions.query({ name: "periodic-background-sync" as PermissionName });
-      if (status.state !== "denied") {
-        await periodic.register("practice-reminder", { minInterval: 60 * 60 * 1000 });
-      }
-    } catch {
-      /* not supported or not granted */
-    }
-  }
-  const oneShot = (registration as ServiceWorkerRegistration & {
-    sync?: { register: (tag: string) => Promise<void> };
-  }).sync;
-  if (oneShot) {
-    try {
-      await oneShot.register("practice-reminder");
-    } catch {
-      /* ignore */
-    }
-  }
-}
+export const LAST_REMINDER_DATE_KEY = "buddyai_last_reminder_date";
 
 export function nextReminderTimestamp(hhmm: string, from = new Date()) {
   const [rawHour, rawMinute] = String(hhmm || "19:00").split(":");
@@ -372,53 +348,44 @@ export function nextReminderTimestamp(hhmm: string, from = new Date()) {
   return target.getTime();
 }
 
-function TimestampTriggerCtor() {
-  return (globalThis as { TimestampTrigger?: new (when: number) => unknown }).TimestampTrigger;
+let pageAlarmTimer: number | null = null;
+
+function readLastAlertDate() {
+  try {
+    return window.localStorage.getItem(LAST_REMINDER_DATE_KEY) || "";
+  } catch {
+    return "";
+  }
 }
 
-async function scheduleTriggeredNotification(
-  registration: ServiceWorkerRegistration,
-  config: ReminderScheduleConfig,
-) {
-  const when = nextReminderTimestamp(config.hhmm);
-  const Trigger = TimestampTriggerCtor();
-  const options: NotificationOptions & Record<string, unknown> = {
-    body: pickBody(config.kidName, config.tutorName, config.goalMinutes),
-    icon: `/avatars/${config.tutorId || "emma"}.png`,
-    badge: `/avatars/${config.tutorId || "emma"}.png`,
-    tag: "buddyai-daily-practice",
-    renotify: true,
-    data: { url: "/", nextFireAt: when },
-    vibrate: [200, 100, 200],
-  };
-  if (Trigger && "showTrigger" in Notification.prototype) {
-    options.showTrigger = new Trigger(when);
-  }
+function writeLastAlertDate(day: string) {
   try {
-    const existing = await registration.getNotifications({ tag: "buddyai-daily-practice" });
-    existing.forEach((item) => item.close());
+    window.localStorage.setItem(LAST_REMINDER_DATE_KEY, day);
   } catch {
     /* ignore */
   }
-  await registration.showNotification(`🚀 ${config.tutorName || "BuddyAI"} is waiting for you!`, options);
 }
-
-let pageAlarmTimer: number | null = null;
 
 function armPageReminderAlarm(config: ReminderScheduleConfig) {
   if (typeof window === "undefined") return;
-  if (pageAlarmTimer != null) window.clearTimeout(pageAlarmTimer);
+  if (pageAlarmTimer != null) {
+    window.clearTimeout(pageAlarmTimer);
+    pageAlarmTimer = null;
+  }
   if (!config.enabled) return;
   const when = nextReminderTimestamp(config.hhmm);
-  const delay = Math.max(800, when - Date.now());
+  const delayMs = when - Date.now();
+  if (delayMs <= 0) return;
   pageAlarmTimer = window.setTimeout(() => {
     void (async () => {
       const latest = readStoredReminderSchedule();
       if (!latest?.enabled) return;
-      if (latest.lastFiredDate === localDateKey()) {
+      const todayStr = localDateKey();
+      if (readLastAlertDate() === todayStr || latest.lastFiredDate === todayStr) {
         armPageReminderAlarm(latest);
         return;
       }
+      writeLastAlertDate(todayStr);
       await showTutorPracticeNotification({
         tutorName: latest.tutorName,
         tutorId: latest.tutorId,
@@ -429,7 +396,7 @@ function armPageReminderAlarm(config: ReminderScheduleConfig) {
       const again = readStoredReminderSchedule();
       if (again) armPageReminderAlarm(again);
     })();
-  }, delay);
+  }, delayMs);
 }
 
 export async function persistReminderSchedule(config: ReminderScheduleConfig) {
@@ -456,30 +423,16 @@ export async function persistReminderSchedule(config: ReminderScheduleConfig) {
   }
   const registration = await registerServiceWorker();
   const worker = registration?.active ?? registration?.waiting ?? registration?.installing;
-  worker?.postMessage({ type: "SCHEDULE_REMINDER", config: withTarget });
-  if (registration) {
-    await registerBackgroundWake(registration);
-    if (withTarget.enabled && Notification.permission === "granted") {
-      try {
-        await scheduleTriggeredNotification(registration, withTarget);
-      } catch (error) {
-        console.warn("Could not register notification trigger:", error);
-      }
-    }
-  }
+  worker?.postMessage({ type: "SAVE_REMINDER", config: withTarget });
   armPageReminderAlarm(withTarget);
 }
 
 export async function markReminderFiredToday() {
   const previous = readStoredReminderSchedule();
   if (!previous) return;
-  await persistReminderSchedule({ ...previous, lastFiredDate: localDateKey() });
-}
-
-export async function pingReminderCheck() {
-  const registration = await registerServiceWorker();
-  const worker = registration?.active ?? navigator.serviceWorker?.controller;
-  worker?.postMessage({ type: "CHECK_REMINDER" });
+  const todayStr = localDateKey();
+  writeLastAlertDate(todayStr);
+  await persistReminderSchedule({ ...previous, lastFiredDate: todayStr });
 }
 
 export function useNotifications() {
@@ -487,14 +440,5 @@ export function useNotifications() {
     void registerServiceWorker();
     const stored = readStoredReminderSchedule();
     if (stored?.enabled) armPageReminderAlarm(stored);
-    const onVisible = () => {
-      if (document.visibilityState === "visible") void pingReminderCheck();
-    };
-    document.addEventListener("visibilitychange", onVisible);
-    window.addEventListener("focus", onVisible);
-    return () => {
-      document.removeEventListener("visibilitychange", onVisible);
-      window.removeEventListener("focus", onVisible);
-    };
   }, []);
 }

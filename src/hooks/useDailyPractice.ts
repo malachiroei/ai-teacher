@@ -5,17 +5,13 @@ import { savePracticeProgress } from "@/lib/chat-history";
 import {
   alreadyNotifiedToday,
   loadPracticeSnapshot,
-  markNotifiedToday,
   mergePracticeSeconds,
-  msUntilTime,
   practicedMinutes,
   savePracticeSnapshot,
-  showPracticeNotification,
   todayDateKey,
 } from "@/lib/practice";
 import {
   persistReminderSchedule,
-  pingReminderCheck,
   readStoredReminderSchedule,
 } from "@/hooks/useNotifications";
 import { recordWeekMinutes } from "@/lib/learning-progress";
@@ -195,36 +191,7 @@ export function useDailyPractice(options: {
     if (typeof window === "undefined" || !("Notification" in window)) return;
     if (Notification.permission !== "granted") return;
 
-    function fireIfDue() {
-      if (alreadyNotifiedToday()) return;
-      if (practicedMinutes(secondsRef.current) >= goalMinutes) return;
-      const [hours, minutes] = reminderTime.split(":").map(Number);
-      const now = new Date();
-      if (now.getHours() > hours || (now.getHours() === hours && now.getMinutes() >= minutes)) {
-        void showPracticeNotification({
-          tutorName: characterName,
-          tutorId: characterId || "emma",
-          kidName,
-          goalMinutes,
-        });
-      }
-    }
-
     const stored = readStoredReminderSchedule();
-    void (async () => {
-      try {
-        const cache = await caches.open("buddyai-reminder");
-        const response = await cache.match("/__buddyai/reminder-config");
-        const fromSw = response ? ((await response.json()) as { lastFiredDate?: string }) : null;
-        if (fromSw?.lastFiredDate === todayDateKey() || stored?.lastFiredDate === todayDateKey()) {
-          markNotifiedToday();
-        }
-      } catch {
-        if (stored?.lastFiredDate === todayDateKey()) markNotifiedToday();
-      }
-      fireIfDue();
-    })();
-
     void persistReminderSchedule({
       hhmm: reminderTime,
       enabled: true,
@@ -234,35 +201,6 @@ export function useDailyPractice(options: {
       goalMinutes,
       lastFiredDate: alreadyNotifiedToday() ? todayDateKey() : stored?.lastFiredDate,
     });
-    void pingReminderCheck();
-
-    const delay = msUntilTime(reminderTime);
-    const timeout = window.setTimeout(() => {
-      if (practicedMinutes(secondsRef.current) < goalMinutes) {
-        void showPracticeNotification({
-          tutorName: characterName,
-          tutorId: characterId || "emma",
-          kidName,
-          goalMinutes,
-        });
-      }
-    }, delay);
-    const poll = window.setInterval(fireIfDue, 30000);
-    const onVisible = () => {
-      if (document.visibilityState === "visible") {
-        fireIfDue();
-        void pingReminderCheck();
-      }
-    };
-    document.addEventListener("visibilitychange", onVisible);
-    window.addEventListener("focus", onVisible);
-
-    return () => {
-      window.clearTimeout(timeout);
-      window.clearInterval(poll);
-      document.removeEventListener("visibilitychange", onVisible);
-      window.removeEventListener("focus", onVisible);
-    };
   }, [remindersEnabled, enabled, reminderTime, characterName, characterId, kidName, goalMinutes]);
 
   const dismissCelebration = useCallback(() => setCelebrationOpen(false), []);
