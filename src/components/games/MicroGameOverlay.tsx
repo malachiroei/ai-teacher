@@ -9,6 +9,7 @@ import {
   GAME_XP_REWARD,
   emojiForOptionLabel,
   fillPatternParts,
+  getGameAnswer,
   isCorrectGameChoice,
   transcriptMatchesChoice,
   type ChatGame,
@@ -30,8 +31,11 @@ interface MicroGameOverlayProps {
   games: ChatGame[];
   liveTranscript?: string;
   listening?: boolean;
+  isSpeaking?: boolean;
   audioLevel?: number;
   onRequestListen?: () => void;
+  onStopListen?: () => void;
+  onStopSpeaking?: () => void;
   onSpeakPrompt?: (text: string) => void;
   onQuestionCorrect?: (choice: string, index: number) => void;
   onRoundComplete: (answers: string[]) => void;
@@ -51,8 +55,11 @@ function ArcadeStage({
   games,
   liveTranscript = "",
   listening = false,
+  isSpeaking = false,
   audioLevel = 0,
   onRequestListen,
+  onStopListen,
+  onStopSpeaking,
   onSpeakPrompt,
   onQuestionCorrect,
   onRoundComplete,
@@ -66,6 +73,17 @@ function ArcadeStage({
   const [summary, setSummary] = useState(false);
   const [answers, setAnswers] = useState<string[]>([]);
   const heardRef = useRef("");
+  const hasSpokenStageRef = useRef<number | null>(null);
+  const heardTtsRef = useRef(false);
+  const listenArmedRef = useRef(false);
+  const speakPromptRef = useRef(onSpeakPrompt);
+  const requestListenRef = useRef(onRequestListen);
+  const stopListenRef = useRef(onStopListen);
+  const stopSpeakRef = useRef(onStopSpeaking);
+  speakPromptRef.current = onSpeakPrompt;
+  requestListenRef.current = onRequestListen;
+  stopListenRef.current = onStopListen;
+  stopSpeakRef.current = onStopSpeaking;
 
   const game = games[Math.min(index, Math.max(0, games.length - 1))];
   const total = Math.max(1, games.length);
@@ -80,27 +98,76 @@ function ArcadeStage({
     setSummary(false);
     setAnswers([]);
     heardRef.current = "";
+    hasSpokenStageRef.current = null;
+    heardTtsRef.current = false;
+    listenArmedRef.current = false;
   }, [games]);
 
+  const answerKey = game ? getGameAnswer(game) : "";
+
   useEffect(() => {
-    if (!game || won || summary) return;
+    if (!game || summary) return;
+    if (hasSpokenStageRef.current === index) return;
+    hasSpokenStageRef.current = index;
+    heardTtsRef.current = false;
+    listenArmedRef.current = false;
     heardRef.current = "";
+    stopListenRef.current?.();
+    try {
+      window.speechSynthesis.cancel();
+    } catch {
+      /* ignore */
+    }
     const line =
       game.type === "picture_match"
         ? `Pop the word: ${game.data.answer}!`
         : game.type === "listen_pick"
           ? `Say it out loud to unlock the treasure! ${(game.data as ListenPickData).speak}`
           : `Tap the missing letter!`;
-    onSpeakPrompt?.(line);
-  }, [game, onSpeakPrompt, won, summary]);
+    speakPromptRef.current?.(line);
+    const fallback = window.setTimeout(() => {
+      heardTtsRef.current = true;
+    }, 900);
+    return () => window.clearTimeout(fallback);
+  }, [index, summary, game, answerKey]);
 
   useEffect(() => {
-    if (!game || won || summary || !liveTranscript.trim()) return;
+    return () => {
+      stopListenRef.current?.();
+      stopSpeakRef.current?.();
+      try {
+        window.speechSynthesis.cancel();
+      } catch {
+        /* ignore */
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!game || won || summary) return;
+    if (hasSpokenStageRef.current !== index) return;
+    if (isSpeaking) {
+      heardTtsRef.current = true;
+      stopListenRef.current?.();
+      return;
+    }
+    if (!heardTtsRef.current || listenArmedRef.current) return;
+    const timer = window.setTimeout(() => {
+      if (hasSpokenStageRef.current !== index || listenArmedRef.current) return;
+      listenArmedRef.current = true;
+      requestListenRef.current?.();
+    }, 300);
+    return () => window.clearTimeout(timer);
+  }, [isSpeaking, index, won, summary, game]);
+
+  useEffect(() => {
+    if (!game || won || summary || isSpeaking || !listenArmedRef.current) return;
+    if (!liveTranscript.trim()) return;
     if (liveTranscript === heardRef.current) return;
     heardRef.current = liveTranscript;
     const hit = gameOptions(game).find((option) => transcriptMatchesChoice(liveTranscript, option));
     if (hit) choose(hit);
-  }, [liveTranscript, game, won, summary]);
+  }, [liveTranscript, game, won, summary, isSpeaking]);
 
   function markWrong(choice: string) {
     setWrongPicks((current) => (current.includes(choice) ? current : [...current, choice]));
@@ -121,6 +188,9 @@ function ArcadeStage({
       markWrong(choice);
       return;
     }
+    listenArmedRef.current = false;
+    stopListenRef.current?.();
+    stopSpeakRef.current?.();
     setWon(true);
     setPopped(choice);
     void playGameSfx(game.type === "fill_missing" ? "lock" : game.type === "listen_pick" ? "sparkle" : "bubble");

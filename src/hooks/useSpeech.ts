@@ -913,6 +913,10 @@ export function useSpeech(options?: {
     speechQueueRef.current.shift();
 
     try {
+      shouldListenRef.current = false;
+      submittedRef.current = true;
+      stopRecognizer();
+      resetListeningState();
       resumeSpeechSynthesis();
       const character = characterRef.current;
       const voice = pickStreamingVoice(voices, character, preview?.voiceUri ?? preferredVoiceUriRef.current);
@@ -995,7 +999,7 @@ export function useSpeech(options?: {
       setIsSpeaking(false);
       setSpeakingText("");
     }
-  }, []);
+  }, [resetListeningState, stopRecognizer]);
 
   const stopSpeaking = useCallback(() => {
     ttsGenerationRef.current += 1;

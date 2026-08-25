@@ -298,9 +298,9 @@ export default function HomePage() {
       maybePrintLatencyReport();
     },
     onSpeakEnd: () => {
-      if (!canAutoListenRef.current) return;
+      if (gameActiveRef.current || !canAutoListenRef.current) return;
       window.setTimeout(() => {
-        if (!canAutoListenRef.current) return;
+        if (gameActiveRef.current || !canAutoListenRef.current) return;
         startListeningRef.current("en-US");
       }, 140);
     },
@@ -308,7 +308,7 @@ export default function HomePage() {
   const recorderSupported = typeof MediaRecorder !== "undefined";
   startListeningRef.current = startListening;
   canAutoListenRef.current =
-    chatUnlocked && !isLoading && !awaitingGreeting && !sendingRef.current && speechSupported.stt;
+    chatUnlocked && !isLoading && !awaitingGreeting && !sendingRef.current && speechSupported.stt && !gameRound;
   const userMessageCountToday = countUserMessagesToday(messages);
   const lastUserMessageAt = [...messages].reverse().find((message) => message.sender === "user")?.timestamp ?? 0;
   const {
@@ -1490,13 +1490,18 @@ export default function HomePage() {
                 games={gameRound}
                 liveTranscript={transcript}
                 listening={isListening}
+                isSpeaking={isSpeaking}
                 audioLevel={audioLevel}
                 onRequestListen={() => {
+                  if (isSpeaking) return;
                   unlockSpeech();
                   startListening("en-US");
                 }}
+                onStopListen={() => stopListening()}
+                onStopSpeaking={() => stopSpeaking()}
                 onSpeakPrompt={(word) => {
                   unlockSpeech();
+                  stopListening();
                   speak(word);
                 }}
                 onClose={() => setGameRound(null)}
