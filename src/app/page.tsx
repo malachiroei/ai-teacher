@@ -1662,6 +1662,7 @@ export default function HomePage() {
           <TranscriptHistoryModal
             messages={messages}
             tutorName={character.name}
+            characterId={character.id}
             childName={profile?.nickname || "You"}
             sessions={sessions}
             sessionsLoading={sessionsLoading}

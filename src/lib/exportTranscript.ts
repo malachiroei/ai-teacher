@@ -16,8 +16,35 @@ export function messageTimestamp(item: {
   return 0;
 }
 
+export function splitMessagesIntoSittings(messages: Message[], gapMs = 2 * 60 * 60 * 1000) {
+  const chrono = [...messages].sort((a, b) => messageTimestamp(a) - messageTimestamp(b));
+  const groups: Message[][] = [];
+  for (const message of chrono) {
+    const ts = messageTimestamp(message);
+    const current = groups[groups.length - 1];
+    if (!current?.length) {
+      groups.push([message]);
+      continue;
+    }
+    const prevTs = messageTimestamp(current[current.length - 1]);
+    const newDay = new Date(ts).toDateString() !== new Date(prevTs).toDateString();
+    if (newDay || ts - prevTs > gapMs) groups.push([message]);
+    else current.push(message);
+  }
+  return groups;
+}
+
+export function sortMessagesByOrder<T extends { timestamp?: number; created_at?: string | number }>(
+  items: T[],
+  newestFirst: boolean,
+) {
+  return [...items].sort((a, b) =>
+    newestFirst ? messageTimestamp(b) - messageTimestamp(a) : messageTimestamp(a) - messageTimestamp(b),
+  );
+}
+
 export function sortMessagesNewestFirst<T extends { timestamp?: number; created_at?: string | number }>(items: T[]) {
-  return [...items].sort((a, b) => messageTimestamp(b) - messageTimestamp(a));
+  return sortMessagesByOrder(items, true);
 }
 
 function formatClock(ts: number) {

@@ -32,7 +32,7 @@ export function ChatSubtitleBox({
   const showIdle = Boolean(idleHint) && !child && !tutor && !thinking;
 
   return (
-    <div className="mb-3 flex min-h-[3.25rem] w-full flex-col items-center justify-end">
+    <div className="mb-3 flex min-h-[auto] w-full flex-col items-center justify-end pb-2">
       <AnimatePresence mode="wait">
         {thinking && !tutor ? (
           <motion.p
@@ -73,10 +73,10 @@ export function ChatSubtitleBox({
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -6 }}
             transition={{ duration: 0.22 }}
-            className="flex w-full max-w-[22rem] flex-col items-center gap-1.5 text-center"
+            className="flex w-full max-w-[22rem] flex-col items-center gap-1.5 overflow-visible pb-2 text-center"
           >
             {child ? (
-              <p dir="ltr" className="text-[13px] font-medium leading-snug text-white/70">
+              <p dir="ltr" className="text-[13px] font-medium leading-relaxed text-white/70">
                 <span className="mr-1 text-[10px] font-semibold uppercase tracking-wide text-cyan-200/80">
                   {listening ? "You" : childName}
                 </span>
@@ -85,14 +85,14 @@ export function ChatSubtitleBox({
             ) : null}
             {tutor ? (
               <>
-                <p dir="ltr" className="text-[15px] font-medium leading-snug text-white">
+                <p dir="ltr" className="text-[15px] font-medium leading-relaxed text-white">
                   <span className="mr-1 text-[10px] font-semibold uppercase tracking-wide text-amber-200/80">
                     {tutorName}
                   </span>
                   {tutor}
                 </p>
-                {hebrew ? (
-                  <p dir="rtl" className="max-h-12 overflow-hidden px-1 text-sm leading-snug text-gray-300">
+    {hebrew ? (
+                  <p dir="rtl" className="min-h-[auto] max-h-none overflow-visible px-1 pb-2 text-sm leading-relaxed text-gray-300 [unicode-bidi:isolate]">
                     <MixedBidiText text={hebrew} />
                   </p>
                 ) : null}
