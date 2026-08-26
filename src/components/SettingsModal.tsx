@@ -137,7 +137,11 @@ export function SettingsModal({
         return;
       }
       setNotify(true);
-      setTestPushNote("נשלחה התראת בדיקה לנייד — אמורה להופיע תוך שניות.");
+      setTestPushNote(
+        result.localOnly
+          ? "הוצגה התראת בדיקה מקומית. אם לא הגיעה Push מהשרת — בדקי שטבלת push_subscriptions קיימת ב-Supabase."
+          : "נשלחה התראת בדיקה לנייד — אמורה להופיע תוך שניות.",
+      );
     } finally {
       setTestPushBusy(false);
     }

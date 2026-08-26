@@ -306,26 +306,40 @@ function urlBase64ToUint8Array(base64String: string) {
   return output;
 }
 
-async function syncWebPushSubscription(config: ReminderScheduleConfig) {
+async function syncWebPushSubscription(config: ReminderScheduleConfig): Promise<{ ok: boolean; error?: string }> {
   const publicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY?.trim();
-  if (!publicKey || !("serviceWorker" in navigator) || !("PushManager" in window)) return false;
-  if (Notification.permission !== "granted") return false;
+  if (!publicKey) {
+    return { ok: false, error: "חסר NEXT_PUBLIC_VAPID_PUBLIC_KEY בבילד" };
+  }
+  if (!("serviceWorker" in navigator) || !("PushManager" in window)) {
+    return { ok: false, error: "הדפדפן לא תומך ב-Web Push (נסי Chrome)" };
+  }
+  if (Notification.permission !== "granted") {
+    return { ok: false, error: "לא ניתנה הרשאת התראות" };
+  }
   try {
     const registration = await navigator.serviceWorker.ready;
+    // Ensure this page is controlled (needed on Android after first install).
+    if (!navigator.serviceWorker.controller) {
+      await registration.update();
+    }
+
     if (!config.enabled) {
       const existing = await registration.pushManager.getSubscription();
       await fetch("/api/notifications/subscribe", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
         body: JSON.stringify({
-          subscription: existing,
+          subscription: existing?.toJSON?.() ?? existing,
           preferredTime: config.hhmm,
           timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "Asia/Jerusalem",
           enabled: false,
         }),
       });
-      return true;
+      return { ok: true };
     }
+
     let subscription = await registration.pushManager.getSubscription();
     if (!subscription) {
       subscription = await registration.pushManager.subscribe({
@@ -333,11 +347,13 @@ async function syncWebPushSubscription(config: ReminderScheduleConfig) {
         applicationServerKey: urlBase64ToUint8Array(publicKey),
       });
     }
+
     const response = await fetch("/api/notifications/subscribe", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
+      credentials: "same-origin",
       body: JSON.stringify({
-        subscription,
+        subscription: subscription.toJSON(),
         preferredTime: config.hhmm,
         timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "Asia/Jerusalem",
         enabled: true,
@@ -346,14 +362,18 @@ async function syncWebPushSubscription(config: ReminderScheduleConfig) {
         goalMinutes: config.goalMinutes,
       }),
     });
-    return response.ok;
+    const data = (await response.json().catch(() => ({}))) as { error?: string };
+    if (!response.ok) {
+      return { ok: false, error: data.error || `Subscribe failed (${response.status})` };
+    }
+    return { ok: true };
   } catch (error) {
     console.warn("Could not sync web push subscription:", error);
-    return false;
+    return { ok: false, error: error instanceof Error ? error.message : "Push subscribe failed" };
   }
 }
 
-/** Explicit test button only — the sole intentional instant push path. */
+/** Explicit test button — server push, with local SW fallback so the phone always gets a ping. */
 export async function sendServerTestPush(input: {
   preferredTime: string;
   tutorName: string;
@@ -366,32 +386,81 @@ export async function sendServerTestPush(input: {
   if (permission !== "granted") {
     return { ok: false, error: permission === "denied" ? NOTIFICATION_DENIED_HELP : "Notifications are not available." };
   }
-  const synced = await syncWebPushSubscription({
+
+  const config: ReminderScheduleConfig = {
     hhmm: input.preferredTime,
     enabled: true,
     tutorName: input.tutorName,
     tutorId: input.tutorId || "emma",
     kidName: input.kidName || "",
     goalMinutes: input.goalMinutes ?? 10,
-  });
-  if (!synced) {
-    return { ok: false, error: "Could not save the push subscription. Check VAPID keys and try again." };
+  };
+
+  const synced = await syncWebPushSubscription(config);
+  if (!synced.ok) {
+    // Still try a local notification so the user sees something while fixing server setup.
+    const localOk = await showLocalTestNotification(config);
+    return {
+      ok: localOk,
+      error: localOk
+        ? undefined
+        : synced.error || "Could not save push subscription",
+      localOnly: localOk,
+    };
   }
+
   try {
-    const response = await fetch("/api/notifications/test-push", { method: "POST" });
+    const response = await fetch("/api/notifications/test-push", {
+      method: "POST",
+      credentials: "same-origin",
+    });
     const data = (await response.json().catch(() => ({}))) as { ok?: boolean; error?: string; sent?: number };
-    if (!response.ok || !data.ok) {
-      return { ok: false, error: data.error || "Test push failed." };
+    if (response.ok && data.ok) {
+      return { ok: true, sent: data.sent ?? 1 };
     }
-    return { ok: true, sent: data.sent ?? 1 };
+    // Server push failed — fall back to local so the test button still proves permission works.
+    const localOk = await showLocalTestNotification(config);
+    if (localOk) {
+      return {
+        ok: true,
+        localOnly: true,
+        error: data.error || "Server push failed; showed a local test notification instead.",
+      };
+    }
+    return { ok: false, error: data.error || "Test push failed." };
   } catch (error) {
+    const localOk = await showLocalTestNotification(config);
+    if (localOk) return { ok: true, localOnly: true };
     return { ok: false, error: error instanceof Error ? error.message : "Test push failed." };
   }
 }
 
+/** Only used by the explicit test button — never by bell toggle. */
+async function showLocalTestNotification(config: ReminderScheduleConfig) {
+  try {
+    const registration = await navigator.serviceWorker.ready;
+    const tutor = config.tutorName.trim() || "Alex";
+    const name = config.kidName.trim() || "champ";
+    const icon = `/avatars/${config.tutorId || "emma"}.png`;
+    await registration.showNotification(`🚀 ${tutor} is waiting for you!`, {
+      body: `Hey ${name}! Test notification — if you see this, permission works.`,
+      icon,
+      badge: "/icon-192.png",
+      tag: "buddyai-notify-test",
+      data: { url: "/" },
+      ...({ renotify: true, vibrate: [200, 100, 200] } as NotificationOptions),
+    });
+    void playReminderSound();
+    return true;
+  } catch (error) {
+    console.warn("Local test notification failed:", error);
+    return false;
+  }
+}
+
 /**
- * Persist schedule + tell the SW. Never calls showNotification / new Notification.
- * When enabled, also syncs Web Push so a locked phone can still receive the cron push.
+ * Persist schedule + tell the SW. Never calls showNotification.
+ * Also syncs Web Push (awaited) so locked-phone cron can deliver.
  */
 export async function persistReminderSchedule(config: ReminderScheduleConfig) {
   if (typeof window === "undefined") return;
@@ -418,8 +487,54 @@ export async function persistReminderSchedule(config: ReminderScheduleConfig) {
   }
   await registerServiceWorker();
   postAlarmTimeToServiceWorker(withTarget);
-  // Silent subscribe sync for locked-screen delivery — does not show a notification.
-  void syncWebPushSubscription(withTarget);
+  const sync = await syncWebPushSubscription(withTarget);
+  if (!sync.ok && withTarget.enabled) {
+    console.warn("[reminders] push subscribe failed:", sync.error);
+  }
+  armPageAlarm(withTarget);
+}
+
+let pageAlarmTimer: number | null = null;
+
+/** Fires while the PWA/tab is alive (Android kills SW timers when the screen is off). */
+function armPageAlarm(config: ReminderScheduleConfig) {
+  if (typeof window === "undefined") return;
+  if (pageAlarmTimer != null) {
+    window.clearTimeout(pageAlarmTimer);
+    pageAlarmTimer = null;
+  }
+  if (!config.enabled || Notification.permission !== "granted") return;
+  const when = config.nextFireAt && config.nextFireAt > Date.now() ? config.nextFireAt : nextReminderTimestamp(config.hhmm);
+  const delay = when - Date.now();
+  if (delay < 5_000) return; // never near-instant from toggle
+  pageAlarmTimer = window.setTimeout(() => {
+    void (async () => {
+      const latest = readStoredReminderSchedule();
+      if (!latest?.enabled) return;
+      const today = localDateKey();
+      if (latest.lastFiredDate === today) {
+        armPageAlarm({ ...latest, nextFireAt: nextReminderTimestamp(latest.hhmm) });
+        return;
+      }
+      try {
+        const registration = await navigator.serviceWorker.ready;
+        const tutor = latest.tutorName.trim() || "Alex";
+        const name = latest.kidName.trim() || "champ";
+        const icon = `/avatars/${latest.tutorId || "emma"}.png`;
+        await registration.showNotification(`🚀 ${tutor} is waiting for you!`, {
+          body: `Hey ${name}! Ready for today's quick ${Math.max(5, latest.goalMinutes || 10)}-min English challenge?`,
+          icon,
+          badge: "/icon-192.png",
+          tag: LOCAL_REMINDER_TAG,
+          data: { url: "/" },
+          ...({ renotify: true, vibrate: [200, 100, 200] } as NotificationOptions),
+        });
+        await markReminderFiredToday();
+      } catch (error) {
+        console.warn("Page alarm notification failed:", error);
+      }
+    })();
+  }, delay);
 }
 
 export async function markReminderFiredToday() {
@@ -451,11 +566,19 @@ export function useNotifications() {
       await registerServiceWorker();
       const stored = readStoredReminderSchedule();
       if (!stored) return;
-      // Restore alarm only — never show a notification on mount.
-      postAlarmTimeToServiceWorker({
+      const next = {
         ...stored,
-        nextFireAt: stored.nextFireAt && stored.nextFireAt > Date.now() ? stored.nextFireAt : nextReminderTimestamp(stored.hhmm),
-      });
+        nextFireAt:
+          stored.nextFireAt && stored.nextFireAt > Date.now()
+            ? stored.nextFireAt
+            : nextReminderTimestamp(stored.hhmm),
+      };
+      // Restore alarm only — never show a notification on mount.
+      postAlarmTimeToServiceWorker(next);
+      if (stored.enabled) {
+        void syncWebPushSubscription(next);
+        armPageAlarm(next);
+      }
     })();
   }, []);
 }

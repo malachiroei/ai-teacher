@@ -1,5 +1,4 @@
 import { NextResponse } from "next/server";
-import { createServiceClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import { clockInTimeZone, normalizePreferredTime } from "@/lib/web-push";
 
@@ -24,7 +23,7 @@ export async function POST(request: Request) {
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    return NextResponse.json({ error: "Unauthorized — יש להתחבר" }, { status: 401 });
   }
 
   let body: SubscribeBody = {};
@@ -32,13 +31,6 @@ export async function POST(request: Request) {
     body = (await request.json()) as SubscribeBody;
   } catch {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
-  }
-
-  let admin;
-  try {
-    admin = createServiceClient();
-  } catch {
-    return NextResponse.json({ error: "Missing SUPABASE_SERVICE_ROLE_KEY" }, { status: 500 });
   }
 
   const endpoint = String(body.subscription?.endpoint || "").trim();
@@ -49,44 +41,53 @@ export async function POST(request: Request) {
   const timezone = String(body.timezone || "Asia/Jerusalem").trim() || "Asia/Jerusalem";
   const nowIso = new Date().toISOString();
 
+  // Use the signed-in user client (RLS) so SERVICE_ROLE is not required to save.
   if (!enabled) {
-    const query = admin
+    const query = supabase
       .from("push_subscriptions")
       .update({ enabled: false, updated_at: nowIso })
       .eq("user_id", user.id);
     const { error } = endpoint ? await query.eq("endpoint", endpoint) : await query;
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    if (error) {
+      return NextResponse.json(
+        { error: `DB update failed: ${error.message}. Run supabase/schema.sql for push_subscriptions.` },
+        { status: 500 },
+      );
+    }
     return NextResponse.json({ ok: true, enabled: false });
   }
 
   if (!endpoint || !p256dh || !auth) {
-    return NextResponse.json({ error: "Missing push subscription" }, { status: 400 });
+    return NextResponse.json({ error: "Missing push subscription keys" }, { status: 400 });
   }
 
-  // If preferred time is "right now", mark today as already sent so cron won't push this minute.
   const clock = clockInTimeZone(timezone);
   const skipToday = clock.hhmm === preferredTime ? clock.dateKey : null;
 
-  const { error } = await admin.from("push_subscriptions").upsert(
-    {
-      user_id: user.id,
-      endpoint,
-      p256dh,
-      auth,
-      preferred_time: preferredTime,
-      timezone,
-      enabled: true,
-      tutor_name: body.tutorName?.trim() || null,
-      kid_name: body.kidName?.trim() || null,
-      goal_minutes: Number.isFinite(Number(body.goalMinutes)) ? Number(body.goalMinutes) : 10,
-      ...(skipToday ? { last_sent_date: skipToday } : {}),
-      updated_at: nowIso,
-    },
-    { onConflict: "endpoint" },
-  );
+  const row = {
+    user_id: user.id,
+    endpoint,
+    p256dh,
+    auth,
+    preferred_time: preferredTime,
+    timezone,
+    enabled: true,
+    tutor_name: body.tutorName?.trim() || null,
+    kid_name: body.kidName?.trim() || null,
+    goal_minutes: Number.isFinite(Number(body.goalMinutes)) ? Number(body.goalMinutes) : 10,
+    ...(skipToday ? { last_sent_date: skipToday } : {}),
+    updated_at: nowIso,
+  };
 
+  const { error } = await supabase.from("push_subscriptions").upsert(row, { onConflict: "endpoint" });
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json(
+      {
+        error: `DB upsert failed: ${error.message}. Create the push_subscriptions table from supabase/schema.sql.`,
+        code: error.code,
+      },
+      { status: 500 },
+    );
   }
   return NextResponse.json({ ok: true, enabled: true, skippedToday: Boolean(skipToday) });
 }

@@ -1,5 +1,4 @@
 import { NextResponse } from "next/server";
-import { createServiceClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import { configureWebPush, vapidConfigured } from "@/lib/web-push";
 
@@ -11,21 +10,18 @@ export async function POST() {
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    return NextResponse.json({ error: "Unauthorized — יש להתחבר" }, { status: 401 });
   }
 
   if (!vapidConfigured()) {
-    return NextResponse.json({ error: "VAPID keys are not configured" }, { status: 500 });
+    return NextResponse.json(
+      { error: "VAPID keys missing on server (NEXT_PUBLIC_VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY)" },
+      { status: 500 },
+    );
   }
 
-  let admin;
-  try {
-    admin = createServiceClient();
-  } catch {
-    return NextResponse.json({ error: "Missing SUPABASE_SERVICE_ROLE_KEY" }, { status: 500 });
-  }
-
-  const { data: rows, error } = await admin
+  // User-scoped read via RLS — no SERVICE_ROLE required for the test button.
+  const { data: rows, error } = await supabase
     .from("push_subscriptions")
     .select("*")
     .eq("user_id", user.id)
@@ -33,13 +29,25 @@ export async function POST() {
     .order("updated_at", { ascending: false });
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json(
+      { error: `DB read failed: ${error.message}. Run push_subscriptions SQL in Supabase.` },
+      { status: 500 },
+    );
   }
   if (!rows?.length) {
-    return NextResponse.json({ error: "No push subscription saved yet. Enable reminders first." }, { status: 404 });
+    return NextResponse.json(
+      { error: "No push subscription saved. Tap the bell to enable reminders, then try again." },
+      { status: 404 },
+    );
   }
 
-  const webPush = configureWebPush();
+  let webPush;
+  try {
+    webPush = configureWebPush();
+  } catch (err) {
+    return NextResponse.json({ error: err instanceof Error ? err.message : "VAPID setup failed" }, { status: 500 });
+  }
+
   let sent = 0;
   let failed = 0;
   const errors: string[] = [];
@@ -67,7 +75,7 @@ export async function POST() {
       const message = err instanceof Error ? err.message : "send failed";
       errors.push(message);
       if (status === 404 || status === 410) {
-        await admin.from("push_subscriptions").delete().eq("id", row.id);
+        await supabase.from("push_subscriptions").delete().eq("id", row.id);
       }
     }
   }
