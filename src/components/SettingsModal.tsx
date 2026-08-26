@@ -14,6 +14,7 @@ import {
 import {
   NOTIFICATION_DENIED_HELP,
   REMINDER_SOUNDS,
+  persistReminderSchedule,
   playReminderSound,
   readReminderSound,
   requestNotificationPermission,
@@ -85,6 +86,15 @@ export function SettingsModal({
     setLocalError("");
     if (notify) {
       setNotify(false);
+      // Disable only — never show a notification.
+      void persistReminderSchedule({
+        hhmm: time,
+        enabled: false,
+        tutorName: characterName,
+        tutorId: characterId || "emma",
+        kidName: englishName.trim(),
+        goalMinutes: goal,
+      });
       return;
     }
 
@@ -99,6 +109,15 @@ export function SettingsModal({
     }
     setNotify(true);
     writeReminderSound(soundId);
+    // Schedule only — never showNotification / test push here.
+    void persistReminderSchedule({
+      hhmm: time,
+      enabled: true,
+      tutorName: characterName,
+      tutorId: characterId || "emma",
+      kidName: englishName.trim(),
+      goalMinutes: goal,
+    });
   }
 
   async function handleSendTestPush() {

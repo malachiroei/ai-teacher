@@ -311,16 +311,3 @@ export function markNotifiedToday() {
   if (typeof window === "undefined") return;
   window.localStorage.setItem(LAST_NOTIFY_KEY, todayDateKey());
 }
-
-export async function showPracticeNotification(input: {
-  tutorName: string;
-  tutorId: string;
-  kidName?: string;
-  goalMinutes?: number;
-}) {
-  if (alreadyNotifiedToday()) return false;
-  const { showTutorPracticeNotification } = await import("@/hooks/useNotifications");
-  const shown = await showTutorPracticeNotification(input);
-  if (shown) markNotifiedToday();
-  return shown;
-}

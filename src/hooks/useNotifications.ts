@@ -10,6 +10,11 @@ export async function registerServiceWorker() {
   if (typeof window === "undefined" || !("serviceWorker" in navigator)) return null;
   try {
     const registration = await navigator.serviceWorker.register(SW_PATH, { scope: "/", updateViaCache: "none" });
+    try {
+      void registration.update();
+    } catch {
+      /* ignore */
+    }
     await navigator.serviceWorker.ready;
     return registration;
   } catch (error) {
@@ -18,6 +23,7 @@ export async function registerServiceWorker() {
   }
 }
 
+/** Request permission only — never shows a notification. */
 export async function requestNotificationPermission(): Promise<NotificationPermissionResult> {
   if (typeof window === "undefined" || !("Notification" in window)) return "unsupported";
   if (Notification.permission === "granted") {
@@ -28,17 +34,6 @@ export async function requestNotificationPermission(): Promise<NotificationPermi
   const result = await Notification.requestPermission();
   if (result === "granted") await registerServiceWorker();
   return result;
-}
-
-function pickBody(kidName: string, tutorName: string, goalMinutes: number) {
-  const name = kidName.trim() || "friend";
-  const minutes = Math.max(5, goalMinutes || 10);
-  const options = [
-    `Hey ${name}! 🎮 Ready for today's quick ${minutes}-min challenge? Let's talk!`,
-    `⭐ Your streak is on the line! Jump in for a fun chat with ${tutorName}!`,
-    `🎯 We have an exciting new story today! Tap here to start.`,
-  ];
-  return options[Math.floor(Math.random() * options.length)];
 }
 
 export function formatPracticeTimeLabel(hhmm: string) {
@@ -58,8 +53,11 @@ export const NOTIFICATION_DENIED_HELP =
 export type ReminderSoundId = "chime" | "arcade" | "pop" | "fanfare";
 export const REMINDER_SOUND_STORAGE_KEY = "buddyai_reminder_sound";
 export const REMINDER_SCHEDULE_STORAGE_KEY = "buddyai_reminder_schedule";
+export const REMINDER_ENABLED_KEY = "buddyai_notifications_enabled";
 export const REMINDER_CACHE_NAME = "buddyai-reminder";
 export const REMINDER_CONFIG_URL = "/__buddyai/reminder-config";
+export const LAST_REMINDER_DATE_KEY = "buddyai_last_reminder_date";
+export const LOCAL_REMINDER_TAG = "daily-practice-reminder";
 
 export const REMINDER_SOUNDS: Array<{
   id: ReminderSoundId;
@@ -217,79 +215,6 @@ export async function playReminderSound(soundId?: ReminderSoundId) {
   }
 }
 
-async function showViaServiceWorker(title: string, options: NotificationOptions & Record<string, unknown>) {
-  const registration = (await registerServiceWorker()) ?? (await navigator.serviceWorker?.ready.catch(() => null));
-  if (registration?.showNotification) {
-    await registration.showNotification(title, options);
-    return true;
-  }
-  if ("Notification" in window && Notification.permission === "granted") {
-    new Notification(title, options);
-    return true;
-  }
-  return false;
-}
-
-export async function showTutorPracticeNotification(input: {
-  tutorName: string;
-  tutorId: string;
-  kidName?: string;
-  goalMinutes?: number;
-  tag?: string;
-}) {
-  if (typeof window === "undefined" || !("Notification" in window) || Notification.permission !== "granted") {
-    return false;
-  }
-  const tutorName = input.tutorName.trim() || "BuddyAI";
-  const tutorId = input.tutorId.trim() || "emma";
-  const icon = `/avatars/${tutorId}.png`;
-  try {
-    void playReminderSound();
-    const shown = await showViaServiceWorker(`🚀 ${tutorName} is waiting for you!`, {
-      body: pickBody(input.kidName ?? "", tutorName, input.goalMinutes ?? 10),
-      icon,
-      badge: icon,
-      tag: input.tag ?? "buddyai-daily-practice",
-      renotify: true,
-      vibrate: [200, 100, 200],
-      data: { url: "/" },
-    });
-    if (shown) void markReminderFiredToday();
-    return shown;
-  } catch (error) {
-    console.warn("Could not show practice notification:", error);
-    return false;
-  }
-}
-
-export async function showNotificationsEnabledTest(input: {
-  tutorName: string;
-  tutorId: string;
-  practiceTime: string;
-}) {
-  if (typeof window === "undefined" || !("Notification" in window) || Notification.permission !== "granted") {
-    return false;
-  }
-  const tutorName = input.tutorName.trim() || "BuddyAI";
-  const tutorId = input.tutorId.trim() || "emma";
-  const when = formatPracticeTimeLabel(input.practiceTime);
-  const icon = `/avatars/${tutorId}.png`;
-  try {
-    void playReminderSound();
-    return await showViaServiceWorker(`🎉 Notifications enabled! ${tutorName} will ping you at ${when}`, {
-      body: "Tap here to open BuddyAI and start talking.",
-      icon,
-      badge: icon,
-      tag: "buddyai-notify-test",
-      data: { url: "/" },
-      ...({ vibrate: [200, 100, 200] } as NotificationOptions),
-    });
-  } catch (error) {
-    console.warn("Could not show test notification:", error);
-    return false;
-  }
-}
-
 export interface ReminderScheduleConfig {
   hhmm: string;
   enabled: boolean;
@@ -336,8 +261,7 @@ async function writeReminderIndexedDb(config: ReminderScheduleConfig) {
   });
 }
 
-export const LAST_REMINDER_DATE_KEY = "buddyai_last_reminder_date";
-
+/** Next occurrence strictly in the future (same minute → tomorrow). Never "now". */
 export function nextReminderTimestamp(hhmm: string, from = new Date()) {
   const [rawHour, rawMinute] = String(hhmm || "19:00").split(":");
   const hours = Number(rawHour);
@@ -348,9 +272,7 @@ export function nextReminderTimestamp(hhmm: string, from = new Date()) {
   return target.getTime();
 }
 
-export const LOCAL_REMINDER_TAG = "daily-practice-reminder";
-
-function postAlarmTimeToServiceWorker(config: Pick<ReminderScheduleConfig, "hhmm" | "enabled" | "tutorName" | "tutorId" | "kidName" | "goalMinutes" | "lastFiredDate">) {
+function postAlarmTimeToServiceWorker(config: ReminderScheduleConfig) {
   if (typeof window === "undefined" || !("serviceWorker" in navigator)) return;
   const payload = {
     type: "SET_ALARM_TIME",
@@ -361,14 +283,17 @@ function postAlarmTimeToServiceWorker(config: Pick<ReminderScheduleConfig, "hhmm
     kidName: config.kidName,
     goalMinutes: config.goalMinutes,
     lastFiredDate: config.lastFiredDate || "",
+    nextFireAt: config.nextFireAt ?? nextReminderTimestamp(config.hhmm),
   };
-  const controller = navigator.serviceWorker.controller;
-  if (controller) {
-    controller.postMessage(payload);
+  const send = (worker: ServiceWorker | null | undefined) => {
+    worker?.postMessage(payload);
+  };
+  if (navigator.serviceWorker.controller) {
+    send(navigator.serviceWorker.controller);
     return;
   }
   void navigator.serviceWorker.ready.then((registration) => {
-    (registration.active ?? registration.waiting ?? registration.installing)?.postMessage(payload);
+    send(registration.active ?? registration.waiting ?? registration.installing);
   });
 }
 
@@ -428,6 +353,7 @@ async function syncWebPushSubscription(config: ReminderScheduleConfig) {
   }
 }
 
+/** Explicit test button only — the sole intentional instant push path. */
 export async function sendServerTestPush(input: {
   preferredTime: string;
   tutorName: string;
@@ -463,11 +389,15 @@ export async function sendServerTestPush(input: {
   }
 }
 
+/**
+ * Persist schedule + tell the SW. Never calls showNotification / new Notification.
+ */
 export async function persistReminderSchedule(config: ReminderScheduleConfig) {
   if (typeof window === "undefined") return;
   const withTarget = { ...config, nextFireAt: nextReminderTimestamp(config.hhmm) };
   try {
     window.localStorage.setItem(REMINDER_SCHEDULE_STORAGE_KEY, JSON.stringify(withTarget));
+    window.localStorage.setItem(REMINDER_ENABLED_KEY, withTarget.enabled ? "true" : "false");
   } catch {
     /* ignore */
   }
@@ -485,10 +415,8 @@ export async function persistReminderSchedule(config: ReminderScheduleConfig) {
   } catch {
     /* ignore */
   }
-  // Never call showNotification here — only hand the schedule to the service worker.
   await registerServiceWorker();
   postAlarmTimeToServiceWorker(withTarget);
-  void syncWebPushSubscription(withTarget);
 }
 
 export async function markReminderFiredToday() {
@@ -520,9 +448,11 @@ export function useNotifications() {
       await registerServiceWorker();
       const stored = readStoredReminderSchedule();
       if (!stored) return;
-      // Restore alarm state only — never show a notification on mount.
-      postAlarmTimeToServiceWorker(stored);
-      if (stored.enabled) void syncWebPushSubscription(stored);
+      // Restore alarm only — never show a notification on mount.
+      postAlarmTimeToServiceWorker({
+        ...stored,
+        nextFireAt: stored.nextFireAt && stored.nextFireAt > Date.now() ? stored.nextFireAt : nextReminderTimestamp(stored.hhmm),
+      });
     })();
   }, []);
 }
