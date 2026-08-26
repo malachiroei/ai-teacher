@@ -2,7 +2,8 @@
 
 import { useEffect } from "react";
 
-const SW_PATH = "/sw.js";
+const SW_PATH = "/sw.js?v=6";
+const SW_VERSION = "v6-2026-08-26";
 
 export type NotificationPermissionResult = NotificationPermission | "unsupported";
 
@@ -15,6 +16,7 @@ export async function registerServiceWorker() {
     } catch {
       /* ignore */
     }
+    registration.waiting?.postMessage({ type: "SKIP_WAITING" });
     await navigator.serviceWorker.ready;
     return registration;
   } catch (error) {
@@ -562,6 +564,20 @@ export async function markReminderFiredToday() {
 
 export function useNotifications() {
   useEffect(() => {
+    const onMessage = (event: MessageEvent) => {
+      const data = event.data || {};
+      if (data.type !== "SW_UPDATED" || data.version !== SW_VERSION) return;
+      try {
+        const key = `buddyai_sw_reloaded:${SW_VERSION}`;
+        if (sessionStorage.getItem(key)) return;
+        sessionStorage.setItem(key, "1");
+      } catch {
+        /* ignore */
+      }
+      window.location.reload();
+    };
+    navigator.serviceWorker?.addEventListener("message", onMessage);
+
     void (async () => {
       await registerServiceWorker();
       const stored = readStoredReminderSchedule();
@@ -580,5 +596,9 @@ export function useNotifications() {
         armPageAlarm(next);
       }
     })();
+
+    return () => {
+      navigator.serviceWorker?.removeEventListener("message", onMessage);
+    };
   }, []);
 }

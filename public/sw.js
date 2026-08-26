@@ -1,4 +1,5 @@
-/* buddyai-sw alarm-v5 — grace period after arm; never fire on toggle */
+/* buddyai-sw v6 — force-update; never notify on bell/toggle/save */
+const SW_VERSION = "v6-2026-08-26";
 const REMINDER_CACHE = "buddyai-reminder";
 const REMINDER_URL = "/__buddyai/reminder-config";
 const DB_NAME = "buddyai-reminders";
@@ -6,8 +7,7 @@ const STORE = "config";
 const LOCAL_TAG = "daily-practice-reminder";
 const CHECK_MS = 20000;
 const WATCH_SLICE_MS = 30000;
-/** After SET_ALARM_TIME, never fire for this long (prevents "bell → instant popup"). */
-const ARM_GRACE_MS = 90_000;
+const ARM_GRACE_MS = 120_000;
 
 let alarmState = {
   enabled: false,
@@ -29,21 +29,36 @@ self.addEventListener("install", (event) => {
 
 self.addEventListener("activate", (event) => {
   event.waitUntil(
-    self.clients.claim().then(async () => {
+    (async () => {
+      await self.clients.claim();
+      // Drop stale app caches so phones stop running old "Notifications enabled!" code.
+      const keys = await caches.keys();
+      await Promise.all(
+        keys
+          .filter((key) => key !== REMINDER_CACHE && !key.includes("buddyai-reminder"))
+          .map((key) => caches.delete(key)),
+      );
       await clearPendingReminderNotifications();
       const config = await loadConfig();
       if (config) applyConfig(config, false);
-      // Restore only — never showNotification on activate.
       if (alarmState.enabled) {
         armedAt = Date.now();
         armWatchdog();
       }
-    }),
+      const clients = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
+      for (const client of clients) {
+        client.postMessage({ type: "SW_UPDATED", version: SW_VERSION });
+      }
+    })(),
   );
 });
 
 self.addEventListener("message", (event) => {
   const data = event.data || {};
+  if (data.type === "SKIP_WAITING") {
+    self.skipWaiting();
+    return;
+  }
   if (data.type === "SET_ALARM_TIME" || data.type === "SAVE_REMINDER" || data.type === "SCHEDULE_REMINDER") {
     const config = data.type === "SET_ALARM_TIME" ? data : data.config || data;
     event.waitUntil(
@@ -52,7 +67,7 @@ self.addEventListener("message", (event) => {
         applyConfig(config, true);
         armedAt = Date.now();
         await saveConfig(snapshot());
-        // NEVER call showNotification here.
+        // NEVER showNotification on schedule/toggle messages.
         if (alarmState.enabled) armWatchdog();
         else watchToken += 1;
       })(),
@@ -61,9 +76,17 @@ self.addEventListener("message", (event) => {
 });
 
 self.addEventListener("push", (event) => {
-  // Server cron / explicit test-push only.
-  const data = event.data ? event.data.json() : {};
-  const title = data.title || "🚀 Alex is waiting for you!";
+  let data = {};
+  try {
+    data = event.data ? event.data.json() : {};
+  } catch {
+    data = { body: event.data ? event.data.text() : "" };
+  }
+  // Ignore empty/accidental pushes that look like legacy enable toasts.
+  const title = String(data.title || "").trim();
+  if (title.includes("Notifications enabled")) {
+    return;
+  }
   const options = {
     body: data.body || "Ready for today's quick English practice?",
     icon: data.icon || "/icon-192.png",
@@ -73,7 +96,9 @@ self.addEventListener("push", (event) => {
     tag: data.tag || "buddyai-daily-practice",
     renotify: true,
   };
-  event.waitUntil(self.registration.showNotification(title, options));
+  event.waitUntil(
+    self.registration.showNotification(title || "🚀 Alex is waiting for you!", options),
+  );
 });
 
 self.addEventListener("notificationclick", (event) => {
@@ -106,7 +131,6 @@ function applyConfig(config, recomputeNext) {
   if (config.kidName != null) alarmState.kidName = String(config.kidName || "champ");
   if (config.goalMinutes != null) alarmState.goalMinutes = Number(config.goalMinutes) || 10;
 
-  // Always schedule the next FUTURE occurrence (now/past → tomorrow).
   const incomingNext = Number(config.nextFireAt);
   if (recomputeNext || !Number.isFinite(incomingNext) || incomingNext <= Date.now()) {
     alarmState.nextFireAt = nextTimestamp(alarmState.preferredTime);
@@ -114,7 +138,6 @@ function applyConfig(config, recomputeNext) {
     alarmState.nextFireAt = incomingNext;
   }
 
-  // If preferred HH:MM is this minute, treat today as already handled so we don't fire "instantly".
   const now = new Date();
   const currentHHMM = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
   if (alarmState.enabled && currentHHMM === alarmState.preferredTime) {
@@ -131,7 +154,6 @@ function armWatchdog() {
       if (remaining <= 0) {
         await checkAndFireAlarm();
         if (!alarmState.enabled || token !== watchToken) return;
-        // After firing (or skipping), wait before next loop.
         await new Promise((resolve) => setTimeout(resolve, 5000));
         continue;
       }
@@ -143,7 +165,6 @@ function armWatchdog() {
 
 async function checkAndFireAlarm() {
   if (!alarmState.enabled) return;
-  // Hard block right after bell toggle / schedule update.
   if (armedAt && Date.now() - armedAt < ARM_GRACE_MS) return;
 
   const now = Date.now();
@@ -201,6 +222,17 @@ async function clearPendingReminderNotifications() {
       }
     }
   }
+  // Also close any leftover "Notifications enabled!" toasts from old builds.
+  try {
+    const all = await self.registration.getNotifications();
+    await Promise.all(
+      all
+        .filter((item) => String(item.title || "").includes("Notifications enabled"))
+        .map((item) => item.close()),
+    );
+  } catch {
+    /* ignore */
+  }
 }
 
 function snapshot() {
@@ -214,6 +246,7 @@ function snapshot() {
     tutorId: alarmState.tutorId,
     kidName: alarmState.kidName,
     goalMinutes: alarmState.goalMinutes,
+    swVersion: SW_VERSION,
   };
 }
 

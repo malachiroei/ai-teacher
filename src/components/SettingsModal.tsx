@@ -356,7 +356,9 @@ export function SettingsModal({
           <section className="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
             <div>
               <p className="text-[13px] font-semibold text-slate-800">Browser reminders</p>
-              <p className="text-[12px] text-slate-500">Get a ping at your practice time</p>
+              <p className="text-[12px] text-slate-500">
+                הפעמון רק מפעיל תזמון — לא שולח התראה עכשיו. לבדיקה: הכפתור הירוק למטה.
+              </p>
             </div>
             <button
               type="button"
