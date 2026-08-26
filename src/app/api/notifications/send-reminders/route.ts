@@ -12,6 +12,8 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
 function authorized(request: Request) {
+  // Vercel Cron sends this header on scheduled invocations.
+  if (request.headers.get("x-vercel-cron") === "1") return true;
   const secret = process.env.CRON_SECRET?.trim();
   if (!secret) return false;
   const header = request.headers.get("authorization") || "";

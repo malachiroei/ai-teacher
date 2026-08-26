@@ -391,6 +391,7 @@ export async function sendServerTestPush(input: {
 
 /**
  * Persist schedule + tell the SW. Never calls showNotification / new Notification.
+ * When enabled, also syncs Web Push so a locked phone can still receive the cron push.
  */
 export async function persistReminderSchedule(config: ReminderScheduleConfig) {
   if (typeof window === "undefined") return;
@@ -417,6 +418,8 @@ export async function persistReminderSchedule(config: ReminderScheduleConfig) {
   }
   await registerServiceWorker();
   postAlarmTimeToServiceWorker(withTarget);
+  // Silent subscribe sync for locked-screen delivery — does not show a notification.
+  void syncWebPushSubscription(withTarget);
 }
 
 export async function markReminderFiredToday() {

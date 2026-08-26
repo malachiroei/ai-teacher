@@ -1,11 +1,13 @@
-/* buddyai-sw alarm-v4 — no showNotification on install/activate/message */
+/* buddyai-sw alarm-v5 — grace period after arm; never fire on toggle */
 const REMINDER_CACHE = "buddyai-reminder";
 const REMINDER_URL = "/__buddyai/reminder-config";
 const DB_NAME = "buddyai-reminders";
 const STORE = "config";
 const LOCAL_TAG = "daily-practice-reminder";
-const CHECK_MS = 15000;
+const CHECK_MS = 20000;
 const WATCH_SLICE_MS = 30000;
+/** After SET_ALARM_TIME, never fire for this long (prevents "bell → instant popup"). */
+const ARM_GRACE_MS = 90_000;
 
 let alarmState = {
   enabled: false,
@@ -19,6 +21,7 @@ let alarmState = {
 };
 
 let watchToken = 0;
+let armedAt = 0;
 
 self.addEventListener("install", (event) => {
   event.waitUntil(self.skipWaiting());
@@ -27,10 +30,14 @@ self.addEventListener("install", (event) => {
 self.addEventListener("activate", (event) => {
   event.waitUntil(
     self.clients.claim().then(async () => {
+      await clearPendingReminderNotifications();
       const config = await loadConfig();
       if (config) applyConfig(config, false);
-      // Never showNotification on activate — only restore + arm timer.
-      if (alarmState.enabled) armWatchdog();
+      // Restore only — never showNotification on activate.
+      if (alarmState.enabled) {
+        armedAt = Date.now();
+        armWatchdog();
+      }
     }),
   );
 });
@@ -41,18 +48,10 @@ self.addEventListener("message", (event) => {
     const config = data.type === "SET_ALARM_TIME" ? data : data.config || data;
     event.waitUntil(
       (async () => {
+        await clearPendingReminderNotifications();
         applyConfig(config, true);
-        await saveConfig({
-          enabled: alarmState.enabled,
-          hhmm: alarmState.preferredTime,
-          preferredTime: alarmState.preferredTime,
-          lastFiredDate: alarmState.lastFiredDate,
-          nextFireAt: alarmState.nextFireAt,
-          tutorName: alarmState.tutorName,
-          tutorId: alarmState.tutorId,
-          kidName: alarmState.kidName,
-          goalMinutes: alarmState.goalMinutes,
-        });
+        armedAt = Date.now();
+        await saveConfig(snapshot());
         // NEVER call showNotification here.
         if (alarmState.enabled) armWatchdog();
         else watchToken += 1;
@@ -62,7 +61,7 @@ self.addEventListener("message", (event) => {
 });
 
 self.addEventListener("push", (event) => {
-  // Server / test-push path only.
+  // Server cron / explicit test-push only.
   const data = event.data ? event.data.json() : {};
   const title = data.title || "🚀 Alex is waiting for you!";
   const options = {
@@ -107,12 +106,20 @@ function applyConfig(config, recomputeNext) {
   if (config.kidName != null) alarmState.kidName = String(config.kidName || "champ");
   if (config.goalMinutes != null) alarmState.goalMinutes = Number(config.goalMinutes) || 10;
 
+  // Always schedule the next FUTURE occurrence (now/past → tomorrow).
   const incomingNext = Number(config.nextFireAt);
   if (recomputeNext || !Number.isFinite(incomingNext) || incomingNext <= Date.now()) {
-    // Strictly future — if preferred time is now or past, schedule tomorrow.
     alarmState.nextFireAt = nextTimestamp(alarmState.preferredTime);
   } else {
     alarmState.nextFireAt = incomingNext;
+  }
+
+  // If preferred HH:MM is this minute, treat today as already handled so we don't fire "instantly".
+  const now = new Date();
+  const currentHHMM = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
+  if (alarmState.enabled && currentHHMM === alarmState.preferredTime) {
+    alarmState.lastFiredDate = todayKey(now);
+    alarmState.nextFireAt = nextTimestamp(alarmState.preferredTime);
   }
 }
 
@@ -124,6 +131,8 @@ function armWatchdog() {
       if (remaining <= 0) {
         await checkAndFireAlarm();
         if (!alarmState.enabled || token !== watchToken) return;
+        // After firing (or skipping), wait before next loop.
+        await new Promise((resolve) => setTimeout(resolve, 5000));
         continue;
       }
       const slice = Math.min(Math.max(1000, remaining), WATCH_SLICE_MS);
@@ -134,13 +143,14 @@ function armWatchdog() {
 
 async function checkAndFireAlarm() {
   if (!alarmState.enabled) return;
+  // Hard block right after bell toggle / schedule update.
+  if (armedAt && Date.now() - armedAt < ARM_GRACE_MS) return;
 
   const now = Date.now();
-  if (!alarmState.nextFireAt || alarmState.nextFireAt > now + 1500) {
-    // Not due yet. Keep nextFireAt honest if missing.
+  if (!alarmState.nextFireAt || alarmState.nextFireAt > now + 2000) {
     if (!alarmState.nextFireAt || alarmState.nextFireAt <= 0) {
       alarmState.nextFireAt = nextTimestamp(alarmState.preferredTime);
-      await saveConfig({ ...snapshot() });
+      await saveConfig(snapshot());
     }
     return;
   }
@@ -148,14 +158,13 @@ async function checkAndFireAlarm() {
   const today = todayKey();
   if (alarmState.lastFiredDate === today) {
     alarmState.nextFireAt = nextTimestamp(alarmState.preferredTime);
-    await saveConfig({ ...snapshot() });
+    await saveConfig(snapshot());
     return;
   }
 
-  // Mark first so a crash/retry does not spam.
   alarmState.lastFiredDate = today;
   alarmState.nextFireAt = nextTimestamp(alarmState.preferredTime);
-  await saveConfig({ ...snapshot() });
+  await saveConfig(snapshot());
 
   const tutor = String(alarmState.tutorName || "Alex").trim() || "Alex";
   const name = String(alarmState.kidName || "champ").trim() || "champ";
@@ -174,6 +183,23 @@ async function checkAndFireAlarm() {
     });
   } catch (error) {
     console.warn("Local alarm notification failed:", error);
+  }
+}
+
+async function clearPendingReminderNotifications() {
+  const tags = [LOCAL_TAG, "buddyai-daily-practice", "buddyai-notify-test"];
+  for (const tag of tags) {
+    try {
+      const list = await self.registration.getNotifications({ tag, includeTriggered: true });
+      await Promise.all(list.map((item) => item.close()));
+    } catch {
+      try {
+        const list = await self.registration.getNotifications({ tag });
+        await Promise.all(list.map((item) => item.close()));
+      } catch {
+        /* ignore */
+      }
+    }
   }
 }
 

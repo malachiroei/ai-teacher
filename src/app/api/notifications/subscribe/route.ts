@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
-import { normalizePreferredTime } from "@/lib/web-push";
+import { clockInTimeZone, normalizePreferredTime } from "@/lib/web-push";
 
 export const dynamic = "force-dynamic";
 
@@ -63,6 +63,10 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Missing push subscription" }, { status: 400 });
   }
 
+  // If preferred time is "right now", mark today as already sent so cron won't push this minute.
+  const clock = clockInTimeZone(timezone);
+  const skipToday = clock.hhmm === preferredTime ? clock.dateKey : null;
+
   const { error } = await admin.from("push_subscriptions").upsert(
     {
       user_id: user.id,
@@ -75,6 +79,7 @@ export async function POST(request: Request) {
       tutor_name: body.tutorName?.trim() || null,
       kid_name: body.kidName?.trim() || null,
       goal_minutes: Number.isFinite(Number(body.goalMinutes)) ? Number(body.goalMinutes) : 10,
+      ...(skipToday ? { last_sent_date: skipToday } : {}),
       updated_at: nowIso,
     },
     { onConflict: "endpoint" },
@@ -83,5 +88,5 @@ export async function POST(request: Request) {
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
-  return NextResponse.json({ ok: true, enabled: true });
+  return NextResponse.json({ ok: true, enabled: true, skippedToday: Boolean(skipToday) });
 }
