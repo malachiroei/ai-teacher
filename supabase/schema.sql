@@ -138,11 +138,11 @@ alter table public.profiles add column if not exists child_memory jsonb default 
 create table if not exists public.push_subscriptions (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references auth.users (id) on delete cascade,
-  endpoint text not null unique,
+  endpoint text not null,
   p256dh text not null,
   auth text not null,
   preferred_time text not null default '17:00',
-  timezone text not null default 'UTC',
+  timezone text not null default 'Asia/Jerusalem',
   enabled boolean not null default true,
   last_sent_date date,
   tutor_name text,
@@ -151,6 +151,15 @@ create table if not exists public.push_subscriptions (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+
+do $$
+begin
+  alter table public.push_subscriptions add constraint unique_push_endpoint unique (endpoint);
+exception
+  when duplicate_object then null;
+  when duplicate_table then null;
+  when others then null;
+end $$;
 
 create index if not exists push_subscriptions_user_idx on public.push_subscriptions (user_id);
 create index if not exists push_subscriptions_due_idx on public.push_subscriptions (enabled, preferred_time);

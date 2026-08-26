@@ -16,7 +16,8 @@ function authorized(request: Request) {
   if (!secret) return false;
   const header = request.headers.get("authorization") || "";
   const bearer = header.replace(/^Bearer\s+/i, "").trim();
-  const query = new URL(request.url).searchParams.get("secret") || "";
+  const url = new URL(request.url);
+  const query = url.searchParams.get("secret") || url.searchParams.get("key") || "";
   return bearer === secret || query === secret;
 }
 
@@ -38,22 +39,24 @@ function payloadFor(row: {
 
 async function sendDueReminders() {
   if (!vapidConfigured()) {
-    return { sent: 0, skipped: 0, error: "VAPID keys are not configured" };
+    return { ok: false, sent: 0, failed: 0, skipped: 0, checked: 0, error: "VAPID keys are not configured" };
   }
   const webPush = configureWebPush();
   const supabase = createServiceClient();
   const { data: rows, error } = await supabase.from("push_subscriptions").select("*").eq("enabled", true);
   if (error) {
-    return { sent: 0, skipped: 0, error: error.message };
+    return { ok: false, sent: 0, failed: 0, skipped: 0, checked: 0, error: error.message };
   }
 
   let sent = 0;
+  let failed = 0;
   let skipped = 0;
   const now = new Date();
+  const checked = rows?.length ?? 0;
 
   for (const row of rows || []) {
     const preferred = normalizePreferredTime(row.preferred_time);
-    const clock = clockInTimeZone(row.timezone || "UTC", now);
+    const clock = clockInTimeZone(row.timezone || "Asia/Jerusalem", now);
     if (clock.hhmm !== preferred) {
       skipped += 1;
       continue;
@@ -78,15 +81,18 @@ async function sendDueReminders() {
         .eq("id", row.id);
       sent += 1;
     } catch (err) {
+      failed += 1;
       const status = Number((err as { statusCode?: number }).statusCode);
       if (status === 404 || status === 410) {
         await supabase.from("push_subscriptions").delete().eq("id", row.id);
       }
-      skipped += 1;
+      console.warn("[send-reminders] push failed", row.id, err instanceof Error ? err.message : err);
     }
   }
 
-  return { sent, skipped };
+  const summary = `Sent ${sent} push, ${failed} failed, ${skipped} skipped (${checked} checked)`;
+  console.log(`[send-reminders] ${summary}`);
+  return { ok: failed === 0, sent, failed, skipped, checked, message: summary };
 }
 
 export async function GET(request: Request) {
@@ -94,7 +100,7 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
   const result = await sendDueReminders();
-  return NextResponse.json(result);
+  return NextResponse.json(result, { status: result.error ? 500 : 200 });
 }
 
 export async function POST(request: Request) {

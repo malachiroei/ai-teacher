@@ -422,7 +422,7 @@ async function syncWebPushSubscription(config: ReminderScheduleConfig) {
         body: JSON.stringify({
           subscription: existing,
           preferredTime: config.hhmm,
-          timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+          timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "Asia/Jerusalem",
           enabled: false,
         }),
       });
@@ -441,7 +441,7 @@ async function syncWebPushSubscription(config: ReminderScheduleConfig) {
       body: JSON.stringify({
         subscription,
         preferredTime: config.hhmm,
-        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "Asia/Jerusalem",
         enabled: true,
         tutorName: config.tutorName,
         kidName: config.kidName,
@@ -452,6 +452,41 @@ async function syncWebPushSubscription(config: ReminderScheduleConfig) {
   } catch (error) {
     console.warn("Could not sync web push subscription:", error);
     return false;
+  }
+}
+
+export async function sendServerTestPush(input: {
+  preferredTime: string;
+  tutorName: string;
+  tutorId?: string;
+  kidName?: string;
+  goalMinutes?: number;
+}) {
+  if (typeof window === "undefined") return { ok: false, error: "Unavailable" };
+  const permission = await requestNotificationPermission();
+  if (permission !== "granted") {
+    return { ok: false, error: permission === "denied" ? NOTIFICATION_DENIED_HELP : "Notifications are not available." };
+  }
+  const synced = await syncWebPushSubscription({
+    hhmm: input.preferredTime,
+    enabled: true,
+    tutorName: input.tutorName,
+    tutorId: input.tutorId || "emma",
+    kidName: input.kidName || "",
+    goalMinutes: input.goalMinutes ?? 10,
+  });
+  if (!synced) {
+    return { ok: false, error: "Could not save the push subscription. Check VAPID keys and try again." };
+  }
+  try {
+    const response = await fetch("/api/notifications/test-push", { method: "POST" });
+    const data = (await response.json().catch(() => ({}))) as { ok?: boolean; error?: string; sent?: number };
+    if (!response.ok || !data.ok) {
+      return { ok: false, error: data.error || "Test push failed." };
+    }
+    return { ok: true, sent: data.sent ?? 1 };
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : "Test push failed." };
   }
 }
 

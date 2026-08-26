@@ -17,6 +17,7 @@ import {
   playReminderSound,
   readReminderSound,
   requestNotificationPermission,
+  sendServerTestPush,
   showNotificationsEnabledTest,
   writeReminderSound,
   type ReminderSoundId,
@@ -73,6 +74,8 @@ export function SettingsModal({
   const [englishName, setEnglishName] = useState(nickname);
   const [pronunciation, setPronunciation] = useState(namePronunciation);
   const [localError, setLocalError] = useState("");
+  const [testPushBusy, setTestPushBusy] = useState(false);
+  const [testPushNote, setTestPushNote] = useState("");
 
   const selectedVoice = useMemo(
     () => voices.find((voice) => voice.voiceURI === voiceUri || voice.name === voiceUri),
@@ -102,6 +105,29 @@ export function SettingsModal({
       tutorId: characterId || "emma",
       practiceTime: time,
     });
+  }
+
+  async function handleSendTestPush() {
+    setLocalError("");
+    setTestPushNote("");
+    setTestPushBusy(true);
+    try {
+      const result = await sendServerTestPush({
+        preferredTime: time,
+        tutorName: characterName,
+        tutorId: characterId || "emma",
+        kidName: englishName.trim(),
+        goalMinutes: goal,
+      });
+      if (!result.ok) {
+        setLocalError(result.error || "Test push failed.");
+        return;
+      }
+      setNotify(true);
+      setTestPushNote("נשלחה התראת בדיקה לנייד — אמורה להופיע תוך שניות.");
+    } finally {
+      setTestPushBusy(false);
+    }
   }
 
   function handleSave() {
@@ -361,6 +387,16 @@ export function SettingsModal({
               <Volume2 className="h-4 w-4" />
               🔊 שמע דוגמה
             </button>
+            <button
+              type="button"
+              disabled={testPushBusy}
+              onClick={() => void handleSendTestPush()}
+              className="mt-2 flex h-11 w-full items-center justify-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 text-[14px] font-semibold text-emerald-800 hover:bg-emerald-100 disabled:opacity-60"
+            >
+              {testPushBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Bell className="h-4 w-4" />}
+              🔔 שלח התראת בדיקה לנייד
+            </button>
+            {testPushNote ? <p className="mt-2 text-[12px] font-medium text-emerald-700">{testPushNote}</p> : null}
           </section>
 
           <section>
