@@ -348,6 +348,90 @@ export function nextReminderTimestamp(hhmm: string, from = new Date()) {
   return target.getTime();
 }
 
+export const LOCAL_REMINDER_TAG = "daily-practice-reminder";
+
+function timestampTriggerCtor(): (new (when: number) => unknown) | null {
+  if (typeof window === "undefined") return null;
+  if (!("showTrigger" in Notification.prototype)) return null;
+  const Trigger = (window as Window & { TimestampTrigger?: new (when: number) => unknown }).TimestampTrigger;
+  return typeof Trigger === "function" ? Trigger : null;
+}
+
+async function clearLocalScheduledNotifications(registration: ServiceWorkerRegistration) {
+  try {
+    const existing = await registration.getNotifications({
+      tag: LOCAL_REMINDER_TAG,
+      includeTriggered: true,
+    } as GetNotificationOptions);
+    existing.forEach((item) => item.close());
+  } catch {
+    try {
+      const existing = await registration.getNotifications({ tag: LOCAL_REMINDER_TAG });
+      existing.forEach((item) => item.close());
+    } catch {
+      /* ignore */
+    }
+  }
+}
+
+async function scheduleLocalExactNotification(config: ReminderScheduleConfig) {
+  const registration = (await registerServiceWorker()) ?? (await navigator.serviceWorker?.ready.catch(() => null));
+  if (!registration) return false;
+
+  if (!config.enabled) {
+    await clearLocalScheduledNotifications(registration);
+    (registration.active ?? registration.waiting ?? registration.installing)?.postMessage({ type: "CANCEL_LOCAL_ALARM" });
+    if (pageAlarmTimer != null) {
+      window.clearTimeout(pageAlarmTimer);
+      pageAlarmTimer = null;
+    }
+    return true;
+  }
+
+  if (Notification.permission !== "granted") return false;
+
+  const targetTimestamp = nextReminderTimestamp(config.hhmm);
+  const title = `🚀 ${config.tutorName.trim() || "Alex"} is waiting for you!`;
+  const body = pickBody(config.kidName, config.tutorName, config.goalMinutes);
+  const icon = `/avatars/${config.tutorId || "emma"}.png`;
+
+  await clearLocalScheduledNotifications(registration);
+
+  const Trigger = timestampTriggerCtor();
+  if (Trigger) {
+    try {
+      await registration.showNotification(title, {
+        tag: LOCAL_REMINDER_TAG,
+        body,
+        icon,
+        badge: icon,
+        renotify: true,
+        vibrate: [200, 100, 200],
+        data: { url: "/", targetTimestamp, preferredTime: config.hhmm },
+        showTrigger: new Trigger(targetTimestamp),
+      } as NotificationOptions);
+      armPageReminderAlarm({ ...config, nextFireAt: targetTimestamp });
+      return true;
+    } catch (error) {
+      console.warn("TimestampTrigger scheduling failed, using SW alarm:", error);
+    }
+  }
+
+  const worker = registration.active ?? registration.waiting ?? registration.installing;
+  worker?.postMessage({
+    type: "SCHEDULE_LOCAL_ALARM",
+    targetTimestamp,
+    preferredTime: config.hhmm,
+    title,
+    body,
+    icon,
+    tag: LOCAL_REMINDER_TAG,
+    config: { ...config, nextFireAt: targetTimestamp },
+  });
+  armPageReminderAlarm({ ...config, nextFireAt: targetTimestamp });
+  return true;
+}
+
 let pageAlarmTimer: number | null = null;
 
 function readLastAlertDate() {
@@ -391,6 +475,7 @@ function armPageReminderAlarm(config: ReminderScheduleConfig) {
         tutorId: latest.tutorId,
         kidName: latest.kidName,
         goalMinutes: latest.goalMinutes,
+        tag: LOCAL_REMINDER_TAG,
       });
       await markReminderFiredToday();
       const again = readStoredReminderSchedule();
@@ -515,15 +600,8 @@ export async function persistReminderSchedule(config: ReminderScheduleConfig) {
   const registration = await registerServiceWorker();
   const worker = registration?.active ?? registration?.waiting ?? registration?.installing;
   worker?.postMessage({ type: "SAVE_REMINDER", config: withTarget });
-  const pushOk = await syncWebPushSubscription(withTarget);
-  if (pushOk) {
-    if (pageAlarmTimer != null) {
-      window.clearTimeout(pageAlarmTimer);
-      pageAlarmTimer = null;
-    }
-    return;
-  }
-  armPageReminderAlarm(withTarget);
+  await scheduleLocalExactNotification(withTarget);
+  void syncWebPushSubscription(withTarget);
 }
 
 export async function markReminderFiredToday() {
@@ -531,7 +609,18 @@ export async function markReminderFiredToday() {
   if (!previous) return;
   const todayStr = localDateKey();
   writeLastAlertDate(todayStr);
-  await persistReminderSchedule({ ...previous, lastFiredDate: todayStr });
+  const next = { ...previous, lastFiredDate: todayStr, nextFireAt: nextReminderTimestamp(previous.hhmm) };
+  try {
+    window.localStorage.setItem(REMINDER_SCHEDULE_STORAGE_KEY, JSON.stringify(next));
+  } catch {
+    /* ignore */
+  }
+  try {
+    await writeReminderIndexedDb(next);
+  } catch {
+    /* ignore */
+  }
+  await scheduleLocalExactNotification(next);
 }
 
 export function useNotifications() {
@@ -539,8 +628,7 @@ export function useNotifications() {
     void registerServiceWorker();
     const stored = readStoredReminderSchedule();
     if (!stored?.enabled) return;
-    void syncWebPushSubscription(stored).then((pushOk) => {
-      if (!pushOk) armPageReminderAlarm(stored);
-    });
+    void scheduleLocalExactNotification(stored);
+    void syncWebPushSubscription(stored);
   }, []);
 }

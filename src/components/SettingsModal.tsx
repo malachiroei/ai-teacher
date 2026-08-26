@@ -18,7 +18,6 @@ import {
   readReminderSound,
   requestNotificationPermission,
   sendServerTestPush,
-  showNotificationsEnabledTest,
   writeReminderSound,
   type ReminderSoundId,
 } from "@/hooks/useNotifications";
@@ -100,11 +99,6 @@ export function SettingsModal({
     }
     setNotify(true);
     writeReminderSound(soundId);
-    await showNotificationsEnabledTest({
-      tutorName: characterName,
-      tutorId: characterId || "emma",
-      practiceTime: time,
-    });
   }
 
   async function handleSendTestPush() {
