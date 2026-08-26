@@ -3,9 +3,16 @@ const REMINDER_URL = "/__buddyai/reminder-config";
 const DB_NAME = "buddyai-reminders";
 const STORE = "config";
 const LOCAL_TAG = "daily-practice-reminder";
-const WATCH_SLICE_MS = 25000;
 
-let alarmWatchToken = 0;
+let alarmState = {
+  enabled: false,
+  preferredTime: "17:00",
+  lastFiredDate: "",
+  tutorName: "Alex",
+  tutorId: "emma",
+  kidName: "champ",
+  goalMinutes: 10,
+};
 
 self.addEventListener("install", (event) => {
   event.waitUntil(self.skipWaiting());
@@ -15,69 +22,55 @@ self.addEventListener("activate", (event) => {
   event.waitUntil(
     self.clients.claim().then(async () => {
       const config = await loadConfig();
-      if (config?.enabled && Number(config.nextFireAt) > Date.now()) {
-        await startAlarmWatch({
-          targetTimestamp: Number(config.nextFireAt),
-          preferredTime: config.hhmm,
-          title: titleFor(config),
-          body: bodyFor(config),
-          icon: iconFor(config),
-          tag: LOCAL_TAG,
-          config,
-        });
-      }
+      if (!config) return;
+      alarmState = {
+        enabled: Boolean(config.enabled),
+        preferredTime: normalizeHhmm(config.hhmm || config.preferredTime || "17:00"),
+        lastFiredDate: String(config.lastFiredDate || ""),
+        tutorName: String(config.tutorName || "Alex"),
+        tutorId: String(config.tutorId || "emma"),
+        kidName: String(config.kidName || "champ"),
+        goalMinutes: Number(config.goalMinutes) || 10,
+      };
+      // Restore state only — never showNotification on activate.
     }),
   );
 });
 
 self.addEventListener("message", (event) => {
   const data = event.data || {};
+  if (data.type === "SET_ALARM_TIME") {
+    alarmState.enabled = Boolean(data.enabled);
+    alarmState.preferredTime = normalizeHhmm(data.preferredTime || "17:00");
+    if (data.lastFiredDate != null) alarmState.lastFiredDate = String(data.lastFiredDate || "");
+    if (data.tutorName) alarmState.tutorName = String(data.tutorName);
+    if (data.tutorId) alarmState.tutorId = String(data.tutorId);
+    if (data.kidName != null) alarmState.kidName = String(data.kidName || "champ");
+    if (data.goalMinutes != null) alarmState.goalMinutes = Number(data.goalMinutes) || 10;
+    event.waitUntil(
+      saveConfig({
+        enabled: alarmState.enabled,
+        hhmm: alarmState.preferredTime,
+        preferredTime: alarmState.preferredTime,
+        lastFiredDate: alarmState.lastFiredDate,
+        tutorName: alarmState.tutorName,
+        tutorId: alarmState.tutorId,
+        kidName: alarmState.kidName,
+        goalMinutes: alarmState.goalMinutes,
+      }),
+    );
+    return;
+  }
   if (data.type === "SAVE_REMINDER" || data.type === "SCHEDULE_REMINDER") {
-    event.waitUntil(saveConfig(data.config));
-  }
-  if (data.type === "SCHEDULE_LOCAL_ALARM") {
-    event.waitUntil(
-      (async () => {
-        const targetTimestamp = Number(data.targetTimestamp);
-        if (!Number.isFinite(targetTimestamp) || targetTimestamp <= Date.now()) {
-          // Never fire immediately on schedule — roll to next day from preferredTime.
-          const preferredTime = String(data.preferredTime || data.config?.hhmm || "17:00");
-          const rolled = nextTimestamp(preferredTime);
-          const nextConfig = {
-            ...(data.config || {}),
-            hhmm: preferredTime,
-            enabled: true,
-            nextFireAt: rolled,
-          };
-          await saveConfig(nextConfig);
-          await startAlarmWatch({
-            ...data,
-            targetTimestamp: rolled,
-            preferredTime,
-            config: nextConfig,
-          });
-          return;
-        }
-        const nextConfig = {
-          ...(data.config || {}),
-          hhmm: data.preferredTime || data.config?.hhmm,
-          enabled: true,
-          nextFireAt: targetTimestamp,
-        };
-        await saveConfig(nextConfig);
-        await startAlarmWatch({ ...data, config: nextConfig });
-      })(),
-    );
-  }
-  if (data.type === "CANCEL_LOCAL_ALARM") {
-    alarmWatchToken += 1;
-    event.waitUntil(
-      (async () => {
-        const config = await loadConfig();
-        if (config) await saveConfig({ ...config, enabled: false });
-        await clearLocalNotifications();
-      })(),
-    );
+    const config = data.config || {};
+    alarmState.enabled = Boolean(config.enabled);
+    alarmState.preferredTime = normalizeHhmm(config.hhmm || config.preferredTime || alarmState.preferredTime);
+    if (config.lastFiredDate != null) alarmState.lastFiredDate = String(config.lastFiredDate || "");
+    if (config.tutorName) alarmState.tutorName = String(config.tutorName);
+    if (config.tutorId) alarmState.tutorId = String(config.tutorId);
+    if (config.kidName != null) alarmState.kidName = String(config.kidName || "champ");
+    if (config.goalMinutes != null) alarmState.goalMinutes = Number(config.goalMinutes) || 10;
+    event.waitUntil(saveConfig(config));
   }
 });
 
@@ -109,6 +102,62 @@ self.addEventListener("notificationclick", (event) => {
     }),
   );
 });
+
+// Pure interval check — showNotification only when HH:MM matches, never on message/save.
+setInterval(() => {
+  void checkAndFireAlarm();
+}, 30000);
+
+async function checkAndFireAlarm() {
+  if (!alarmState.enabled) return;
+
+  const now = new Date();
+  const currentHHMM = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
+  const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+
+  if (currentHHMM !== normalizeHhmm(alarmState.preferredTime)) return;
+  if (alarmState.lastFiredDate === today) return;
+
+  alarmState.lastFiredDate = today;
+  await saveConfig({
+    enabled: alarmState.enabled,
+    hhmm: alarmState.preferredTime,
+    preferredTime: alarmState.preferredTime,
+    lastFiredDate: today,
+    tutorName: alarmState.tutorName,
+    tutorId: alarmState.tutorId,
+    kidName: alarmState.kidName,
+    goalMinutes: alarmState.goalMinutes,
+  });
+
+  const tutor = String(alarmState.tutorName || "Alex").trim() || "Alex";
+  const name = String(alarmState.kidName || "champ").trim() || "champ";
+  const minutes = Math.max(5, Number(alarmState.goalMinutes) || 10);
+  const icon = `/avatars/${String(alarmState.tutorId || "emma").trim() || "emma"}.png`;
+
+  try {
+    await self.registration.showNotification(`🚀 ${tutor} is waiting for you!`, {
+      body: `Hey ${name}! Ready for today's quick ${minutes}-min English challenge?`,
+      icon,
+      badge: icon,
+      tag: LOCAL_TAG,
+      renotify: true,
+      vibrate: [200, 100, 200],
+      data: { url: "/" },
+    });
+  } catch (error) {
+    console.warn("Local alarm notification failed:", error);
+  }
+}
+
+function normalizeHhmm(hhmm) {
+  const [rawHour, rawMinute] = String(hhmm || "17:00").split(":");
+  const hour = Number(rawHour);
+  const minute = Number(rawMinute);
+  const safeHour = Number.isFinite(hour) ? Math.min(23, Math.max(0, hour)) : 17;
+  const safeMinute = Number.isFinite(minute) ? Math.min(59, Math.max(0, minute)) : 0;
+  return `${String(safeHour).padStart(2, "0")}:${String(safeMinute).padStart(2, "0")}`;
+}
 
 function openDb() {
   return new Promise((resolve, reject) => {
@@ -168,105 +217,4 @@ async function loadConfig() {
     /* ignore */
   }
   return null;
-}
-
-function parseHhmm(hhmm) {
-  const [rawHour, rawMinute] = String(hhmm || "17:00").split(":");
-  const hour = Number(rawHour);
-  const minute = Number(rawMinute);
-  return {
-    hour: Number.isFinite(hour) ? hour : 17,
-    minute: Number.isFinite(minute) ? minute : 0,
-  };
-}
-
-function nextTimestamp(hhmm, from = new Date()) {
-  const { hour, minute } = parseHhmm(hhmm);
-  const next = new Date(from);
-  next.setHours(hour, minute, 0, 0);
-  if (next.getTime() <= from.getTime()) next.setDate(next.getDate() + 1);
-  return next.getTime();
-}
-
-function todayKey(date = new Date()) {
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
-}
-
-function titleFor(config) {
-  const tutor = String(config?.tutorName || "Alex").trim() || "Alex";
-  return `🚀 ${tutor} is waiting for you!`;
-}
-
-function bodyFor(config) {
-  const name = String(config?.kidName || "champ").trim() || "champ";
-  const minutes = Math.max(5, Number(config?.goalMinutes) || 10);
-  return `Hey ${name}! Ready for today's quick ${minutes}-min English challenge?`;
-}
-
-function iconFor(config) {
-  const tutorId = String(config?.tutorId || "emma").trim() || "emma";
-  return `/avatars/${tutorId}.png`;
-}
-
-async function clearLocalNotifications() {
-  try {
-    const existing = await self.registration.getNotifications({ tag: LOCAL_TAG, includeTriggered: true });
-    await Promise.all(existing.map((item) => item.close()));
-  } catch {
-    try {
-      const existing = await self.registration.getNotifications({ tag: LOCAL_TAG });
-      await Promise.all(existing.map((item) => item.close()));
-    } catch {
-      /* ignore */
-    }
-  }
-}
-
-async function fireLocalNotification(payload) {
-  if (!self.registration?.showNotification) return;
-  const title = payload.title || "🚀 Alex is waiting for you!";
-  const icon = payload.icon || "/icon-192.png";
-  await self.registration.showNotification(title, {
-    body: payload.body || "Ready for today's quick English practice?",
-    icon,
-    badge: icon,
-    tag: payload.tag || LOCAL_TAG,
-    renotify: true,
-    vibrate: [200, 100, 200],
-    data: { url: "/", preferredTime: payload.preferredTime },
-  });
-}
-
-async function startAlarmWatch(payload) {
-  const token = ++alarmWatchToken;
-  let target = Number(payload.targetTimestamp);
-  if (!Number.isFinite(target)) return;
-
-  while (token === alarmWatchToken) {
-    const remaining = target - Date.now();
-    if (remaining <= 0) {
-      const latest = (await loadConfig()) || payload.config || {};
-      if (!latest.enabled) return;
-      const day = todayKey();
-      if (latest.lastFiredDate === day) {
-        target = nextTimestamp(payload.preferredTime || latest.hhmm || "17:00");
-        await saveConfig({ ...latest, nextFireAt: target });
-        continue;
-      }
-      await fireLocalNotification({
-        title: payload.title || titleFor(latest),
-        body: payload.body || bodyFor(latest),
-        icon: payload.icon || iconFor(latest),
-        tag: payload.tag || LOCAL_TAG,
-        preferredTime: payload.preferredTime || latest.hhmm,
-      });
-      target = nextTimestamp(payload.preferredTime || latest.hhmm || "17:00");
-      await saveConfig({ ...latest, enabled: true, lastFiredDate: day, nextFireAt: target });
-      continue;
-    }
-
-    const slice = Math.min(Math.max(1000, remaining), WATCH_SLICE_MS);
-    await new Promise((resolve) => setTimeout(resolve, slice));
-    if (token !== alarmWatchToken) return;
-  }
 }

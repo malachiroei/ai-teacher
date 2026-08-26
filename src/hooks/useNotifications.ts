@@ -350,138 +350,26 @@ export function nextReminderTimestamp(hhmm: string, from = new Date()) {
 
 export const LOCAL_REMINDER_TAG = "daily-practice-reminder";
 
-function timestampTriggerCtor(): (new (when: number) => unknown) | null {
-  if (typeof window === "undefined") return null;
-  if (!("showTrigger" in Notification.prototype)) return null;
-  const Trigger = (window as Window & { TimestampTrigger?: new (when: number) => unknown }).TimestampTrigger;
-  return typeof Trigger === "function" ? Trigger : null;
-}
-
-async function clearLocalScheduledNotifications(registration: ServiceWorkerRegistration) {
-  try {
-    const existing = await registration.getNotifications({
-      tag: LOCAL_REMINDER_TAG,
-      includeTriggered: true,
-    } as GetNotificationOptions);
-    existing.forEach((item) => item.close());
-  } catch {
-    try {
-      const existing = await registration.getNotifications({ tag: LOCAL_REMINDER_TAG });
-      existing.forEach((item) => item.close());
-    } catch {
-      /* ignore */
-    }
-  }
-}
-
-async function scheduleLocalExactNotification(config: ReminderScheduleConfig) {
-  const registration = (await registerServiceWorker()) ?? (await navigator.serviceWorker?.ready.catch(() => null));
-  if (!registration) return false;
-
-  if (!config.enabled) {
-    await clearLocalScheduledNotifications(registration);
-    (registration.active ?? registration.waiting ?? registration.installing)?.postMessage({ type: "CANCEL_LOCAL_ALARM" });
-    if (pageAlarmTimer != null) {
-      window.clearTimeout(pageAlarmTimer);
-      pageAlarmTimer = null;
-    }
-    return true;
-  }
-
-  if (Notification.permission !== "granted") return false;
-
-  const targetTimestamp = nextReminderTimestamp(config.hhmm);
-  const title = `🚀 ${config.tutorName.trim() || "Alex"} is waiting for you!`;
-  const body = pickBody(config.kidName, config.tutorName, config.goalMinutes);
-  const icon = `/avatars/${config.tutorId || "emma"}.png`;
-
-  await clearLocalScheduledNotifications(registration);
-
-  const Trigger = timestampTriggerCtor();
-  if (Trigger) {
-    try {
-      await registration.showNotification(title, {
-        tag: LOCAL_REMINDER_TAG,
-        body,
-        icon,
-        badge: icon,
-        renotify: true,
-        vibrate: [200, 100, 200],
-        data: { url: "/", targetTimestamp, preferredTime: config.hhmm },
-        showTrigger: new Trigger(targetTimestamp),
-      } as NotificationOptions);
-      armPageReminderAlarm({ ...config, nextFireAt: targetTimestamp });
-      return true;
-    } catch (error) {
-      console.warn("TimestampTrigger scheduling failed, using SW alarm:", error);
-    }
-  }
-
-  const worker = registration.active ?? registration.waiting ?? registration.installing;
-  worker?.postMessage({
-    type: "SCHEDULE_LOCAL_ALARM",
-    targetTimestamp,
+function postAlarmTimeToServiceWorker(config: Pick<ReminderScheduleConfig, "hhmm" | "enabled" | "tutorName" | "tutorId" | "kidName" | "goalMinutes" | "lastFiredDate">) {
+  if (typeof window === "undefined" || !("serviceWorker" in navigator)) return;
+  const payload = {
+    type: "SET_ALARM_TIME",
     preferredTime: config.hhmm,
-    title,
-    body,
-    icon,
-    tag: LOCAL_REMINDER_TAG,
-    config: { ...config, nextFireAt: targetTimestamp },
+    enabled: Boolean(config.enabled),
+    tutorName: config.tutorName,
+    tutorId: config.tutorId,
+    kidName: config.kidName,
+    goalMinutes: config.goalMinutes,
+    lastFiredDate: config.lastFiredDate || "",
+  };
+  const controller = navigator.serviceWorker.controller;
+  if (controller) {
+    controller.postMessage(payload);
+    return;
+  }
+  void navigator.serviceWorker.ready.then((registration) => {
+    (registration.active ?? registration.waiting ?? registration.installing)?.postMessage(payload);
   });
-  armPageReminderAlarm({ ...config, nextFireAt: targetTimestamp });
-  return true;
-}
-
-let pageAlarmTimer: number | null = null;
-
-function readLastAlertDate() {
-  try {
-    return window.localStorage.getItem(LAST_REMINDER_DATE_KEY) || "";
-  } catch {
-    return "";
-  }
-}
-
-function writeLastAlertDate(day: string) {
-  try {
-    window.localStorage.setItem(LAST_REMINDER_DATE_KEY, day);
-  } catch {
-    /* ignore */
-  }
-}
-
-function armPageReminderAlarm(config: ReminderScheduleConfig) {
-  if (typeof window === "undefined") return;
-  if (pageAlarmTimer != null) {
-    window.clearTimeout(pageAlarmTimer);
-    pageAlarmTimer = null;
-  }
-  if (!config.enabled) return;
-  const when = nextReminderTimestamp(config.hhmm);
-  const delayMs = when - Date.now();
-  if (delayMs <= 0) return;
-  pageAlarmTimer = window.setTimeout(() => {
-    void (async () => {
-      const latest = readStoredReminderSchedule();
-      if (!latest?.enabled) return;
-      const todayStr = localDateKey();
-      if (readLastAlertDate() === todayStr || latest.lastFiredDate === todayStr) {
-        armPageReminderAlarm(latest);
-        return;
-      }
-      writeLastAlertDate(todayStr);
-      await showTutorPracticeNotification({
-        tutorName: latest.tutorName,
-        tutorId: latest.tutorId,
-        kidName: latest.kidName,
-        goalMinutes: latest.goalMinutes,
-        tag: LOCAL_REMINDER_TAG,
-      });
-      await markReminderFiredToday();
-      const again = readStoredReminderSchedule();
-      if (again) armPageReminderAlarm(again);
-    })();
-  }, delayMs);
 }
 
 function urlBase64ToUint8Array(base64String: string) {
@@ -597,10 +485,9 @@ export async function persistReminderSchedule(config: ReminderScheduleConfig) {
   } catch {
     /* ignore */
   }
-  const registration = await registerServiceWorker();
-  const worker = registration?.active ?? registration?.waiting ?? registration?.installing;
-  worker?.postMessage({ type: "SAVE_REMINDER", config: withTarget });
-  await scheduleLocalExactNotification(withTarget);
+  // Never call showNotification here — only hand the schedule to the service worker.
+  await registerServiceWorker();
+  postAlarmTimeToServiceWorker(withTarget);
   void syncWebPushSubscription(withTarget);
 }
 
@@ -608,7 +495,11 @@ export async function markReminderFiredToday() {
   const previous = readStoredReminderSchedule();
   if (!previous) return;
   const todayStr = localDateKey();
-  writeLastAlertDate(todayStr);
+  try {
+    window.localStorage.setItem(LAST_REMINDER_DATE_KEY, todayStr);
+  } catch {
+    /* ignore */
+  }
   const next = { ...previous, lastFiredDate: todayStr, nextFireAt: nextReminderTimestamp(previous.hhmm) };
   try {
     window.localStorage.setItem(REMINDER_SCHEDULE_STORAGE_KEY, JSON.stringify(next));
@@ -620,15 +511,18 @@ export async function markReminderFiredToday() {
   } catch {
     /* ignore */
   }
-  await scheduleLocalExactNotification(next);
+  postAlarmTimeToServiceWorker(next);
 }
 
 export function useNotifications() {
   useEffect(() => {
-    void registerServiceWorker();
-    const stored = readStoredReminderSchedule();
-    if (!stored?.enabled) return;
-    void scheduleLocalExactNotification(stored);
-    void syncWebPushSubscription(stored);
+    void (async () => {
+      await registerServiceWorker();
+      const stored = readStoredReminderSchedule();
+      if (!stored) return;
+      // Restore alarm state only — never show a notification on mount.
+      postAlarmTimeToServiceWorker(stored);
+      if (stored.enabled) void syncWebPushSubscription(stored);
+    })();
   }, []);
 }
