@@ -287,8 +287,11 @@ function GLTFTalkingAvatar({
       for (const entry of mouthInfluenceEntriesRef.current) {
         const arr = entry.mesh.morphTargetInfluences;
         if (!arr) continue;
-        const target = mouthTargetForKind(entry.kind, mouthAmount);
-        arr[entry.index] = MathUtils.lerp(arr[entry.index], target, 0.18);
+        // Soft welcoming smile at rest; open mouth while speaking.
+        const idleSmile = entry.kind === "smile" && !isSpeakingRef?.current ? 0.22 + Math.sin(t * 1.1) * 0.04 : 0;
+        const speakTarget = mouthTargetForKind(entry.kind, mouthAmount);
+        const target = speakTarget + idleSmile;
+        arr[entry.index] = MathUtils.lerp(arr[entry.index], target, 0.16);
       }
     } else {
       const node = jawOrHeadNodeRef.current;
@@ -301,6 +304,14 @@ function GLTFTalkingAvatar({
         const targetY = jawMeshInitialPosRef.current.y + (isSpeakingRef?.current ? mouthAmount * 0.012 : 0);
         jawMeshNodeRef.current.position.y = MathUtils.lerp(jawMeshNodeRef.current.position.y, targetY, 0.18);
       }
+    }
+
+    // Gentle idle sway so the companion feels alive, not stiff.
+    if (groupRef.current) {
+      const breathe = Math.sin(t * 1.35) * 0.012;
+      const sway = Math.sin(t * 0.7) * 0.018;
+      groupRef.current.rotation.y = MathUtils.lerp(groupRef.current.rotation.y, sway, 0.08);
+      groupRef.current.position.y = MathUtils.lerp(groupRef.current.position.y, breathe, 0.1);
     }
 
     if (mouthLevelRef) {

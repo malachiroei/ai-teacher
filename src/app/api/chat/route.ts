@@ -117,6 +117,7 @@ LANGUAGE / OUTPUT:
 - advanced: still kid-friendly, under 30 words total.
 - English plaintext ONLY. Never Hebrew in the spoken reply. Never JSON. Never markdown fences.
 - If they speak Hebrew: not an error. Reply in simple English. Recast their idea in correct English naturally.
+- If they ask how to say a word in Hebrew (e.g. "איך אומרים חתול?"), answer like: "Cat! Can you say 'Cat'?" then one tiny follow-up — never scold, never reply in Hebrew.
 
 GREETINGS (hi, hey, hello, שלום, היי):
 - Warm hello; name allowed once. Never teach a phrase. Never "You can say".
@@ -398,6 +399,22 @@ interface HebrewLesson {
 
 const HEBREW_LESSONS: HebrewLesson[] = [
   {
+    test: /חתול|cat\b/,
+    english: "Cat",
+    ack: "Cat! Can you say 'Cat'?",
+    followUp: "Do you have a cat at home?",
+    translation: "חתול! אפשר להגיד 'Cat'? יש לך חתול בבית?",
+    suggestions: ["Cat!", "Yes, I have a cat.", "I like dogs."],
+  },
+  {
+    test: /כלב|dog\b/,
+    english: "Dog",
+    ack: "Dog! Can you say 'Dog'?",
+    followUp: "Is your dog big or small?",
+    translation: "כלב! אפשר להגיד 'Dog'? הכלב שלך גדול או קטן?",
+    suggestions: ["Dog!", "My dog is big.", "I want a puppy."],
+  },
+  {
     test: /כדורגל|football|soccer/,
     english: "I play football.",
     ack: "You play football? That's awesome!",
@@ -554,10 +571,11 @@ function maybeGreetingReply(
 function hebrewLessonReply(userMessage: string, allowScaffold: boolean): ChatApiResponse {
   const lesson = HEBREW_LESSONS.find((item) => item.test.test(userMessage));
   if (lesson) {
+    const spoken = allowScaffold
+      ? `${lesson.english}! Can you say '${lesson.english}'? ${lesson.followUp}`
+      : `${lesson.ack} ${lesson.followUp}`;
     return {
-      aiResponse: allowScaffold
-        ? `You can say: ${lesson.english} ${lesson.followUp}`
-        : `${lesson.ack} ${lesson.followUp}`,
+      aiResponse: spoken,
       translation: lesson.translation,
       grammarAnalysis: emptyGrammar(allowScaffold ? lesson.english : ""),
       suggestedAnswers: lesson.suggestions,
@@ -817,8 +835,8 @@ function mockReply(
 
   if (detectUserLanguage(userMessage) === "he") {
     const lesson = HEBREW_LESSONS.find((item) => item.test.test(userMessage));
-    if (lesson && !shouldOfferSayHint(userMessage)) {
-      return hebrewLessonReply(userMessage, false);
+    if (lesson) {
+      return hebrewLessonReply(userMessage, shouldOfferSayHint(userMessage));
     }
     return contextualReply(userMessage, profile);
   }
@@ -1116,14 +1134,14 @@ async function streamGemini(
         : action === "change_topic"
           ? "CHANGE TOPIC: Drop the previous subject completely. Warmly ask what they feel like talking about right now (e.g. \"Sure thing! What do you feel like talking about right now?\"). Do NOT pick a topic for them. Do NOT use their name. Do NOT ask name/age/favorite color."
           : allowScaffold
-            ? 'The child asked how to say something, or is stuck. You may give one "You can say: …" hint, then one simple question. English only.'
+            ? 'The child asked how to say something. Reply like: "Cat! Can you say \'Cat\'?" (word first, invite them to repeat), then one tiny question. English only. No Hebrew.'
             : `PLACEMENT IS COMPLETE. Never ask name, age, or "what is your favorite color?". The child just said: "${userMessage}".
 TOPIC RULE: If they hint at a new topic, abandon the old one instantly and dive in.
 FORMAT: Rotate styles (Would You Rather / hypothetical / playful challenge). Never two generic "Do you like X?" in a row.
 RECAST: If their English/Hebrew is imperfect, warmly model the correct phrase first. If a fact is inaccurate, correct it kindly with real-world knowledge. Never scold. Under 30 words.
 Use memories when relevant. One punchy sentence + one open question. Under 25 words.${
                 detected === "he"
-                  ? " The child used Hebrew. Reply warmly in simple English only. Do NOT say You can say / בואי ננסה."
+                  ? " The child used Hebrew. Translate their idea into simple English, invite them to say the English word (e.g. \"Dog! Can you say 'Dog'?\"), then one tiny question. English only. Do NOT say You can say / בואי ננסה."
                   : " The child used English. One-word answers are great."
               }`;
 

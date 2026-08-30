@@ -36,6 +36,9 @@ interface VoiceStageProps {
   onSendText: (text: string) => void;
   offsetForBanner?: boolean;
   childName?: string;
+  onReplayCaption?: () => void;
+  onOpenPractice?: () => void;
+  silenceHint?: string;
 }
 
 const AvatarCanvasLayer = memo(function AvatarCanvasLayer({
@@ -99,6 +102,9 @@ export function VoiceStage({
   onSendText,
   offsetForBanner = false,
   childName = "You",
+  onReplayCaption,
+  onOpenPractice,
+  silenceHint = "",
 }: VoiceStageProps) {
   const [keyboardOpen, setKeyboardOpen] = useState(false);
   const [draft, setDraft] = useState("");
@@ -135,7 +141,14 @@ export function VoiceStage({
   const childLine = listening ? trimmedTranscript : "";
   const captionLines = splitCaptionLines(aiCaption, aiTranslation);
   const tutorLine = captionLines.english;
-  const idleHint = thinking || childLine || tutorLine ? "" : listening ? "Listening…" : "Tap mic to talk";
+  const idleHint =
+    thinking || childLine || tutorLine
+      ? ""
+      : silenceHint
+        ? silenceHint
+        : listening
+          ? "Listening…"
+          : "Tap mic to talk";
 
   function submitDraft() {
     const text = draft.trim();
@@ -175,7 +188,14 @@ export function VoiceStage({
           listening={listening}
           thinking={thinking}
           idleHint={idleHint}
-          onIdleHintTap={idleHint === "Tap mic to talk" ? onToggleMic : undefined}
+          onIdleHintTap={
+            silenceHint
+              ? onOpenPractice
+              : idleHint === "Tap mic to talk"
+                ? onToggleMic
+                : undefined
+          }
+          onReplayTutor={tutorLine && onReplayCaption ? onReplayCaption : undefined}
         />
 
         <AnimatePresence initial={false}>
@@ -214,8 +234,23 @@ export function VoiceStage({
           ) : null}
         </AnimatePresence>
 
-        {onChangeTopic || onStartQuickGame ? (
+        {onChangeTopic || onStartQuickGame || onOpenPractice ? (
           <div className="mb-3 flex flex-wrap items-center justify-center gap-2">
+            {onOpenPractice ? (
+              <button
+                type="button"
+                disabled={Boolean(disabled)}
+                onClick={onOpenPractice}
+                aria-label="Open lesson and practice games"
+                className="inline-flex items-center gap-2 rounded-full border border-emerald-300/30 bg-emerald-400/15 px-4 py-2 text-sm font-medium text-emerald-100 shadow-[0_8px_24px_rgba(0,0,0,0.22)] backdrop-blur-md transition hover:bg-emerald-400/25 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                <span dir="ltr">Learn & Play</span>
+                <span className="text-emerald-100/50" aria-hidden>
+                  ·
+                </span>
+                <span dir="rtl">שיעור ומשחקים</span>
+              </button>
+            ) : null}
             {onChangeTopic ? (
               <button
                 type="button"

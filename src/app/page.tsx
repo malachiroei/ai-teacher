@@ -18,6 +18,7 @@ import { ProgressModal } from "@/components/ProgressModal";
 import { PracticeMomentsRecorder } from "@/components/PracticeMomentsRecorder";
 import { ChatGameCard } from "@/components/ChatGameCard";
 import { VoiceStage } from "@/components/VoiceStage";
+import { PracticeModal } from "@/components/PracticeModal";
 import { useSpeech, SPEECH_UNAVAILABLE_MESSAGE, MIC_PERMISSION_MESSAGE } from "@/hooks/useSpeech";
 import { useVisualViewport } from "@/hooks/useVisualViewport";
 import { useNotifications, playReminderSound } from "@/hooks/useNotifications";
@@ -47,6 +48,7 @@ import {
 } from "@/lib/chat-history";
 import { getCharacter, isCharacterId, readStoredTutorId, writeStoredTutorId, type CharacterId } from "@/lib/characters";
 import { useDailyPractice } from "@/hooks/useDailyPractice";
+import { hasHebrewScript } from "@/lib/language";
 import { quickHebrewSubtitle, shouldSkipLlmTranslate, isCleanHebrewSubtitle } from "@/lib/hebrew";
 import { logConversationPedagogyReport } from "@/lib/conversation-pedagogy";
 import { englishDisplayName, parseTutorNicknames, profilePayload, withTutorDisplayName } from "@/lib/learner";
@@ -205,6 +207,8 @@ export default function HomePage() {
   const [spokenTranslation, setSpokenTranslation] = useState("");
   const [gameRound, setGameRound] = useState<ChatGame[] | null>(null);
   const gameActiveRef = useRef(false);
+  const [practiceOpen, setPracticeOpen] = useState(false);
+  const [silenceHint, setSilenceHint] = useState("");
   const [awaitingGreeting, setAwaitingGreeting] = useState(false);
   const viewport = useVisualViewport();
   const needsOnboarding = Boolean(user && profileChecked && !isProfileComplete(profile));
@@ -311,6 +315,18 @@ export default function HomePage() {
       }, 140);
     },
   });
+
+  useEffect(() => {
+    if (!isListening || isSpeaking || isLoading || gameRound) {
+      setSilenceHint("");
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      setSilenceHint("Press the lightbulb 💡 if you want a hint!");
+    }, 5000);
+    return () => window.clearTimeout(timer);
+  }, [isListening, isSpeaking, isLoading, gameRound]);
+
   const recorderSupported = typeof MediaRecorder !== "undefined";
   startListeningRef.current = startListening;
   canAutoListenRef.current =
@@ -728,32 +744,46 @@ export default function HomePage() {
     // Stamp + fire fetch with zero awaits beforehand.
     const clientSendAt = Date.now();
     console.log(`[latency] T_CLIENT_FETCH ${clientSendAt}`);
-    const response = await fetch("/api/chat", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        userMessage: payload.userMessage ?? "",
-        action: payload.action ?? "chat",
-        messages: payload.history.slice(-12).map(({ sender, text }) => ({
-          role: sender === "ai" ? "assistant" : "user",
-          content: text,
-        })),
-        profile: profilePayload(activeProfile),
-        characterId: character.id,
-        memories: memories.slice(0, 20),
-        childMemory: hydrateChildMemoryFromTurns(
-          payload.childMemory ?? childMemory ?? readChildMemoryForChat(user?.id),
-          payload.history,
-        ),
-        placement: !placementCompleted && isPlacementActive(payload.history, placementCompleted),
-        placementCompleted,
-        isFirstSessionToday: !payload.history.some(
-          (message) => message.sender === "user" && message.timestamp >= startOfLocalDay(),
-        ),
-        clientSendAt,
-        localHour: new Date().getHours(),
-      }),
-    });
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => controller.abort(), 45_000);
+    let response: Response;
+    try {
+      response = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        signal: controller.signal,
+        body: JSON.stringify({
+          userMessage: payload.userMessage ?? "",
+          action: payload.action ?? "chat",
+          messages: payload.history.slice(-12).map(({ sender, text }) => ({
+            role: sender === "ai" ? "assistant" : "user",
+            content: text,
+          })),
+          profile: profilePayload(activeProfile),
+          characterId: character.id,
+          memories: memories.slice(0, 20),
+          childMemory: hydrateChildMemoryFromTurns(
+            payload.childMemory ?? childMemory ?? readChildMemoryForChat(user?.id),
+            payload.history,
+          ),
+          placement: !placementCompleted && isPlacementActive(payload.history, placementCompleted),
+          placementCompleted,
+          isFirstSessionToday: !payload.history.some(
+            (message) => message.sender === "user" && message.timestamp >= startOfLocalDay(),
+          ),
+          clientSendAt,
+          localHour: new Date().getHours(),
+          userSpokeHebrew: hasHebrewScript(payload.userMessage ?? ""),
+        }),
+      });
+    } catch (error) {
+      window.clearTimeout(timeoutId);
+      if (error instanceof DOMException && error.name === "AbortError") {
+        throw new Error("Chat timed out — try again");
+      }
+      throw error;
+    }
+    window.clearTimeout(timeoutId);
 
     if (!response.ok) {
       throw new Error("Chat request failed");
@@ -799,22 +829,38 @@ export default function HomePage() {
     beginSpeakStream();
 
     // CRITICAL: initiate HTTP immediately on this tick — no state/XP after this.
+    const streamHandlers = {
+      ...latencyLive,
+      onCaption: (caption: string, translation?: string) => {
+        applyLiveCaption(caption, translation ?? "");
+        setIsLoading(false);
+      },
+      onSentence: (sentence: string) => {
+        setIsLoading(false);
+        if (!autoSpeak) return;
+        streamedSpeech = true;
+        try {
+          enqueueSpeak(stripGameTag(sentence));
+        } catch {
+          /* keep mic responsive if TTS queue fails */
+        }
+      },
+    };
     const replyPromise = requestReply(
       { userMessage: text, history, activeProfile: profileSnapshot, childMemory: nextMemory },
-      {
-        ...latencyLive,
-        onCaption: (caption, translation) => {
-          applyLiveCaption(caption, translation);
-          setIsLoading(false);
-        },
-        onSentence: (sentence) => {
-          setIsLoading(false);
-          if (!autoSpeak) return;
-          streamedSpeech = true;
-          enqueueSpeak(stripGameTag(sentence));
-        },
-      },
-    );
+      streamHandlers,
+    ).catch(async (firstError) => {
+      // One automatic retry after a brief pause (timeout / network blip).
+      await new Promise((resolve) => window.setTimeout(resolve, 600));
+      streamedSpeech = false;
+      beginSpeakStream();
+      return requestReply(
+        { userMessage: text, history, activeProfile: profileSnapshot, childMemory: nextMemory },
+        streamHandlers,
+      ).catch(() => {
+        throw firstError;
+      });
+    });
 
     // Everything below runs after fetch() has already been invoked.
     unlockSpeech();
@@ -907,7 +953,11 @@ export default function HomePage() {
       setIsLoading(false);
       sendingRef.current = false;
       if (autoSpeak && !streamedSpeech) {
-        speak(spoken);
+        try {
+          speak(spoken);
+        } catch {
+          flash("Voice glitch — tap 🔊 to hear again, or keep talking!");
+        }
       }
 
       void persistMemories(data.newMemories, text, history, placementTurn);
@@ -924,7 +974,8 @@ export default function HomePage() {
         },
       ]);
     } catch {
-      flash(`Couldn't reach ${character.name}. Please try again.`);
+      flash(`Couldn't reach ${character.name}. Please try again — mic stays ready!`);
+      stopSpeaking();
     } finally {
       sendingRef.current = false;
       setIsLoading(false);
@@ -1616,7 +1667,34 @@ export default function HomePage() {
           offsetForBanner={Boolean(
             chatUnlocked && !needsInteractiveOnboarding && profile && !isIntroProfileComplete(profile),
           )}
+          silenceHint={silenceHint}
+          onReplayCaption={() => {
+            if (!spokenReply.trim()) return;
+            unlockSpeech();
+            speak(spokenReply);
+          }}
+          onOpenPractice={() => {
+            unlockSpeech();
+            setSilenceHint("");
+            setPracticeOpen(true);
+          }}
         />
+
+        {practiceOpen ? (
+          <PracticeModal
+            tutorName={character.name}
+            onClose={() => setPracticeOpen(false)}
+            onSpeak={(text) => {
+              unlockSpeech();
+              speak(text);
+            }}
+            onFinish={(xp) => {
+              if (xp > 0) awardGameXp();
+              setTrophyTick((value) => value + 1);
+              setPracticeOpen(false);
+            }}
+          />
+        ) : null}
 
         <PracticeMomentsRecorder
           active={practiceMomentsOn}

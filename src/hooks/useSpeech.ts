@@ -48,11 +48,13 @@ function emptyStreams(): Record<SpeechLang, LangStream> {
 }
 
 function pickBestTranscript(streams: Record<SpeechLang, LangStream>) {
-  // Prefer English-only transcripts for this English-practice product.
   const english = streams["en-US"].text.trim();
-  if (english && !hasHebrewScript(english)) return english;
+  const hebrew = streams["he-IL"].text.trim();
+  // Prefer clear English for practice; keep Hebrew when that is what the child said.
+  if (english && !hasHebrewScript(english) && english.length >= 2) return english;
+  if (hebrew && hasHebrewScript(hebrew)) return hebrew;
   if (english) return english;
-  return streams["he-IL"].text.trim();
+  return hebrew;
 }
 
 function readResultChunk(event: {
@@ -707,7 +709,7 @@ export function useSpeech(options?: {
   );
 
   const startRecognizer = useCallback(
-    (_lang?: SpeechLang) => {
+    (lang: SpeechLang = "en-US") => {
       const Recognition = getRecognitionConstructor();
       if (!Recognition || !shouldListenRef.current) return false;
 
@@ -717,10 +719,10 @@ export function useSpeech(options?: {
         const mobile = isMobileDevice();
         recognition.continuous = !mobile;
         recognition.interimResults = true;
-        recognition.maxAlternatives = 1;
-        recognition.lang = "en-US";
-        activeLangRef.current = "en-US";
-        const activeLang: SpeechLang = "en-US";
+        recognition.maxAlternatives = 3;
+        recognition.lang = lang;
+        activeLangRef.current = lang;
+        const activeLang: SpeechLang = lang;
 
         recognition.onstart = () => {
           if (session !== listenGenerationRef.current) return;
@@ -744,8 +746,6 @@ export function useSpeech(options?: {
             if (currentText) {
               heardSpeechRef.current = true;
               clearIdleListenTimer();
-              // Bump the level indicator so the waveform reacts to voice activity.
-              // We decay it slowly; the rAF loop in startMicMeter emits it.
               audioLevelRef.current = Math.min(1, audioLevelRef.current + 0.45);
               latestTranscriptRef.current = currentText;
               streamsRef.current[activeLang] = {
@@ -753,11 +753,12 @@ export function useSpeech(options?: {
                 confidence,
                 running: true,
               };
-              setTranscript(currentText);
-              setSpeechLang("en-US");
+              // If English stream is empty but Hebrew-looking text arrived, keep it.
+              const best = pickBestTranscript(streamsRef.current) || currentText;
+              setTranscript(best);
+              setSpeechLang(hasHebrewScript(best) ? "he-IL" : "en-US");
               armSilenceSubmit(isFinal ? FINAL_SUBMIT_MS : SILENCE_SUBMIT_MS);
             } else {
-              // No speech yet — gently pulse the meter so the waveform looks alive.
               audioLevelRef.current = Math.max(0, audioLevelRef.current - 0.08);
             }
           } catch {
@@ -778,7 +779,6 @@ export function useSpeech(options?: {
             return;
           }
           if (error === "aborted" || error === "no-speech") {
-            /* onend is the submission fallback; do not drop spoken text here. */
             return;
           }
         };
@@ -786,6 +786,25 @@ export function useSpeech(options?: {
         recognition.onend = () => {
           if (session !== listenGenerationRef.current) return;
           const immediate = snapshotSpokenText();
+          // On mobile, if English caught nothing, one quick Hebrew retry (bilingual fallback).
+          if (
+            mobile &&
+            lang === "en-US" &&
+            !submittedRef.current &&
+            !immediate &&
+            !heardSpeechRef.current &&
+            shouldListenRef.current
+          ) {
+            window.setTimeout(() => {
+              if (session !== listenGenerationRef.current || submittedRef.current) return;
+              if (snapshotSpokenText()) {
+                sendTranscriptRef.current(snapshotSpokenText());
+                return;
+              }
+              startRecognizer("he-IL");
+            }, 80);
+            return;
+          }
           window.setTimeout(() => {
             if (session !== listenGenerationRef.current) return;
             if (submittedRef.current) {
@@ -1160,14 +1179,14 @@ export function useSpeech(options?: {
         latestTranscriptRef.current = "";
         committedTranscriptRef.current = "";
         setTranscript("");
-        setSpeechLang("en-US");
+        setSpeechLang(preferredLang === "he-IL" ? "he-IL" : "en-US");
 
         submittedRef.current = false;
         heardSpeechRef.current = false;
         shouldListenRef.current = true;
         setIsListening(true);
 
-        const started = startRecognizer("en-US");
+        const started = startRecognizer(preferredLang === "he-IL" ? "he-IL" : "en-US");
         startingRef.current = false;
         if (!started) {
           submittedRef.current = true;
