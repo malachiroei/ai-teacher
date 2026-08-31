@@ -4,6 +4,7 @@ import { useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { Globe, Lightbulb, Volume2 } from "lucide-react";
 import { MixedBidiText } from "@/components/MixedBidiText";
+import { cn } from "@/lib/utils";
 
 interface ChatSubtitleBoxProps {
   tutorName: string;
@@ -47,7 +48,7 @@ export function ChatSubtitleBox({
             initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -6 }}
-            className="max-w-[22rem] text-center text-[15px] font-medium text-white"
+            className="glass-panel max-w-[24rem] px-4 py-3 text-center text-[15px] font-semibold text-slate-700"
           >
             {tutorName} is thinking...
           </motion.p>
@@ -58,10 +59,10 @@ export function ChatSubtitleBox({
             initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -6 }}
-            className="max-w-[22rem] text-center text-[15px] font-medium text-white"
+            className="glass-panel max-w-[24rem] px-4 py-3 text-center text-[15px] font-semibold text-slate-700"
             onClick={onIdleHintTap}
           >
-            {idleHint.includes("💡") ? idleHint : idleHint}
+            {idleHint}
           </motion.button>
         ) : showIdle ? (
           <motion.p
@@ -69,7 +70,7 @@ export function ChatSubtitleBox({
             initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -6 }}
-            className="max-w-[22rem] text-center text-[15px] font-medium text-white"
+            className="glass-panel max-w-[24rem] px-4 py-3 text-center text-[15px] font-semibold text-slate-700"
           >
             {idleHint}
           </motion.p>
@@ -80,62 +81,65 @@ export function ChatSubtitleBox({
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -6 }}
             transition={{ duration: 0.22 }}
-            className="flex w-full max-w-[22rem] flex-col items-center gap-1.5 overflow-visible pb-2 text-center"
+            className="flex w-full max-w-[24rem] flex-col items-stretch gap-2 overflow-visible pb-2"
           >
             {child ? (
-              <p dir="ltr" className="text-[13px] font-medium leading-relaxed text-white/70">
-                <span className="mr-1 text-[10px] font-semibold uppercase tracking-wide text-cyan-200/80">
+              <div dir="ltr" className="glass-panel ml-auto max-w-[92%] px-4 py-3 text-left">
+                <p className="text-[10px] font-bold uppercase tracking-wide text-cyan-600">
                   {listening ? "You" : childName}
-                </span>
-                {child}
-              </p>
+                </p>
+                <p className="mt-1 text-[15px] font-medium leading-relaxed text-slate-800">{child}</p>
+              </div>
             ) : null}
             {tutor ? (
-              <>
-                <p dir="ltr" className="text-[15px] font-medium leading-relaxed text-white">
-                  <span className="mr-1 text-[10px] font-semibold uppercase tracking-wide text-amber-200/80">
-                    {tutorName}
-                  </span>
-                  {tutor}
-                </p>
-                <div className="flex items-center justify-center gap-2 pt-0.5">
-                  {onReplayTutor ? (
-                    <button
-                      type="button"
-                      onClick={onReplayTutor}
-                      aria-label="Play audio again"
-                      className="flex h-8 w-8 items-center justify-center rounded-full border border-white/20 bg-white/10 text-white/90 backdrop-blur-md transition hover:bg-white/16"
-                    >
-                      <Volume2 className="h-3.5 w-3.5" />
-                    </button>
-                  ) : null}
-                  {hebrew ? (
-                    <button
-                      type="button"
-                      onClick={() => setShowHebrew((value) => !value)}
-                      aria-label="Toggle Hebrew translation"
-                      className={`flex h-8 w-8 items-center justify-center rounded-full border border-white/20 bg-white/10 backdrop-blur-md transition hover:bg-white/16 ${
-                        showHebrew ? "text-amber-200" : "text-white/80"
-                      }`}
-                    >
-                      <Globe className="h-3.5 w-3.5" />
-                    </button>
-                  ) : null}
-                  {idleHint.includes("hint") || idleHint.includes("💡") ? (
-                    <span className="inline-flex items-center gap-1 rounded-full border border-amber-300/30 bg-amber-400/10 px-2 py-1 text-[11px] text-amber-100">
-                      <Lightbulb className="h-3 w-3" /> Hint
-                    </span>
-                  ) : null}
+              <div className="glass-panel mr-auto max-w-[96%] px-4 py-3 text-left">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0 flex-1">
+                    <p className="text-[10px] font-bold uppercase tracking-wide text-violet-600">{tutorName}</p>
+                    <p dir="ltr" className="mt-1 text-[15px] font-semibold leading-relaxed text-slate-900">
+                      {tutor}
+                    </p>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-1.5">
+                    {onReplayTutor ? (
+                      <button
+                        type="button"
+                        onClick={onReplayTutor}
+                        aria-label="Play audio again"
+                        className="flex h-9 w-9 items-center justify-center rounded-full border border-violet-200 bg-white text-violet-700 shadow-sm transition hover:bg-violet-50"
+                      >
+                        <Volume2 className="h-4 w-4" />
+                      </button>
+                    ) : null}
+                    {hebrew ? (
+                      <button
+                        type="button"
+                        onClick={() => setShowHebrew((value) => !value)}
+                        aria-label="Toggle Hebrew translation"
+                        className={cn(
+                          "flex h-9 w-9 items-center justify-center rounded-full border bg-white shadow-sm transition hover:bg-violet-50",
+                          showHebrew ? "border-amber-300 text-amber-600" : "border-violet-200 text-violet-700",
+                        )}
+                      >
+                        <Globe className="h-4 w-4" />
+                      </button>
+                    ) : null}
+                  </div>
                 </div>
+                {idleHint.includes("hint") || idleHint.includes("💡") ? (
+                  <span className="mt-2 inline-flex items-center gap-1 rounded-full border border-amber-200 bg-amber-50 px-2 py-1 text-[11px] font-semibold text-amber-700">
+                    <Lightbulb className="h-3 w-3" /> Hint
+                  </span>
+                ) : null}
                 {showHebrew && hebrew ? (
                   <p
                     dir="rtl"
-                    className="min-h-[auto] max-h-none overflow-visible px-1 pb-2 text-sm leading-relaxed text-gray-300 [unicode-bidi:isolate]"
+                    className="mt-2 border-t border-slate-200/80 pt-2 text-sm leading-relaxed text-slate-600 [unicode-bidi:isolate]"
                   >
                     <MixedBidiText text={hebrew} />
                   </p>
                 ) : null}
-              </>
+              </div>
             ) : null}
           </motion.div>
         )}

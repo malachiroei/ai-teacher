@@ -4,22 +4,11 @@ import { useMemo, useState } from "react";
 import { motion } from "framer-motion";
 import { BookOpen, Gamepad2, Star, Volume2, X } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { DEFAULT_VOCAB, type VocabCard } from "@/lib/learning-vocab";
 
 export type PracticeMode = "lesson" | "practice";
 
-export type VocabCard = {
-  en: string;
-  he: string;
-  emoji: string;
-};
-
-const DEFAULT_VOCAB: VocabCard[] = [
-  { en: "Hello", he: "שלום", emoji: "👋" },
-  { en: "Good morning", he: "בוקר טוב", emoji: "🌅" },
-  { en: "Cat", he: "חתול", emoji: "🐱" },
-  { en: "Friend", he: "חבר/ה", emoji: "🤝" },
-  { en: "Thank you", he: "תודה", emoji: "🙏" },
-];
+export type { VocabCard };
 
 type EchoRound = { word: string; he: string; emoji: string };
 type MatchPair = { id: string; en: string; he: string; emoji: string };
@@ -166,11 +155,11 @@ export function PracticeModal({
   }
 
   return (
-    <div className="absolute inset-0 z-[70] flex items-end justify-center bg-slate-950/55 p-3 sm:items-center">
+    <div className="absolute inset-0 z-[70] flex items-end justify-center bg-sky-200/40 p-3 backdrop-blur-sm sm:items-center">
       <motion.div
         initial={{ y: 40, opacity: 0 }}
         animate={{ y: 0, opacity: 1 }}
-        className="relative flex max-h-[92%] w-full max-w-md flex-col overflow-hidden rounded-3xl border border-white/15 bg-[#0b1210] text-white shadow-2xl"
+        className="glass-panel relative flex max-h-[92%] w-full max-w-md flex-col overflow-hidden text-slate-800 shadow-2xl"
       >
         <div className="flex items-center justify-between px-4 py-3">
           <div>

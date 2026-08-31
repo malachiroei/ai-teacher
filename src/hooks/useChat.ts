@@ -87,3 +87,54 @@ export function buildWarmLaunchGreeting(input: { childName?: string | null; hour
     : `היי! כיף לראות אותך! מוכן לתרגל אנגלית?`;
   return { en, he };
 }
+
+/** Tutor speaks if the child is quiet this long. */
+export const PROACTIVE_IDLE_MS = 4000;
+
+export type ProactivePrompt = {
+  en: string;
+  he: string;
+  chips: [string, string];
+};
+
+const PROACTIVE_PROMPTS: ProactivePrompt[] = [
+  {
+    en: "Look at this pizza 🍕! Do you like olives or corn on yours?",
+    he: "תראה את הפיצה הזאת 🍕! אתה אוהב זיתים או תירס?",
+    chips: ["🍕 Pizza", "🍔 Burger"],
+  },
+  {
+    en: "Imagine a superpower for one day — fly 🦸 or talk to animals 🐶?",
+    he: "דמיין כוח-על ליום אחד — לעוף 🦸 או לדבר עם חיות 🐶?",
+    chips: ["🦸 Fly!", "🐶 Talk to animals"],
+  },
+  {
+    en: "We're building a wild theme park 🎢 — rollercoaster or water slide first?",
+    he: "אנחנו בונים פארק שעשועים 🎢 — רכבת הרים או מגלשה?",
+    chips: ["🎢 Rollercoaster", "💦 Water slide"],
+  },
+  {
+    en: "Pick a snack adventure 🍿 — sweet popcorn or salty chips?",
+    he: "בחר הרפתקת חטיף 🍿 — פופקורן מתוק או צ'יפס מלוח?",
+    chips: ["🍿 Popcorn", "🥔 Chips"],
+  },
+  {
+    en: "Your spaceship needs a name 🚀 — Star Rocket or Moon Zoom?",
+    he: "לחללית שלך צריך שם 🚀 — Star Rocket או Moon Zoom?",
+    chips: ["🚀 Star Rocket", "🌙 Moon Zoom"],
+  },
+  {
+    en: "Quick Would You Rather 🌈 — rainbow ice cream or chocolate cake?",
+    he: "מה תעדיף 🌈 — גלידת קשת או עוגת שוקולד?",
+    chips: ["🍦 Ice cream", "🍰 Cake"],
+  },
+];
+
+export function pickProactivePrompt(seed = Date.now()) {
+  const index = Math.abs(seed) % PROACTIVE_PROMPTS.length;
+  return PROACTIVE_PROMPTS[index];
+}
+
+export function proactiveChips(prompt: ProactivePrompt) {
+  return [...prompt.chips];
+}

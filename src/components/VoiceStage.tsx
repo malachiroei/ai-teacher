@@ -2,13 +2,15 @@
 
 import { memo, useRef, useState, type MouseEvent, type ReactNode, type TouchEvent } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { Keyboard, Mic, RefreshCw, Send, Volume1, Volume2, VolumeX } from "lucide-react";
+import { Keyboard, Mic, RefreshCw, Send, Sparkles, Volume1, Volume2, VolumeX } from "lucide-react";
 import { VoiceWave, type VoiceWaveMode } from "@/components/VoiceWave";
 import { Avatar3DStage } from "@/components/Avatar3DStage";
 import { ChatSubtitleBox } from "@/components/ChatSubtitleBox";
 import { splitCaptionLines } from "@/lib/hebrew";
 import { getCharacter, isCharacterId, SELECTED_TUTOR_STORAGE_KEY, type Character } from "@/lib/characters";
 import { cn } from "@/lib/utils";
+
+export type ChatSurfaceMode = "lesson" | "practice";
 
 interface VoiceStageProps {
   character: Character;
@@ -39,6 +41,10 @@ interface VoiceStageProps {
   onReplayCaption?: () => void;
   onOpenPractice?: () => void;
   silenceHint?: string;
+  chatMode?: ChatSurfaceMode;
+  onChatModeChange?: (mode: ChatSurfaceMode) => void;
+  quickReplies?: string[];
+  onQuickReply?: (text: string) => void;
 }
 
 const AvatarCanvasLayer = memo(function AvatarCanvasLayer({
@@ -48,6 +54,7 @@ const AvatarCanvasLayer = memo(function AvatarCanvasLayer({
   spokenTextRef,
   mouthLevelRef,
   onOpenCharacters,
+  speaking,
 }: {
   character: Character;
   tutorName: string;
@@ -55,6 +62,7 @@ const AvatarCanvasLayer = memo(function AvatarCanvasLayer({
   spokenTextRef: { current: string };
   mouthLevelRef: { current: number };
   onOpenCharacters: () => void;
+  speaking?: boolean;
 }) {
   return (
     <button
@@ -63,18 +71,41 @@ const AvatarCanvasLayer = memo(function AvatarCanvasLayer({
       aria-label={`Change tutor. Current: ${tutorName}`}
       onClick={onOpenCharacters}
     >
-      <div className="avatar-portrait avatar-portrait-3d avatar-portrait-idle absolute inset-[-10%_0_8%]">
-        <Avatar3DStage
-          character={character}
-          isSpeakingRef={isSpeakingRef}
-          spokenTextRef={spokenTextRef}
-          mouthLevelRef={mouthLevelRef}
+      <div className="avatar-display-shell absolute inset-[-8%_0_6%]">
+        <div className="avatar-particles pointer-events-none absolute inset-0" aria-hidden>
+          {Array.from({ length: 8 }).map((_, i) => (
+            <span
+              key={i}
+              className="avatar-particle"
+              style={{
+                left: `${12 + (i * 11) % 76}%`,
+                top: `${18 + (i * 17) % 55}%`,
+                animationDelay: `${i * 0.35}s`,
+                backgroundColor: character.accentColor,
+              }}
+            />
+          ))}
+        </div>
+        <div
+          className={cn(
+            "avatar-holo-aura pointer-events-none absolute inset-[8%_12%] rounded-[50%]",
+            speaking ? "avatar-holo-aura-speaking" : "avatar-holo-aura-idle",
+          )}
+          style={{ boxShadow: `0 0 60px ${character.accentColor}44` }}
         />
+        <div className="avatar-portrait avatar-portrait-3d avatar-portrait-idle absolute inset-[-6%_0_8%]">
+          <Avatar3DStage
+            character={character}
+            isSpeakingRef={isSpeakingRef}
+            spokenTextRef={spokenTextRef}
+            mouthLevelRef={mouthLevelRef}
+          />
+        </div>
       </div>
       <div className="pointer-events-none absolute inset-x-0 bottom-0 h-[46%] bg-gradient-to-t from-[#050805] via-[#050805]/88 to-transparent" />
     </button>
   );
-}, (prev, next) => prev.character.id === next.character.id && prev.tutorName === next.tutorName);
+}, (prev, next) => prev.character.id === next.character.id && prev.tutorName === next.tutorName && prev.speaking === next.speaking);
 
 export function VoiceStage({
   character,
@@ -105,6 +136,10 @@ export function VoiceStage({
   onReplayCaption,
   onOpenPractice,
   silenceHint = "",
+  chatMode = "lesson",
+  onChatModeChange,
+  quickReplies = [],
+  onQuickReply,
 }: VoiceStageProps) {
   const [keyboardOpen, setKeyboardOpen] = useState(false);
   const [draft, setDraft] = useState("");
@@ -166,9 +201,33 @@ export function VoiceStage({
         spokenTextRef={spokenTextRef}
         mouthLevelRef={mouthLevelRef3d}
         onOpenCharacters={onOpenCharacters}
+        speaking={speaking}
       />
 
       <div className={cn("pointer-events-none relative z-10 flex flex-col items-center px-6", offsetForBanner ? "mb-4 pt-[calc(6.35rem+env(safe-area-inset-top))]" : "pt-[calc(2.75rem+env(safe-area-inset-top))]")}>
+        {onChatModeChange ? (
+          <div className="pointer-events-auto mb-3 flex rounded-full border border-white/20 bg-white/10 p-1 shadow-lg backdrop-blur-xl">
+            {(
+              [
+                { id: "lesson" as const, label: "📖 שיעור", sub: "Lesson" },
+                { id: "practice" as const, label: "🎭 תרגול", sub: "Practice" },
+              ] as const
+            ).map((tab) => (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => onChatModeChange(tab.id)}
+                className={cn(
+                  "rounded-full px-4 py-2 text-[12px] font-bold transition",
+                  chatMode === tab.id ? "bg-white text-slate-900 shadow-md" : "text-white/80 hover:bg-white/10",
+                )}
+              >
+                {tab.label}
+                <span className="ml-1 hidden text-[10px] font-semibold opacity-70 sm:inline">({tab.sub})</span>
+              </button>
+            ))}
+          </div>
+        ) : null}
         <p className="text-[13px] font-medium tracking-[0.28em] text-white/55 uppercase">{character.title}</p>
         <h1 className="mt-1 text-[22px] font-semibold tracking-tight text-white drop-shadow-[0_2px_18px_rgba(0,0,0,0.45)]">
           {tutorName}
@@ -197,6 +256,22 @@ export function VoiceStage({
           }
           onReplayTutor={tutorLine && onReplayCaption ? onReplayCaption : undefined}
         />
+
+        {quickReplies.length > 0 && onQuickReply ? (
+          <div className="mb-3 flex flex-wrap items-center justify-center gap-2">
+            {quickReplies.slice(0, 2).map((chip) => (
+              <button
+                key={chip}
+                type="button"
+                disabled={Boolean(disabled)}
+                onClick={() => onQuickReply(chip.replace(/^[^\s]+\s/, "").trim() || chip)}
+                className="quick-reply-chip rounded-full border border-white/25 bg-white/12 px-4 py-2.5 text-[14px] font-bold text-white shadow-[0_6px_20px_rgba(0,0,0,0.2)] backdrop-blur-md transition hover:scale-[1.03] hover:bg-white/18 active:scale-[0.98] disabled:opacity-40"
+              >
+                {chip}
+              </button>
+            ))}
+          </div>
+        ) : null}
 
         <AnimatePresence initial={false}>
           {keyboardOpen ? (
@@ -273,9 +348,9 @@ export function VoiceStage({
                 disabled={Boolean(disabled)}
                 onClick={onStartQuickGame}
                 aria-label="Quick game"
-                className="inline-flex items-center gap-2 rounded-full border border-amber-300/35 bg-amber-400/12 px-4 py-2 text-sm font-medium text-amber-100 shadow-[0_8px_24px_rgba(251,191,36,0.12)] backdrop-blur-md transition hover:bg-amber-400/18 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40"
+                className="inline-flex items-center gap-2 rounded-full border border-amber-300/50 bg-gradient-to-r from-amber-300/25 to-orange-400/20 px-4 py-2 text-sm font-bold text-amber-50 shadow-[0_8px_24px_rgba(251,191,36,0.18)] backdrop-blur-md transition hover:from-amber-300/35 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40"
               >
-                <span aria-hidden>🎮</span>
+                <Sparkles className="h-3.5 w-3.5" aria-hidden />
                 <span dir="ltr">Quick Game</span>
                 <span className="text-amber-100/35" aria-hidden>
                   ·
@@ -295,20 +370,28 @@ export function VoiceStage({
           />
         </div>
         <div className="mt-3 flex items-center justify-center gap-4">
-          <button
-            type="button"
-            disabled={disabled && !listening}
-            aria-label={listening ? "Stop listening" : "Start listening"}
-            className={cn(
-              "flex h-16 w-16 touch-manipulation items-center justify-center rounded-full text-white transition active:scale-95",
-              listening
-                ? "bg-[var(--accent)] shadow-[0_0_36px_color-mix(in_srgb,var(--accent)_70%,transparent)]"
-                : "bg-white/8 ring-1 ring-white/15 shadow-[0_0_28px_color-mix(in_srgb,var(--accent)_28%,transparent)] hover:bg-white/12",
-            )}
-            {...bindImmediateTap(micTouchRef, onToggleMic)}
-          >
-            <Mic className="h-7 w-7" />
-          </button>
+          <div className="relative">
+            {listening ? (
+              <span
+                className="mic-pulse-ring pointer-events-none absolute inset-0 rounded-full"
+                style={{ boxShadow: `0 0 0 0 ${character.accentColor}` }}
+              />
+            ) : null}
+            <button
+              type="button"
+              disabled={disabled && !listening}
+              aria-label={listening ? "Stop listening" : "Start listening"}
+              className={cn(
+                "relative flex h-[4.5rem] w-[4.5rem] touch-manipulation items-center justify-center rounded-full text-white transition active:scale-95",
+                listening
+                  ? "bg-[var(--accent)] shadow-[0_0_48px_color-mix(in_srgb,var(--accent)_75%,transparent)]"
+                  : "bg-gradient-to-br from-white/14 to-white/6 ring-2 ring-white/20 shadow-[0_0_32px_color-mix(in_srgb,var(--accent)_35%,transparent)] hover:from-white/18",
+              )}
+              {...bindImmediateTap(micTouchRef, onToggleMic)}
+            >
+              <Mic className={cn("h-8 w-8", listening && "animate-pulse")} />
+            </button>
+          </div>
           <button
             type="button"
             onClick={() => setKeyboardOpen((open) => !open)}

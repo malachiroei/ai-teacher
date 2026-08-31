@@ -19,6 +19,8 @@ import { PracticeMomentsRecorder } from "@/components/PracticeMomentsRecorder";
 import { ChatGameCard } from "@/components/ChatGameCard";
 import { VoiceStage } from "@/components/VoiceStage";
 import { PracticeModal } from "@/components/PracticeModal";
+import { GameModal } from "@/components/GameModal";
+import type { ChatSurfaceMode } from "@/components/VoiceStage";
 import { useSpeech, SPEECH_UNAVAILABLE_MESSAGE, MIC_PERMISSION_MESSAGE } from "@/hooks/useSpeech";
 import { useVisualViewport } from "@/hooks/useVisualViewport";
 import { useNotifications, playReminderSound } from "@/hooks/useNotifications";
@@ -55,7 +57,7 @@ import { englishDisplayName, parseTutorNicknames, profilePayload, withTutorDispl
 import { consumeChatStream, speakableSentences } from "@/lib/chat-stream";
 import { createQuickGameRound, createMathGameRound, expandToGameRound, extractGameFromText, GAME_XP_REWARD, stripGameTag, type ChatGame } from "@/lib/chat-games";
 import { hydrateChildMemoryFromTurns, looksLikeMathTalk } from "@/lib/child-memory";
-import { buildWarmLaunchGreeting, readChildMemoryForChat, shouldStartFreshSession } from "@/hooks/useChat";
+import { pickProactivePrompt, proactiveChips, PROACTIVE_IDLE_MS, readChildMemoryForChat, shouldStartFreshSession } from "@/hooks/useChat";
 import { useMemoryExtractor } from "@/hooks/useMemoryExtractor";
 import {
   logPipelineLatencyReport,
@@ -208,7 +210,12 @@ export default function HomePage() {
   const [gameRound, setGameRound] = useState<ChatGame[] | null>(null);
   const gameActiveRef = useRef(false);
   const [practiceOpen, setPracticeOpen] = useState(false);
+  const [gameModalOpen, setGameModalOpen] = useState(false);
+  const [chatMode, setChatMode] = useState<ChatSurfaceMode>("lesson");
   const [silenceHint, setSilenceHint] = useState("");
+  const proactiveLaunchRef = useRef("");
+  const lastProactiveAtRef = useRef(0);
+  const lastUserActivityRef = useRef(Date.now());
   const [awaitingGreeting, setAwaitingGreeting] = useState(false);
   const viewport = useVisualViewport();
   const needsOnboarding = Boolean(user && profileChecked && !isProfileComplete(profile));
@@ -414,6 +421,96 @@ export default function HomePage() {
     if (!user?.id || messages.length === 0) return;
     writeTranscriptCache(user.id, messages);
   }, [user?.id, messages]);
+
+  function formatQuickChips(items: string[]) {
+    const pool = ["✨", "🎯", "💬", "🌟"];
+    return items.slice(0, 2).map((text, index) => {
+      const trimmed = text.trim();
+      if (/^[\p{Extended_Pictographic}]/u.test(trimmed)) return trimmed;
+      return `${pool[index % pool.length]} ${trimmed}`;
+    });
+  }
+
+  const fireProactiveTurn = useCallback(() => {
+    if (!chatUnlocked || !user || isLoading || awaitingGreeting || sendingRef.current) return;
+    if (isListening || isSpeaking || gameModalOpen || practiceOpen || gameRound) return;
+    if (needsOnboarding || needsInteractiveOnboarding) return;
+    if (!hasCompletedKidsPlacement(user.id, messages, profile)) return;
+    const now = Date.now();
+    if (now - lastProactiveAtRef.current < 12000) return;
+
+    const prompt = pickProactivePrompt(now);
+    const opener: Message = {
+      id: createId(),
+      sender: "ai",
+      text: prompt.en,
+      timestamp: now,
+      translation: prompt.he,
+    };
+    lastProactiveAtRef.current = now;
+    setSpokenReply(prompt.en);
+    setSpokenTranslation(prompt.he);
+    setSuggestions(proactiveChips(prompt));
+    setMessages((current) => {
+      const last = current[current.length - 1];
+      if (last?.sender === "ai" && last.text === prompt.en) return current;
+      return [...current, opener];
+    });
+    unlockSpeech();
+    if (autoSpeak) speak(prompt.en);
+    void persistMessages(user.id, [
+      { id: opener.id, sender: "ai", text: opener.text, translation: opener.translation, createdAt: opener.timestamp },
+    ]);
+  }, [
+    autoSpeak,
+    awaitingGreeting,
+    chatUnlocked,
+    gameModalOpen,
+    gameRound,
+    isListening,
+    isLoading,
+    isSpeaking,
+    messages,
+    needsInteractiveOnboarding,
+    needsOnboarding,
+    practiceOpen,
+    profile,
+    speak,
+    user,
+  ]);
+
+  useEffect(() => {
+    if (!chatUnlocked || !historyReady || !user) return;
+    if (needsOnboarding || needsInteractiveOnboarding) return;
+    const key = `${user.id}:proactive-boot`;
+    if (proactiveLaunchRef.current === key) return;
+    proactiveLaunchRef.current = key;
+    const timer = window.setTimeout(() => fireProactiveTurn(), 900);
+    return () => window.clearTimeout(timer);
+  }, [chatUnlocked, fireProactiveTurn, historyReady, needsInteractiveOnboarding, needsOnboarding, user]);
+
+  useEffect(() => {
+    if (!chatUnlocked || isLoading || awaitingGreeting || isListening || isSpeaking || gameModalOpen || practiceOpen || gameRound) {
+      return;
+    }
+    const idleMs = Math.max(0, PROACTIVE_IDLE_MS - (Date.now() - lastUserActivityRef.current));
+    const timer = window.setTimeout(() => {
+      if (Date.now() - lastUserActivityRef.current >= PROACTIVE_IDLE_MS) fireProactiveTurn();
+    }, idleMs || PROACTIVE_IDLE_MS);
+    return () => window.clearTimeout(timer);
+  }, [
+    awaitingGreeting,
+    chatUnlocked,
+    fireProactiveTurn,
+    gameModalOpen,
+    gameRound,
+    isListening,
+    isLoading,
+    isSpeaking,
+    messages.length,
+    practiceOpen,
+    spokenReply,
+  ]);
 
   const flash = useCallback((text: string) => {
     setNotice(text);
@@ -808,6 +905,8 @@ export default function HomePage() {
     const text = rawText.trim();
     if (!text || sendingRef.current || isLoading || !chatUnlocked || !user) return;
 
+    lastUserActivityRef.current = Date.now();
+
     const nextMemory = ingestUtterance(text);
 
     sendingRef.current = true;
@@ -1031,6 +1130,7 @@ export default function HomePage() {
   }
 
   function handleToggleMic() {
+    lastUserActivityRef.current = Date.now();
     if (isListening) {
       stopListening();
       return;
@@ -1177,7 +1277,7 @@ export default function HomePage() {
     if (!shouldStartFreshSession(messages)) return;
 
     const snapshot = messages;
-    const greet = buildWarmLaunchGreeting({ childName: englishDisplayName(profile) });
+    const greet = pickProactivePrompt(Date.now());
     const opener: Message = {
       id: createId(),
       sender: "ai",
@@ -1189,7 +1289,7 @@ export default function HomePage() {
     setMessages([opener]);
     setSpokenReply(opener.text);
     setSpokenTranslation(opener.translation ?? "");
-    setSuggestions(["I played a game!", "It was fun!", "I like that!"]);
+    setSuggestions(proactiveChips(greet));
     unlockSpeech();
     if (autoSpeak) speak(opener.text);
 
@@ -1609,7 +1709,10 @@ export default function HomePage() {
           disabled={isLoading || awaitingGreeting || !chatUnlocked}
           onToggleMic={handleToggleMic}
           onChangeTopic={() => void handleAnotherQuestion()}
-          onStartQuickGame={() => setGameRound(createQuickGameRound())}
+          onStartQuickGame={() => {
+            unlockSpeech();
+            setGameModalOpen(true);
+          }}
           gameOverlay={
             gameRound ? (
               <ChatGameCard
@@ -1676,9 +1779,44 @@ export default function HomePage() {
           onOpenPractice={() => {
             unlockSpeech();
             setSilenceHint("");
+            setChatMode("practice");
             setPracticeOpen(true);
           }}
+          chatMode={chatMode}
+          onChatModeChange={(mode) => {
+            setChatMode(mode);
+            if (mode === "practice") {
+              unlockSpeech();
+              setPracticeOpen(true);
+            } else {
+              setPracticeOpen(false);
+            }
+          }}
+          quickReplies={formatQuickChips(suggestions)}
+          onQuickReply={(text) => {
+            lastUserActivityRef.current = Date.now();
+            unlockSpeech();
+            void sendMessage(text);
+          }}
         />
+
+        {gameModalOpen ? (
+          <GameModal
+            tutorName={character.name}
+            onClose={() => setGameModalOpen(false)}
+            onSpeak={(text) => {
+              unlockSpeech();
+              speak(text);
+            }}
+            audioLevel={audioLevel}
+            listening={isListening}
+            onFinish={(xp) => {
+              if (xp > 0) awardGameXp();
+              setTrophyTick((value) => value + 1);
+              setGameModalOpen(false);
+            }}
+          />
+        ) : null}
 
         {practiceOpen ? (
           <PracticeModal
