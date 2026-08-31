@@ -67,12 +67,12 @@ const AvatarCanvasLayer = memo(function AvatarCanvasLayer({
   return (
     <button
       type="button"
-      className="absolute inset-x-0 top-0 bottom-[38%] z-0 cursor-default"
+      className="relative h-full w-full cursor-default overflow-hidden"
       aria-label={`Change tutor. Current: ${tutorName}`}
       onClick={onOpenCharacters}
     >
-      <div className="avatar-stage-glow pointer-events-none absolute inset-[6%_8%_18%] rounded-[50%]" aria-hidden />
-      <div className="avatar-display-shell absolute inset-[-4%_0_2%]">
+      <div className="avatar-stage-glow pointer-events-none absolute inset-[4%_10%_10%] rounded-[50%]" aria-hidden />
+      <div className="avatar-display-shell absolute inset-0">
         <div className="avatar-particles pointer-events-none absolute inset-0" aria-hidden>
           {Array.from({ length: 8 }).map((_, i) => (
             <span
@@ -89,12 +89,12 @@ const AvatarCanvasLayer = memo(function AvatarCanvasLayer({
         </div>
         <div
           className={cn(
-            "avatar-holo-aura pointer-events-none absolute inset-[4%_10%] rounded-[50%]",
+            "avatar-holo-aura pointer-events-none absolute inset-[2%_12%] rounded-[50%]",
             speaking ? "avatar-holo-aura-speaking" : "avatar-holo-aura-idle",
           )}
           style={{ boxShadow: `0 0 70px ${character.accentColor}55` }}
         />
-        <div className="avatar-portrait avatar-portrait-3d avatar-portrait-idle absolute inset-[-2%_0_4%]">
+        <div className="avatar-portrait avatar-portrait-3d avatar-portrait-idle absolute inset-0">
           <Avatar3DStage
             character={character}
             isSpeakingRef={isSpeakingRef}
@@ -103,7 +103,7 @@ const AvatarCanvasLayer = memo(function AvatarCanvasLayer({
           />
         </div>
       </div>
-      <div className="pointer-events-none absolute inset-x-0 bottom-0 h-[36%] bg-gradient-to-t from-[#0f172a] via-[#0f172a]/75 to-transparent" />
+      <div className="pointer-events-none absolute inset-x-0 bottom-0 h-[22%] bg-gradient-to-t from-[#0f172a] via-[#0f172a]/55 to-transparent" />
     </button>
   );
 }, (prev, next) =>
@@ -196,26 +196,17 @@ export function VoiceStage({
 
   return (
     <div className="voice-stage-bg relative flex min-h-0 flex-1 flex-col overflow-hidden">
-      <AvatarCanvasLayer
-        character={character}
-        tutorName={tutorName}
-        isSpeakingRef={isSpeakingRef}
-        spokenTextRef={spokenTextRef}
-        mouthLevelRef={mouthLevelRef3d}
-        onOpenCharacters={onOpenCharacters}
-        speaking={speaking}
-      />
-
+      {/* 1) Compact top chrome — stays above the face */}
       <div
         className={cn(
-          "pointer-events-none relative z-10 flex flex-col items-center px-5",
+          "relative z-30 flex shrink-0 flex-col items-center px-4 pb-1",
           offsetForBanner
-            ? "mb-2 pt-[calc(5.85rem+env(safe-area-inset-top))]"
-            : "pt-[calc(2.5rem+env(safe-area-inset-top))]",
+            ? "pt-[calc(5.6rem+env(safe-area-inset-top))]"
+            : "pt-[calc(2.35rem+env(safe-area-inset-top))]",
         )}
       >
         {onChatModeChange ? (
-          <div className="pointer-events-auto mb-2 flex rounded-full border border-white/20 bg-slate-900/35 p-1 shadow-lg backdrop-blur-xl">
+          <div className="mb-1.5 flex rounded-full border border-white/20 bg-slate-900/45 p-0.5 shadow-lg backdrop-blur-xl">
             {(
               [
                 { id: "lesson" as const, label: "📖 שיעור", sub: "Lesson" },
@@ -227,31 +218,35 @@ export function VoiceStage({
                 type="button"
                 onClick={() => onChatModeChange(tab.id)}
                 className={cn(
-                  "rounded-full px-3.5 py-1.5 text-[12px] font-bold transition",
+                  "rounded-full px-3 py-1 text-[11px] font-bold transition",
                   chatMode === tab.id ? "bg-white text-slate-900 shadow-md" : "text-white/85 hover:bg-white/10",
                 )}
               >
                 {tab.label}
-                <span className="ml-1 hidden text-[10px] font-semibold opacity-70 sm:inline">({tab.sub})</span>
+                <span className="ml-1 hidden text-[9px] font-semibold opacity-70 sm:inline">({tab.sub})</span>
               </button>
             ))}
           </div>
         ) : null}
-        <p className="text-[12px] font-medium tracking-[0.28em] text-sky-100/70 uppercase">{character.title}</p>
-        <h1 className="mt-0.5 text-[20px] font-semibold tracking-tight text-white drop-shadow-[0_2px_18px_rgba(0,0,0,0.45)]">
-          {tutorName}
-        </h1>
+
+        <div className="flex flex-col items-center leading-tight">
+          <p className="text-[10px] font-semibold tracking-[0.22em] text-sky-100/70 uppercase">{character.title}</p>
+          <h1 className="text-[17px] font-semibold tracking-tight text-white drop-shadow-[0_2px_12px_rgba(0,0,0,0.4)]">
+            {tutorName}
+          </h1>
+        </div>
+
         {(onChangeTopic || onOpenPractice) && (
-          <div className="pointer-events-auto mt-2 flex flex-wrap items-center justify-center gap-2">
+          <div className="mt-1.5 flex flex-wrap items-center justify-center gap-1.5">
             {onOpenPractice ? (
               <button
                 type="button"
                 disabled={Boolean(disabled)}
                 onClick={onOpenPractice}
                 aria-label="Learn and play"
-                className="inline-flex items-center gap-1.5 rounded-full border border-emerald-300/35 bg-emerald-400/15 px-3 py-1.5 text-[12px] font-semibold text-emerald-50 backdrop-blur-md transition hover:bg-emerald-400/25 disabled:opacity-40"
+                className="inline-flex items-center gap-1 rounded-full border border-emerald-300/35 bg-emerald-400/15 px-2.5 py-1 text-[11px] font-semibold text-emerald-50 backdrop-blur-md transition hover:bg-emerald-400/25 disabled:opacity-40"
               >
-                <BookOpen className="h-3.5 w-3.5" aria-hidden />
+                <BookOpen className="h-3 w-3" aria-hidden />
                 Learn & Play
               </button>
             ) : null}
@@ -261,9 +256,9 @@ export function VoiceStage({
                 disabled={Boolean(disabled)}
                 onClick={onChangeTopic}
                 aria-label="Change topic"
-                className="inline-flex items-center gap-1.5 rounded-full border border-white/20 bg-white/10 px-3 py-1.5 text-[12px] font-semibold text-white/90 backdrop-blur-md transition hover:bg-white/16 disabled:opacity-40"
+                className="inline-flex items-center gap-1 rounded-full border border-white/20 bg-white/10 px-2.5 py-1 text-[11px] font-semibold text-white/90 backdrop-blur-md transition hover:bg-white/16 disabled:opacity-40"
               >
-                <RefreshCw className="h-3.5 w-3.5 opacity-80" aria-hidden />
+                <RefreshCw className="h-3 w-3 opacity-80" aria-hidden />
                 Change Topic
               </button>
             ) : null}
@@ -271,8 +266,22 @@ export function VoiceStage({
         )}
       </div>
 
+      {/* 2) Dedicated avatar window — face lives here, unobstructed */}
+      <div className="relative z-10 mx-auto h-[min(38vh,320px)] w-full max-w-lg shrink-0 sm:h-[min(40vh,360px)]">
+        <AvatarCanvasLayer
+          character={character}
+          tutorName={tutorName}
+          isSpeakingRef={isSpeakingRef}
+          spokenTextRef={spokenTextRef}
+          mouthLevelRef={mouthLevelRef3d}
+          onOpenCharacters={onOpenCharacters}
+          speaking={speaking}
+        />
+      </div>
+
+      {/* 3) Bottom panel starts below shoulders — subtitle never covers face */}
       <div
-        className="relative z-20 mt-auto px-5 pb-[max(0.85rem,env(safe-area-inset-bottom))]"
+        className="relative z-20 mt-auto flex min-h-0 flex-1 flex-col justify-end px-5 pt-2 pb-[max(0.85rem,env(safe-area-inset-bottom))]"
         onPointerDown={(event) => event.stopPropagation()}
       >
         <ChatSubtitleBox
@@ -352,7 +361,6 @@ export function VoiceStage({
           />
         </div>
 
-        {/* Primary footer: Quick Game | Mic | Keyboard */}
         <div className="mt-1 flex items-center justify-center gap-5">
           {onStartQuickGame ? (
             <button
@@ -406,7 +414,6 @@ export function VoiceStage({
           </button>
         </div>
 
-        {/* Compact secondary: volume + speed */}
         <div className="mt-2.5 flex items-center justify-center gap-2">
           <VolumeControls
             autoSpeak={autoSpeak}

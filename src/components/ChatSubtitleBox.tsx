@@ -40,7 +40,7 @@ export function ChatSubtitleBox({
   const showIdle = Boolean(idleHint) && !child && !tutor && !thinking;
 
   return (
-    <div className="mb-3 flex min-h-[auto] w-full flex-col items-center justify-end pb-2">
+    <div className="mb-2 flex min-h-[auto] w-full flex-col items-center justify-end pb-1">
       <AnimatePresence mode="wait">
         {thinking && !tutor ? (
           <motion.p
