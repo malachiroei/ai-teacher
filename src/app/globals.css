@@ -605,7 +605,7 @@ html[data-tutor="alex"] .avatar-portrait { background-image: none; }
     transform: translateY(0);
   }
   50% {
-    transform: translateY(-8px);
+    transform: translateY(-4px);
   }
 }
 

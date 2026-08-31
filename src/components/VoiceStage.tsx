@@ -71,17 +71,17 @@ const AvatarCanvasLayer = memo(function AvatarCanvasLayer({
       aria-label={`Change tutor. Current: ${tutorName}`}
       onClick={onOpenCharacters}
     >
-      <div className="avatar-stage-glow pointer-events-none absolute inset-[4%_10%_10%] rounded-[50%]" aria-hidden />
-      <div className="avatar-display-shell absolute inset-0">
+      <div className="avatar-stage-glow pointer-events-none absolute inset-[8%_12%_12%] rounded-[50%]" aria-hidden />
+      <div className="avatar-display-shell relative h-full w-full">
         <div className="avatar-particles pointer-events-none absolute inset-0" aria-hidden>
-          {Array.from({ length: 8 }).map((_, i) => (
+          {Array.from({ length: 6 }).map((_, i) => (
             <span
               key={i}
               className="avatar-particle"
               style={{
-                left: `${12 + ((i * 11) % 76)}%`,
-                top: `${18 + ((i * 17) % 55)}%`,
-                animationDelay: `${i * 0.35}s`,
+                left: `${14 + ((i * 13) % 72)}%`,
+                top: `${20 + ((i * 15) % 50)}%`,
+                animationDelay: `${i * 0.4}s`,
                 backgroundColor: character.accentColor,
               }}
             />
@@ -89,10 +89,10 @@ const AvatarCanvasLayer = memo(function AvatarCanvasLayer({
         </div>
         <div
           className={cn(
-            "avatar-holo-aura pointer-events-none absolute inset-[2%_12%] rounded-[50%]",
+            "avatar-holo-aura pointer-events-none absolute inset-[4%_14%] rounded-[50%]",
             speaking ? "avatar-holo-aura-speaking" : "avatar-holo-aura-idle",
           )}
-          style={{ boxShadow: `0 0 70px ${character.accentColor}55` }}
+          style={{ boxShadow: `0 0 60px ${character.accentColor}50` }}
         />
         <div className="avatar-portrait avatar-portrait-3d avatar-portrait-idle absolute inset-0">
           <Avatar3DStage
@@ -103,7 +103,6 @@ const AvatarCanvasLayer = memo(function AvatarCanvasLayer({
           />
         </div>
       </div>
-      <div className="pointer-events-none absolute inset-x-0 bottom-0 h-[22%] bg-gradient-to-t from-[#0f172a] via-[#0f172a]/55 to-transparent" />
     </button>
   );
 }, (prev, next) =>
@@ -195,18 +194,18 @@ export function VoiceStage({
   }
 
   return (
-    <div className="voice-stage-bg relative flex min-h-0 flex-1 flex-col overflow-hidden">
-      {/* 1) Compact top chrome — stays above the face */}
-      <div
+    <div className="voice-stage-bg flex h-full min-h-0 w-full flex-col overflow-hidden">
+      {/* Header — shrink-0, never overlays avatar */}
+      <header
         className={cn(
-          "relative z-30 flex shrink-0 flex-col items-center px-4 pb-1",
+          "z-20 flex shrink-0 flex-col items-center px-4 pb-1",
           offsetForBanner
-            ? "pt-[calc(5.6rem+env(safe-area-inset-top))]"
-            : "pt-[calc(2.35rem+env(safe-area-inset-top))]",
+            ? "pt-[calc(5.5rem+env(safe-area-inset-top))]"
+            : "pt-[calc(2.25rem+env(safe-area-inset-top))]",
         )}
       >
         {onChatModeChange ? (
-          <div className="mb-1.5 flex rounded-full border border-white/20 bg-slate-900/45 p-0.5 shadow-lg backdrop-blur-xl">
+          <div className="mb-1 flex rounded-full border border-white/20 bg-slate-900/45 p-0.5 shadow-lg backdrop-blur-xl">
             {(
               [
                 { id: "lesson" as const, label: "📖 שיעור", sub: "Lesson" },
@@ -229,15 +228,11 @@ export function VoiceStage({
           </div>
         ) : null}
 
-        <div className="flex flex-col items-center leading-tight">
-          <p className="text-[10px] font-semibold tracking-[0.22em] text-sky-100/70 uppercase">{character.title}</p>
-          <h1 className="text-[17px] font-semibold tracking-tight text-white drop-shadow-[0_2px_12px_rgba(0,0,0,0.4)]">
-            {tutorName}
-          </h1>
-        </div>
+        <p className="text-[10px] font-semibold tracking-[0.22em] text-sky-100/70 uppercase">{character.title}</p>
+        <h1 className="text-[16px] font-semibold leading-tight tracking-tight text-white">{tutorName}</h1>
 
         {(onChangeTopic || onOpenPractice) && (
-          <div className="mt-1.5 flex flex-wrap items-center justify-center gap-1.5">
+          <div className="mt-1 flex flex-wrap items-center justify-center gap-1.5">
             {onOpenPractice ? (
               <button
                 type="button"
@@ -264,24 +259,26 @@ export function VoiceStage({
             ) : null}
           </div>
         )}
+      </header>
+
+      {/* Avatar stage — strict 35–42vh band, own layer */}
+      <div className="relative z-0 flex min-h-[35vh] max-h-[42vh] w-full flex-1 items-center justify-center overflow-hidden">
+        <div className="h-full w-full max-w-lg">
+          <AvatarCanvasLayer
+            character={character}
+            tutorName={tutorName}
+            isSpeakingRef={isSpeakingRef}
+            spokenTextRef={spokenTextRef}
+            mouthLevelRef={mouthLevelRef3d}
+            onOpenCharacters={onOpenCharacters}
+            speaking={speaking}
+          />
+        </div>
       </div>
 
-      {/* 2) Dedicated avatar window — face lives here, unobstructed */}
-      <div className="relative z-10 mx-auto h-[min(38vh,320px)] w-full max-w-lg shrink-0 sm:h-[min(40vh,360px)]">
-        <AvatarCanvasLayer
-          character={character}
-          tutorName={tutorName}
-          isSpeakingRef={isSpeakingRef}
-          spokenTextRef={spokenTextRef}
-          mouthLevelRef={mouthLevelRef3d}
-          onOpenCharacters={onOpenCharacters}
-          speaking={speaking}
-        />
-      </div>
-
-      {/* 3) Bottom panel starts below shoulders — subtitle never covers face */}
+      {/* Controls — shrink-0 only; never climbs into avatar */}
       <div
-        className="relative z-20 mt-auto flex min-h-0 flex-1 flex-col justify-end px-5 pt-2 pb-[max(0.85rem,env(safe-area-inset-bottom))]"
+        className="z-20 flex shrink-0 flex-col gap-2.5 px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-1"
         onPointerDown={(event) => event.stopPropagation()}
       >
         <ChatSubtitleBox
@@ -300,7 +297,7 @@ export function VoiceStage({
         />
 
         {quickReplies.length > 0 && onQuickReply ? (
-          <div className="mb-2.5 flex flex-wrap items-center justify-center gap-2">
+          <div className="flex flex-wrap items-center justify-center gap-2">
             {quickReplies.slice(0, 2).map((chip) => (
               <button
                 key={chip}
@@ -319,11 +316,11 @@ export function VoiceStage({
           {keyboardOpen ? (
             <motion.form
               key="keyboard"
-              initial={{ opacity: 0, y: 10, height: 0 }}
+              initial={{ opacity: 0, y: 8, height: 0 }}
               animate={{ opacity: 1, y: 0, height: "auto" }}
-              exit={{ opacity: 0, y: 8, height: 0 }}
-              transition={{ duration: 0.22, ease: "easeOut" }}
-              className="mb-2.5 overflow-hidden"
+              exit={{ opacity: 0, y: 6, height: 0 }}
+              transition={{ duration: 0.2, ease: "easeOut" }}
+              className="overflow-hidden"
               onSubmit={(event) => {
                 event.preventDefault();
                 submitDraft();
@@ -353,7 +350,7 @@ export function VoiceStage({
 
         {gameOverlay}
 
-        <div className={cn("relative mx-[-0.35rem] mb-1", liveWave && "wave-glow")}>
+        <div className={cn("relative mx-[-0.25rem]", liveWave && "wave-glow")}>
           <VoiceWave
             mode={mode}
             color={character.accentColor}
@@ -361,7 +358,7 @@ export function VoiceStage({
           />
         </div>
 
-        <div className="mt-1 flex items-center justify-center gap-5">
+        <div className="flex items-center justify-center gap-5">
           {onStartQuickGame ? (
             <button
               type="button"
@@ -378,12 +375,7 @@ export function VoiceStage({
           )}
 
           <div className="relative">
-            {listening ? (
-              <span
-                className="mic-pulse-ring pointer-events-none absolute inset-0 rounded-full"
-                style={{ boxShadow: `0 0 0 0 ${character.accentColor}` }}
-              />
-            ) : null}
+            {listening ? <span className="mic-pulse-ring pointer-events-none absolute inset-0 rounded-full" /> : null}
             <button
               type="button"
               disabled={disabled && !listening}
@@ -414,7 +406,7 @@ export function VoiceStage({
           </button>
         </div>
 
-        <div className="mt-2.5 flex items-center justify-center gap-2">
+        <div className="flex items-center justify-center gap-2">
           <VolumeControls
             autoSpeak={autoSpeak}
             onToggleSpeak={onToggleSpeak}

@@ -1590,9 +1590,9 @@ export default function HomePage() {
   }
 
   return (
-    <main className="h-dvh overflow-hidden bg-[#050805]">
+    <main className="h-dvh overflow-hidden bg-[#0f172a]">
       <div
-        className="relative mx-auto flex max-w-md flex-col overflow-hidden bg-[#050805]"
+        className="relative mx-auto flex h-full max-w-lg flex-col overflow-hidden"
         data-chat-layout="voice-being"
         style={{
           ["--accent" as string]: character.accentColor,
