@@ -252,12 +252,12 @@ function GLTFTalkingAvatar({
     applyAvatarLook(avatarScene, characterId);
 
     if (isMaleAvatar(characterId)) {
-      // Head/chest framed high in the portrait window.
-      avatarScene.position.set(0, -0.92, 0);
-      avatarScene.scale.setScalar(1.62);
+      // Frame head+chest in the vertical center of the portrait window.
+      avatarScene.position.set(0, 0.15, 0);
+      avatarScene.scale.setScalar(1.55);
     } else {
-      avatarScene.position.set(0, -2.35, 0);
-      avatarScene.scale.setScalar(1.62);
+      avatarScene.position.set(0, -1.15, 0);
+      avatarScene.scale.setScalar(1.55);
     }
 
     return () => {
@@ -336,7 +336,7 @@ export const Avatar3DStage = memo(function Avatar3DStage({
 }: Avatar3DStageProps) {
   const characterId = resolveCharacterModelId(character.id);
   const modelUrl = character.modelUrl || `/models/${characterId}.glb`;
-  const cameraPosition: [number, number, number] = [0, 0.42, 1.28];
+  const cameraPosition: [number, number, number] = [0, 1.35, 1.7];
   const [contextKey, setContextKey] = useState(0);
   const remountTimer = useRef<number | null>(null);
 
@@ -370,8 +370,8 @@ export const Avatar3DStage = memo(function Avatar3DStage({
       className="avatar-3d-canvas"
       dpr={[1, 1]}
       frameloop="always"
-      camera={{ position: cameraPosition, fov: 38 }}
-      style={{ width: "100%", height: "100%", pointerEvents: "none", background: "transparent" }}
+      camera={{ position: cameraPosition, fov: 36 }}
+      style={{ width: "100%", height: "100%", display: "block", objectFit: "contain", pointerEvents: "none", background: "transparent" }}
       shadows={false}
       gl={{
         antialias: true,
@@ -382,8 +382,13 @@ export const Avatar3DStage = memo(function Avatar3DStage({
         preserveDrawingBuffer: false,
       }}
       onCreated={({ gl, camera }) => {
-        camera.lookAt(0, 0.55, 0);
+        camera.position.set(0, 1.35, 1.7);
+        camera.lookAt(0, 1.2, 0);
+        camera.updateProjectionMatrix();
         const canvas = gl.domElement;
+        canvas.style.width = "100%";
+        canvas.style.height = "100%";
+        canvas.style.objectFit = "contain";
         const onLost = (event: Event) => {
           event.preventDefault();
           console.warn("[Avatar3D] WebGL context lost — remounting once");

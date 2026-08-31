@@ -415,41 +415,35 @@ function kickUtterance(
 }
 
 const ANDROID_MALE_NAME_RE =
-  /male_1|\bmale\b|david|george|james|aaron|guy|\biol\b|\brjs\b|en-us-x-iol|en-gb-x-rjs|wavenet-d|neural2-d/i;
+  /\bmale\b|david|george|james|aaron|guy|daniel|arthur|microsoft david|google us english male|google uk english male|wavenet-d|neural2-d|guyneural/i;
 
+/** Prefer natural neural / OS voices; avoid Chrome "network/compact" robot tones. */
 const MALE_VOICE_NEEDLES = [
+  "microsoft david",
+  "microsoft mark",
+  "microsoft guy",
   "google us english male",
   "google uk english male",
   "en-us-guyneural",
   "guy neural",
-  "microsoft guy",
-  "microsoft david",
-  "en-us-standard-b",
+  "daniel",
+  "arthur",
+  "david",
+  "george",
+  "james",
+  "aaron",
   "en-us-neural2-d",
   "en-us-wavenet-d",
   "uk english male",
   "us english male",
-  "male_1",
-  "en-us-x-tpd",
-  "en-us-x-iol",
-  "en-gb-x-rjs",
-  "rjs",
-  "iol",
-  "arthur",
-  "daniel",
-  "david",
-  "george",
-  "aaron",
-  "male",
-  "alex",
-  "guy",
-  "james",
-  "fred",
   "matthew",
   "brian",
-  "mark",
-  "ryan",
+  "thomas",
+  "alex",
+  "male",
 ];
+
+const ROBOTIC_VOICE_RE = /network|compact|espeak|robot|novelty|whisper|zarvox|trinoids|bad news|cellos|bubbles/i;
 
 const FEMALE_VOICE_NEEDLES = [
   "google us english female",
@@ -487,6 +481,8 @@ function rankVoicesByNeedles(voices: SpeechSynthesisVoice[], needles: string[], 
       });
       if (gender === "male" && isVoiceLikelyMale(voice)) score += 14;
       if (gender === "female" && isVoiceLikelyFemale(voice)) score += 14;
+      if (ROBOTIC_VOICE_RE.test(blob)) score -= 80;
+      if (/local|premium|enhanced|neural|natural|microsoft|google/.test(blob)) score += 18;
       return { voice, score };
     })
     .filter((item) => item.score > 0)
@@ -507,11 +503,17 @@ function pickPreferredVoice(voices: SpeechSynthesisVoice[], character?: Characte
   if (gender === "male") {
     const withoutFemaleTokens = english.filter((voice) => {
       const blob = `${voice.name} ${voice.voiceURI}`.toLowerCase();
+      if (ROBOTIC_VOICE_RE.test(blob)) return false;
       if (/\bsfg\b|sfg-|female|woman|girl/.test(blob) && !ANDROID_MALE_NAME_RE.test(blob)) return false;
       return voiceFitsRequiredGender(voice, "male") || ANDROID_MALE_NAME_RE.test(blob);
     });
-    const priority = withoutFemaleTokens.filter((voice) => ANDROID_MALE_NAME_RE.test(`${voice.name} ${voice.voiceURI}`));
-    if (priority[0]) return priority[0];
+    const naturalFirst = withoutFemaleTokens.filter((voice) =>
+      /microsoft|google|daniel|david|arthur|guy neural|guyneural|premium|enhanced|natural/i.test(
+        `${voice.name} ${voice.voiceURI}`,
+      ),
+    );
+    const rankedNatural = rankVoicesByNeedles(naturalFirst.length ? naturalFirst : withoutFemaleTokens, MALE_VOICE_NEEDLES, "male");
+    if (rankedNatural[0] && voiceFitsRequiredGender(rankedNatural[0].voice, "male")) return rankedNatural[0].voice;
     const ranked = rankVoicesByNeedles(withoutFemaleTokens, MALE_VOICE_NEEDLES, "male");
     if (ranked[0] && voiceFitsRequiredGender(ranked[0].voice, "male")) return ranked[0].voice;
     const strict = withoutFemaleTokens.find((voice) => voiceFitsRequiredGender(voice, "male"));
@@ -959,15 +961,16 @@ export function useSpeech(options?: {
       activeUtterance = utterance;
       currentOutputVolume = volume;
       lastSpokenVolumeRef.current = volume;
-      utterance.rate = male
-        ? 0.92
-        : Math.min(1.4, Math.max(0.6, (character?.voice.rate ?? 0.95) * speed));
-      utterance.pitch = male ? 0.72 : character?.voice.pitch ?? 1.02;
+      // Keep pitch near natural 1.0 — low pitch sounds robotic on Chrome TTS.
+      const baseRate = character?.voice.rate ?? (male ? 0.98 : 0.95);
+      const basePitch = character?.voice.pitch ?? (male ? 1.0 : 1.05);
+      utterance.rate = Math.min(1.25, Math.max(0.75, baseRate * speed));
+      utterance.pitch = Math.min(1.2, Math.max(0.85, basePitch));
       window.speechSynthesis.resume();
       if (voice && voiceFitsRequiredGender(voice, male ? "male" : "female")) {
         utterance.voice = voice;
       } else {
-        utterance.pitch = male ? 0.72 : 1.14;
+        utterance.pitch = male ? 1.0 : 1.08;
       }
 
       ttsBusyRef.current = true;
@@ -1018,7 +1021,7 @@ export function useSpeech(options?: {
         retry.pitch = utterance.pitch;
         retry.volume = Math.max(0, Math.min(1, volumeRef.current));
         if (voice && voiceFitsRequiredGender(voice, male ? "male" : "female")) retry.voice = voice;
-        else retry.pitch = male ? 0.72 : 1.14;
+        else retry.pitch = male ? 1.0 : 1.08;
         retry.onstart = utterance.onstart;
         retry.onend = utterance.onend;
         retry.onerror = utterance.onerror;
