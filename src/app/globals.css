@@ -172,7 +172,7 @@ body {
 .avatar-portrait {
   transform: none !important;
   will-change: filter;
-  background-color: #050805;
+  background-color: transparent;
   background-size: cover;
   background-position: center 18%;
   background-repeat: no-repeat;
@@ -181,7 +181,7 @@ body {
 .avatar-portrait-3d,
 .avatar-portrait-3d {
   background-image: none !important;
-  background-color: #050805;
+  background-color: transparent;
 }
 
 .avatar-portrait-idle {
@@ -572,6 +572,31 @@ html[data-tutor="alex"] .avatar-portrait { background-image: none; }
 
 .avatar-display-shell {
   animation: avatar-float 4.8s ease-in-out infinite;
+}
+
+.voice-stage-bg {
+  background:
+    radial-gradient(ellipse 90% 55% at 50% 18%, rgba(96, 165, 250, 0.28), transparent 58%),
+    radial-gradient(ellipse 70% 40% at 50% 42%, rgba(129, 140, 248, 0.18), transparent 60%),
+    linear-gradient(180deg, #1a237e 0%, #0d1b2a 42%, #0f172a 72%, #1b263b 100%);
+}
+
+.avatar-stage-glow {
+  background: radial-gradient(ellipse at 50% 40%, rgba(186, 230, 253, 0.35), rgba(59, 130, 246, 0.12) 45%, transparent 70%);
+  filter: blur(2px);
+  animation: avatar-stage-glow-pulse 3.6s ease-in-out infinite;
+}
+
+@keyframes avatar-stage-glow-pulse {
+  0%,
+  100% {
+    opacity: 0.75;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.03);
+  }
 }
 
 @keyframes avatar-float {

@@ -170,7 +170,11 @@ export function hebrewTranslationGuide(gender?: Gender | string | null) {
 }
 
 export function splitBidiRuns(text: string) {
-  return text.split(/([A-Za-z][A-Za-z0-9'’.\-]*)/g).filter((part) => part.length > 0);
+  // Keep multi-word English phrases together (e.g. "Star Rocket") so BiDi
+  // isolation wraps the whole phrase, not each token alone.
+  return text
+    .split(/((?:[A-Za-z][A-Za-z0-9'’.\-]*)(?:\s+[A-Za-z][A-Za-z0-9'’.\-]*)*)/g)
+    .filter((part) => part.length > 0);
 }
 
 export function stripHebrewScript(text: string) {

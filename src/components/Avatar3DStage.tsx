@@ -391,8 +391,11 @@ export const Avatar3DStage = memo(function Avatar3DStage({
       }}
     >
       <Suspense fallback={null}>
-        <ambientLight intensity={1.28} />
-        <directionalLight intensity={1.45} position={[0.4, 4.2, 4.6]} />
+        <ambientLight intensity={1.55} />
+        <hemisphereLight args={["#dbeafe", "#1e293b", 0.85]} />
+        <directionalLight intensity={1.85} position={[0.15, 2.8, 5.2]} color="#ffffff" />
+        <directionalLight intensity={0.55} position={[-2.2, 1.4, 2.4]} color="#93c5fd" />
+        <pointLight intensity={1.15} distance={8} position={[0, 1.1, 3.2]} color="#e0f2fe" />
 
         <AvatarGLTFErrorBoundary key={characterId} fallback={null}>
           <GLTFTalkingAvatar

@@ -134,9 +134,10 @@ export function ChatSubtitleBox({
                 {showHebrew && hebrew ? (
                   <p
                     dir="rtl"
-                    className="mt-2 border-t border-slate-200/80 pt-2 text-sm leading-relaxed text-slate-600 [unicode-bidi:isolate]"
+                    lang="he"
+                    className="mt-2 border-t border-slate-200/80 pt-2 text-right text-sm leading-relaxed text-slate-600 [unicode-bidi:plaintext]"
                   >
-                    <MixedBidiText text={hebrew} />
+                    <MixedBidiText text={hebrew} rtl />
                   </p>
                 ) : null}
               </div>

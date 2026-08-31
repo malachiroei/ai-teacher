@@ -2,12 +2,12 @@
 
 import { memo, useRef, useState, type MouseEvent, type ReactNode, type TouchEvent } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { Keyboard, Mic, RefreshCw, Send, Sparkles, Volume1, Volume2, VolumeX } from "lucide-react";
+import { BookOpen, Keyboard, Mic, RefreshCw, Send, Sparkles, Volume1, Volume2, VolumeX } from "lucide-react";
 import { VoiceWave, type VoiceWaveMode } from "@/components/VoiceWave";
 import { Avatar3DStage } from "@/components/Avatar3DStage";
 import { ChatSubtitleBox } from "@/components/ChatSubtitleBox";
 import { splitCaptionLines } from "@/lib/hebrew";
-import { getCharacter, isCharacterId, SELECTED_TUTOR_STORAGE_KEY, type Character } from "@/lib/characters";
+import { type Character } from "@/lib/characters";
 import { cn } from "@/lib/utils";
 
 export type ChatSurfaceMode = "lesson" | "practice";
@@ -67,19 +67,20 @@ const AvatarCanvasLayer = memo(function AvatarCanvasLayer({
   return (
     <button
       type="button"
-      className="absolute inset-x-0 top-0 bottom-[30%] z-0 cursor-default"
+      className="absolute inset-x-0 top-0 bottom-[38%] z-0 cursor-default"
       aria-label={`Change tutor. Current: ${tutorName}`}
       onClick={onOpenCharacters}
     >
-      <div className="avatar-display-shell absolute inset-[-8%_0_6%]">
+      <div className="avatar-stage-glow pointer-events-none absolute inset-[6%_8%_18%] rounded-[50%]" aria-hidden />
+      <div className="avatar-display-shell absolute inset-[-4%_0_2%]">
         <div className="avatar-particles pointer-events-none absolute inset-0" aria-hidden>
           {Array.from({ length: 8 }).map((_, i) => (
             <span
               key={i}
               className="avatar-particle"
               style={{
-                left: `${12 + (i * 11) % 76}%`,
-                top: `${18 + (i * 17) % 55}%`,
+                left: `${12 + ((i * 11) % 76)}%`,
+                top: `${18 + ((i * 17) % 55)}%`,
                 animationDelay: `${i * 0.35}s`,
                 backgroundColor: character.accentColor,
               }}
@@ -88,12 +89,12 @@ const AvatarCanvasLayer = memo(function AvatarCanvasLayer({
         </div>
         <div
           className={cn(
-            "avatar-holo-aura pointer-events-none absolute inset-[8%_12%] rounded-[50%]",
+            "avatar-holo-aura pointer-events-none absolute inset-[4%_10%] rounded-[50%]",
             speaking ? "avatar-holo-aura-speaking" : "avatar-holo-aura-idle",
           )}
-          style={{ boxShadow: `0 0 60px ${character.accentColor}44` }}
+          style={{ boxShadow: `0 0 70px ${character.accentColor}55` }}
         />
-        <div className="avatar-portrait avatar-portrait-3d avatar-portrait-idle absolute inset-[-6%_0_8%]">
+        <div className="avatar-portrait avatar-portrait-3d avatar-portrait-idle absolute inset-[-2%_0_4%]">
           <Avatar3DStage
             character={character}
             isSpeakingRef={isSpeakingRef}
@@ -102,10 +103,12 @@ const AvatarCanvasLayer = memo(function AvatarCanvasLayer({
           />
         </div>
       </div>
-      <div className="pointer-events-none absolute inset-x-0 bottom-0 h-[46%] bg-gradient-to-t from-[#050805] via-[#050805]/88 to-transparent" />
+      <div className="pointer-events-none absolute inset-x-0 bottom-0 h-[36%] bg-gradient-to-t from-[#0f172a] via-[#0f172a]/75 to-transparent" />
     </button>
   );
-}, (prev, next) => prev.character.id === next.character.id && prev.tutorName === next.tutorName && prev.speaking === next.speaking);
+}, (prev, next) =>
+  prev.character.id === next.character.id && prev.tutorName === next.tutorName && prev.speaking === next.speaking,
+);
 
 export function VoiceStage({
   character,
@@ -145,8 +148,6 @@ export function VoiceStage({
   const [draft, setDraft] = useState("");
   const micTouchRef = useRef(false);
   const speakTouchRef = useRef(false);
-  // Avatar3DStage updates this ref in real-time (jawOpen proxy) so the waveform
-  // can visually respond to TTS speaking even when the mic is idle.
   const mouthLevelRef3d = useRef(0);
   const isSpeakingRef = useRef(speaking);
   const spokenTextRef = useRef(speakingText ?? "");
@@ -170,6 +171,7 @@ export function VoiceStage({
       },
     };
   }
+
   const mode: VoiceWaveMode = speaking ? "speaking" : thinking ? "thinking" : listening ? "listening" : "idle";
   const liveWave = speaking || thinking || (listening && audioLevel >= 0.05);
   const trimmedTranscript = transcript.trim();
@@ -193,7 +195,7 @@ export function VoiceStage({
   }
 
   return (
-    <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden bg-[#050805]">
+    <div className="voice-stage-bg relative flex min-h-0 flex-1 flex-col overflow-hidden">
       <AvatarCanvasLayer
         character={character}
         tutorName={tutorName}
@@ -204,9 +206,16 @@ export function VoiceStage({
         speaking={speaking}
       />
 
-      <div className={cn("pointer-events-none relative z-10 flex flex-col items-center px-6", offsetForBanner ? "mb-4 pt-[calc(6.35rem+env(safe-area-inset-top))]" : "pt-[calc(2.75rem+env(safe-area-inset-top))]")}>
+      <div
+        className={cn(
+          "pointer-events-none relative z-10 flex flex-col items-center px-5",
+          offsetForBanner
+            ? "mb-2 pt-[calc(5.85rem+env(safe-area-inset-top))]"
+            : "pt-[calc(2.5rem+env(safe-area-inset-top))]",
+        )}
+      >
         {onChatModeChange ? (
-          <div className="pointer-events-auto mb-3 flex rounded-full border border-white/20 bg-white/10 p-1 shadow-lg backdrop-blur-xl">
+          <div className="pointer-events-auto mb-2 flex rounded-full border border-white/20 bg-slate-900/35 p-1 shadow-lg backdrop-blur-xl">
             {(
               [
                 { id: "lesson" as const, label: "📖 שיעור", sub: "Lesson" },
@@ -218,8 +227,8 @@ export function VoiceStage({
                 type="button"
                 onClick={() => onChatModeChange(tab.id)}
                 className={cn(
-                  "rounded-full px-4 py-2 text-[12px] font-bold transition",
-                  chatMode === tab.id ? "bg-white text-slate-900 shadow-md" : "text-white/80 hover:bg-white/10",
+                  "rounded-full px-3.5 py-1.5 text-[12px] font-bold transition",
+                  chatMode === tab.id ? "bg-white text-slate-900 shadow-md" : "text-white/85 hover:bg-white/10",
                 )}
               >
                 {tab.label}
@@ -228,14 +237,42 @@ export function VoiceStage({
             ))}
           </div>
         ) : null}
-        <p className="text-[13px] font-medium tracking-[0.28em] text-white/55 uppercase">{character.title}</p>
-        <h1 className="mt-1 text-[22px] font-semibold tracking-tight text-white drop-shadow-[0_2px_18px_rgba(0,0,0,0.45)]">
+        <p className="text-[12px] font-medium tracking-[0.28em] text-sky-100/70 uppercase">{character.title}</p>
+        <h1 className="mt-0.5 text-[20px] font-semibold tracking-tight text-white drop-shadow-[0_2px_18px_rgba(0,0,0,0.45)]">
           {tutorName}
         </h1>
+        {(onChangeTopic || onOpenPractice) && (
+          <div className="pointer-events-auto mt-2 flex flex-wrap items-center justify-center gap-2">
+            {onOpenPractice ? (
+              <button
+                type="button"
+                disabled={Boolean(disabled)}
+                onClick={onOpenPractice}
+                aria-label="Learn and play"
+                className="inline-flex items-center gap-1.5 rounded-full border border-emerald-300/35 bg-emerald-400/15 px-3 py-1.5 text-[12px] font-semibold text-emerald-50 backdrop-blur-md transition hover:bg-emerald-400/25 disabled:opacity-40"
+              >
+                <BookOpen className="h-3.5 w-3.5" aria-hidden />
+                Learn & Play
+              </button>
+            ) : null}
+            {onChangeTopic ? (
+              <button
+                type="button"
+                disabled={Boolean(disabled)}
+                onClick={onChangeTopic}
+                aria-label="Change topic"
+                className="inline-flex items-center gap-1.5 rounded-full border border-white/20 bg-white/10 px-3 py-1.5 text-[12px] font-semibold text-white/90 backdrop-blur-md transition hover:bg-white/16 disabled:opacity-40"
+              >
+                <RefreshCw className="h-3.5 w-3.5 opacity-80" aria-hidden />
+                Change Topic
+              </button>
+            ) : null}
+          </div>
+        )}
       </div>
 
       <div
-        className="relative z-20 mt-auto px-6 pb-[max(1rem,env(safe-area-inset-bottom))]"
+        className="relative z-20 mt-auto px-5 pb-[max(0.85rem,env(safe-area-inset-bottom))]"
         onPointerDown={(event) => event.stopPropagation()}
       >
         <ChatSubtitleBox
@@ -248,24 +285,20 @@ export function VoiceStage({
           thinking={thinking}
           idleHint={idleHint}
           onIdleHintTap={
-            silenceHint
-              ? onOpenPractice
-              : idleHint === "Tap mic to talk"
-                ? onToggleMic
-                : undefined
+            silenceHint ? onOpenPractice : idleHint === "Tap mic to talk" ? onToggleMic : undefined
           }
           onReplayTutor={tutorLine && onReplayCaption ? onReplayCaption : undefined}
         />
 
         {quickReplies.length > 0 && onQuickReply ? (
-          <div className="mb-3 flex flex-wrap items-center justify-center gap-2">
+          <div className="mb-2.5 flex flex-wrap items-center justify-center gap-2">
             {quickReplies.slice(0, 2).map((chip) => (
               <button
                 key={chip}
                 type="button"
                 disabled={Boolean(disabled)}
                 onClick={() => onQuickReply(chip.replace(/^[^\s]+\s/, "").trim() || chip)}
-                className="quick-reply-chip rounded-full border border-white/25 bg-white/12 px-4 py-2.5 text-[14px] font-bold text-white shadow-[0_6px_20px_rgba(0,0,0,0.2)] backdrop-blur-md transition hover:scale-[1.03] hover:bg-white/18 active:scale-[0.98] disabled:opacity-40"
+                className="quick-reply-chip rounded-full border border-sky-200/30 bg-white/14 px-4 py-2 text-[14px] font-bold text-white shadow-[0_6px_20px_rgba(0,0,0,0.22)] backdrop-blur-md transition hover:scale-[1.03] hover:bg-white/20 active:scale-[0.98] disabled:opacity-40"
               >
                 {chip}
               </button>
@@ -281,13 +314,13 @@ export function VoiceStage({
               animate={{ opacity: 1, y: 0, height: "auto" }}
               exit={{ opacity: 0, y: 8, height: 0 }}
               transition={{ duration: 0.22, ease: "easeOut" }}
-              className="mb-3 overflow-hidden"
+              className="mb-2.5 overflow-hidden"
               onSubmit={(event) => {
                 event.preventDefault();
                 submitDraft();
               }}
             >
-              <div className="flex items-center gap-2 rounded-full border border-white/14 bg-white/10 px-2 py-1.5 shadow-[0_8px_28px_rgba(0,0,0,0.28)] backdrop-blur-xl">
+              <div className="flex items-center gap-2 rounded-full border border-white/18 bg-slate-900/45 px-2 py-1.5 shadow-[0_8px_28px_rgba(0,0,0,0.28)] backdrop-blur-xl">
                 <input
                   value={draft}
                   onChange={(event) => setDraft(event.target.value)}
@@ -309,67 +342,33 @@ export function VoiceStage({
           ) : null}
         </AnimatePresence>
 
-        {onChangeTopic || onStartQuickGame || onOpenPractice ? (
-          <div className="mb-3 flex flex-wrap items-center justify-center gap-2">
-            {onOpenPractice ? (
-              <button
-                type="button"
-                disabled={Boolean(disabled)}
-                onClick={onOpenPractice}
-                aria-label="Open lesson and practice games"
-                className="inline-flex items-center gap-2 rounded-full border border-emerald-300/30 bg-emerald-400/15 px-4 py-2 text-sm font-medium text-emerald-100 shadow-[0_8px_24px_rgba(0,0,0,0.22)] backdrop-blur-md transition hover:bg-emerald-400/25 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40"
-              >
-                <span dir="ltr">Learn & Play</span>
-                <span className="text-emerald-100/50" aria-hidden>
-                  ·
-                </span>
-                <span dir="rtl">שיעור ומשחקים</span>
-              </button>
-            ) : null}
-            {onChangeTopic ? (
-              <button
-                type="button"
-                disabled={Boolean(disabled)}
-                onClick={onChangeTopic}
-                aria-label="Change topic"
-                className="inline-flex items-center gap-2 rounded-full border border-white/14 bg-white/8 px-4 py-2 text-sm font-medium text-white/90 shadow-[0_8px_24px_rgba(0,0,0,0.22)] backdrop-blur-md transition hover:bg-white/12 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40"
-              >
-                <RefreshCw className="h-3.5 w-3.5 opacity-80" aria-hidden />
-                <span dir="ltr">Change Topic</span>
-                <span className="text-white/35" aria-hidden>
-                  ·
-                </span>
-                <span dir="rtl">שנה נושא</span>
-              </button>
-            ) : null}
-            {onStartQuickGame ? (
-              <button
-                type="button"
-                disabled={Boolean(disabled)}
-                onClick={onStartQuickGame}
-                aria-label="Quick game"
-                className="inline-flex items-center gap-2 rounded-full border border-amber-300/50 bg-gradient-to-r from-amber-300/25 to-orange-400/20 px-4 py-2 text-sm font-bold text-amber-50 shadow-[0_8px_24px_rgba(251,191,36,0.18)] backdrop-blur-md transition hover:from-amber-300/35 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40"
-              >
-                <Sparkles className="h-3.5 w-3.5" aria-hidden />
-                <span dir="ltr">Quick Game</span>
-                <span className="text-amber-100/35" aria-hidden>
-                  ·
-                </span>
-                <span dir="rtl">בוא נשחק משחקון</span>
-              </button>
-            ) : null}
-          </div>
-        ) : null}
         {gameOverlay}
 
-        <div className={cn("relative mx-[-0.5rem]", liveWave && "wave-glow")}>
+        <div className={cn("relative mx-[-0.35rem] mb-1", liveWave && "wave-glow")}>
           <VoiceWave
             mode={mode}
             color={character.accentColor}
             levelRef={listening && audioLevelRef ? audioLevelRef : mouthLevelRef3d}
           />
         </div>
-        <div className="mt-3 flex items-center justify-center gap-4">
+
+        {/* Primary footer: Quick Game | Mic | Keyboard */}
+        <div className="mt-1 flex items-center justify-center gap-5">
+          {onStartQuickGame ? (
+            <button
+              type="button"
+              disabled={Boolean(disabled)}
+              onClick={onStartQuickGame}
+              aria-label="Quick game"
+              className="flex h-14 min-w-[3.5rem] flex-col items-center justify-center gap-0.5 rounded-2xl border border-amber-300/40 bg-amber-400/15 px-3 text-amber-50 shadow-[0_8px_22px_rgba(251,191,36,0.16)] backdrop-blur-md transition hover:bg-amber-400/25 active:scale-[0.97] disabled:opacity-40"
+            >
+              <Sparkles className="h-5 w-5" aria-hidden />
+              <span className="text-[10px] font-bold tracking-wide">Game</span>
+            </button>
+          ) : (
+            <span className="w-14" aria-hidden />
+          )}
+
           <div className="relative">
             {listening ? (
               <span
@@ -382,33 +381,45 @@ export function VoiceStage({
               disabled={disabled && !listening}
               aria-label={listening ? "Stop listening" : "Start listening"}
               className={cn(
-                "relative flex h-[4.5rem] w-[4.5rem] touch-manipulation items-center justify-center rounded-full text-white transition active:scale-95",
+                "relative flex h-[4.75rem] w-[4.75rem] touch-manipulation items-center justify-center rounded-full text-white transition active:scale-95",
                 listening
                   ? "bg-[var(--accent)] shadow-[0_0_48px_color-mix(in_srgb,var(--accent)_75%,transparent)]"
-                  : "bg-gradient-to-br from-white/14 to-white/6 ring-2 ring-white/20 shadow-[0_0_32px_color-mix(in_srgb,var(--accent)_35%,transparent)] hover:from-white/18",
+                  : "bg-gradient-to-br from-sky-400/35 to-indigo-500/40 ring-2 ring-white/25 shadow-[0_0_36px_color-mix(in_srgb,var(--accent)_40%,transparent)] hover:brightness-110",
               )}
               {...bindImmediateTap(micTouchRef, onToggleMic)}
             >
               <Mic className={cn("h-8 w-8", listening && "animate-pulse")} />
             </button>
           </div>
+
           <button
             type="button"
             onClick={() => setKeyboardOpen((open) => !open)}
             aria-label={keyboardOpen ? "Hide keyboard" : "Show keyboard"}
             className={cn(
-              "flex h-12 w-12 items-center justify-center rounded-full ring-1 ring-white/12 transition hover:bg-white/10",
-              keyboardOpen ? "bg-white/12 text-white" : "bg-white/8 text-white/70",
+              "flex h-14 min-w-[3.5rem] flex-col items-center justify-center gap-0.5 rounded-2xl border border-white/18 backdrop-blur-md transition",
+              keyboardOpen ? "bg-white/18 text-white" : "bg-white/10 text-white/80 hover:bg-white/16",
             )}
           >
             <Keyboard className="h-5 w-5" />
+            <span className="text-[10px] font-bold tracking-wide">Type</span>
           </button>
-          <VolumeControls autoSpeak={autoSpeak} onToggleSpeak={onToggleSpeak} onSetVolume={onSetVolume} speakTouchRef={speakTouchRef} bindImmediateTap={bindImmediateTap} />
+        </div>
+
+        {/* Compact secondary: volume + speed */}
+        <div className="mt-2.5 flex items-center justify-center gap-2">
+          <VolumeControls
+            autoSpeak={autoSpeak}
+            onToggleSpeak={onToggleSpeak}
+            onSetVolume={onSetVolume}
+            speakTouchRef={speakTouchRef}
+            bindImmediateTap={bindImmediateTap}
+          />
           <button
             type="button"
             onClick={onCycleVoiceSpeed}
             aria-label={`Voice speed ${voiceSpeed}. Tap to change.`}
-            className="flex h-12 min-w-[3.35rem] items-center justify-center rounded-full bg-white/8 px-3 text-[13px] font-semibold tracking-wide text-white/85 ring-1 ring-white/12 backdrop-blur-md transition hover:bg-white/12"
+            className="flex h-10 min-w-[3rem] items-center justify-center rounded-full bg-white/10 px-3 text-[12px] font-semibold tracking-wide text-white/85 ring-1 ring-white/15 backdrop-blur-md transition hover:bg-white/16"
           >
             {voiceSpeed}
           </button>
@@ -452,20 +463,20 @@ function VolumeControls({
         type="button"
         aria-label={autoSpeak ? "Mute voice replies" : "Unmute voice replies"}
         className={cn(
-          "flex h-12 w-12 touch-manipulation items-center justify-center rounded-full ring-1 ring-white/12 transition hover:bg-white/10",
-          autoSpeak ? "bg-white/8 text-white" : "bg-white/5 text-white/40",
+          "flex h-10 w-10 touch-manipulation items-center justify-center rounded-full ring-1 ring-white/15 transition hover:bg-white/12",
+          autoSpeak ? "bg-white/10 text-white" : "bg-white/5 text-white/40",
         )}
         {...bindImmediateTap(speakTouchRef, onToggleSpeak)}
       >
         {!autoSpeak || volumeIcon === "mute" ? (
-          <VolumeX className="h-5 w-5" />
+          <VolumeX className="h-4 w-4" />
         ) : volumeIcon === "low" ? (
-          <Volume1 className="h-5 w-5" />
+          <Volume1 className="h-4 w-4" />
         ) : (
-          <Volume2 className="h-5 w-5" />
+          <Volume2 className="h-4 w-4" />
         )}
       </button>
-      <div className="flex h-12 w-28 items-center gap-2 rounded-full bg-white/8 px-2.5 ring-1 ring-white/12 backdrop-blur-md sm:w-32">
+      <div className="flex h-10 w-24 items-center gap-2 rounded-full bg-white/10 px-2.5 ring-1 ring-white/15 backdrop-blur-md sm:w-28">
         <input
           type="range"
           min={0}
@@ -478,7 +489,7 @@ function VolumeControls({
           onInput={(e) => applyVolumeLive(Number((e.target as HTMLInputElement).value))}
           onChange={(e) => applyVolumeLive(Number(e.target.value))}
           aria-label="Voice volume"
-          className="voice-volume-slider h-5 w-full cursor-pointer accent-amber-400"
+          className="voice-volume-slider h-5 w-full cursor-pointer accent-sky-300"
         />
       </div>
     </>
