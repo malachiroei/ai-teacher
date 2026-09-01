@@ -138,3 +138,39 @@ export function pickProactivePrompt(seed = Date.now()) {
 export function proactiveChips(prompt: ProactivePrompt) {
   return [...prompt.chips];
 }
+
+export function chipLabelText(chip: string) {
+  return chip.replace(/^[\p{Extended_Pictographic}\uFE0F\s]+/u, "").trim() || chip.trim();
+}
+
+const CHIP_USER_MESSAGES: Record<string, string> = {
+  גלידה: "בחרתי גלידה",
+  פיצה: "בחרתי פיצה",
+  אוכל: "בחרתי לדבר על אוכל",
+  חיות: "בחרתי לדבר על חיות",
+  "טוב!": "היום שלי היה טוב",
+  בסדר: "היום שלי היה בסדר",
+  Happy: "בחרתי שמח",
+  Tired: "בחרתי עייף",
+  שמח: "בחרתי שמח",
+  עייף: "בחרתי עייף",
+  "יש!": "יש לי חיה אהובה",
+  לא: "אין לי חיה, אבל יש חיה שאני אוהב",
+  שיחקתי: "הכי כיף לי שיחקתי היום",
+  למדתי: "הכי כיף לי שלמדתי היום",
+  Pizza: "בחרתי פיצה",
+  "Ice cream": "בחרתי גלידה",
+};
+
+/** Turn a quick-reply chip into a full user turn the tutor can continue from. */
+export function chipToUserMessage(chip: string) {
+  const raw = chip.trim();
+  if (/^בחרתי/.test(raw)) return raw;
+  const label = chipLabelText(raw);
+  if (CHIP_USER_MESSAGES[label]) return CHIP_USER_MESSAGES[label];
+  if (/^happy$/i.test(label)) return "בחרתי שמח";
+  if (/^tired$/i.test(label)) return "בחרתי עייף";
+  if (/^pizza$/i.test(label)) return "בחרתי פיצה";
+  if (/^ice cream$/i.test(label)) return "בחרתי גלידה";
+  return `בחרתי ${label}`;
+}

@@ -57,7 +57,8 @@ import { englishDisplayName, parseTutorNicknames, profilePayload, withTutorDispl
 import { consumeChatStream, speakableSentences } from "@/lib/chat-stream";
 import { createQuickGameRound, createMathGameRound, expandToGameRound, extractGameFromText, GAME_XP_REWARD, stripGameTag, type ChatGame } from "@/lib/chat-games";
 import { hydrateChildMemoryFromTurns, looksLikeMathTalk } from "@/lib/child-memory";
-import { pickProactivePrompt, proactiveChips, PROACTIVE_IDLE_MS, readChildMemoryForChat, shouldStartFreshSession } from "@/hooks/useChat";
+import { pickProactivePrompt, proactiveChips, chipToUserMessage, PROACTIVE_IDLE_MS, readChildMemoryForChat, shouldStartFreshSession } from "@/hooks/useChat";
+import { tutorSpeechText } from "@/lib/tts-text";
 import { useMemoryExtractor } from "@/hooks/useMemoryExtractor";
 import {
   logPipelineLatencyReport,
@@ -437,6 +438,7 @@ export default function HomePage() {
     if (isListening || isSpeaking || gameModalOpen || practiceOpen || gameRound) return;
     if (needsOnboarding || needsInteractiveOnboarding) return;
     if (!hasCompletedKidsPlacement(user.id, messages, profile)) return;
+    if (messages.some((message) => message.sender === "user")) return;
     const now = Date.now();
     if (now - lastProactiveAtRef.current < 12000) return;
 
@@ -458,7 +460,7 @@ export default function HomePage() {
       return [...current, opener];
     });
     unlockSpeech();
-    if (autoSpeak) speak(prompt.he);
+    if (autoSpeak) speak(tutorSpeechText(prompt.he, prompt.en));
     void persistMessages(user.id, [
       { id: opener.id, sender: "ai", text: opener.text, translation: opener.translation, createdAt: opener.timestamp },
     ]);
@@ -552,7 +554,7 @@ export default function HomePage() {
 
   const fetchHebrewTranslation = useCallback((english: string, gender?: Profile["gender"] | null, userInput = "") => {
     const text = stripGameTag(english).trim();
-    if (!text) return;
+    if (!text || hasHebrewScript(text)) return;
 
     const finishPedagogy = (hebrew: string) => {
       logConversationPedagogyReport({
@@ -1054,7 +1056,7 @@ export default function HomePage() {
       sendingRef.current = false;
       if (autoSpeak && !streamedSpeech) {
         try {
-          speak(spoken);
+          speak(tutorSpeechText(spoken, data.translation));
         } catch {
           flash("Voice glitch — tap 🔊 to hear again, or keep talking!");
         }
@@ -1120,7 +1122,7 @@ export default function HomePage() {
       setSuggestions(data.suggestedAnswers ?? []);
       setSpokenReply(spoken);
       if (data.translation?.trim()) setSpokenTranslation(data.translation);
-      if (autoSpeak && !streamedSpeech) speak(spoken);
+      if (autoSpeak && !streamedSpeech) speak(tutorSpeechText(spoken, data.translation));
       void persistMemories(data.newMemories);
       void persistMessages(user.id, [{ id: aiMessage.id, sender: "ai", text: spoken, translation: data.translation, createdAt: aiMessage.timestamp }]);
     } catch {
@@ -1166,7 +1168,7 @@ export default function HomePage() {
     setSuggestions(placementDone ? ["I played a game!", "It was fun!", "I like that!"] : [...PLACEMENT_SUGGESTIONS[0]]);
     unlockSpeech();
     if (autoSpeak) {
-      speak(opener.text);
+      speak(tutorSpeechText(opener.text, opener.translation));
     }
 
     const supabase = createClient();
@@ -1211,7 +1213,7 @@ export default function HomePage() {
       setSpokenTranslation(opener.translation ?? "");
       unlockSpeech();
       if (autoSpeak) {
-        speak(opener.text);
+        speak(tutorSpeechText(opener.text, opener.translation));
       }
     }
     void saveSelectedCharacter(createClient(), user.id, nextCharacter.id).then((saved) => {
@@ -1292,7 +1294,7 @@ export default function HomePage() {
     setSpokenTranslation(opener.translation ?? "");
     setSuggestions(proactiveChips(greet));
     unlockSpeech();
-    if (autoSpeak) speak(opener.text);
+    if (autoSpeak) speak(tutorSpeechText(opener.text, opener.translation));
 
     void (async () => {
       const supabase = createClient();
@@ -1324,7 +1326,7 @@ export default function HomePage() {
     spokenOpenerRef.current = first.id;
     setSpokenReply(first.text);
     setSpokenTranslation(first.translation ?? "");
-    speak(first.text);
+    speak(tutorSpeechText(first.text, first.translation));
   }, [autoSpeak, chatUnlocked, historyReady, messages, practiceSettings.voice_speed, speak]);
 
   useEffect(() => {
@@ -1426,7 +1428,7 @@ export default function HomePage() {
       setSuggestions([...PLACEMENT_SUGGESTIONS[0]]);
       unlockSpeech();
       if (autoSpeak) {
-        speak(opener.text);
+        speak(tutorSpeechText(opener.text, opener.translation));
       }
       try {
         await persistMessages(user.id, [
@@ -1481,7 +1483,7 @@ export default function HomePage() {
       setSuggestions(tod.suggestions);
 
       unlockSpeech();
-      if (autoSpeak) speak(opener.text);
+      if (autoSpeak) speak(tutorSpeechText(opener.text, opener.translation));
 
       try {
         await persistMessages(user.id, [
@@ -1775,7 +1777,7 @@ export default function HomePage() {
           onReplayCaption={() => {
             if (!spokenReply.trim()) return;
             unlockSpeech();
-            speak(spokenReply);
+            speak(tutorSpeechText(spokenReply, spokenTranslation));
           }}
           onOpenPractice={() => {
             unlockSpeech();
@@ -1797,7 +1799,7 @@ export default function HomePage() {
           onQuickReply={(text) => {
             lastUserActivityRef.current = Date.now();
             unlockSpeech();
-            void sendMessage(text);
+            void sendMessage(chipToUserMessage(text));
           }}
         />
         </div>

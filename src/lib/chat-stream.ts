@@ -1,7 +1,7 @@
 import {
   collapseRepeatedSpeech,
-  englishSpeechLine,
   isRedundantSpeechChunk,
+  primarySpeechLine,
 } from "@/lib/language";
 import type { ChatApiResponse } from "@/types/chat";
 
@@ -96,7 +96,7 @@ export function leftoverSpeakable(text: string, alreadyConsumed: number) {
 }
 
 export function speakableSentences(text: string) {
-  const clean = collapseRepeatedSpeech(englishSpeechLine(text));
+  const clean = collapseRepeatedSpeech(primarySpeechLine(text));
   const pulled = pullSpeakableChunks(clean, 0);
   const leftover = leftoverSpeakable(clean, pulled.consumed);
   const chunks = [...pulled.chunks];
@@ -161,7 +161,7 @@ export async function consumeChatStream(
         live?.onCaption?.(lastCaption, translation);
       } else if (parsed.type === "sentence") {
         markFirst();
-        const clean = collapseRepeatedSpeech(englishSpeechLine(parsed.text));
+        const clean = collapseRepeatedSpeech(primarySpeechLine(parsed.text));
         if (!clean || isRedundantSpeechChunk(clean, spoken)) return;
         spoken = spoken ? `${spoken} ${clean}` : clean;
         live?.onSentence?.(clean);

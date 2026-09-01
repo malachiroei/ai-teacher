@@ -152,6 +152,22 @@ export function englishSpeechLine(text: string) {
     .trim();
 }
 
+/** Keep Hebrew + inline English for TTS; strip only game tags and excess space. */
+export function primarySpeechLine(text: string) {
+  return String(text || "")
+    .replace(/<<<GAME:\s*\{[\s\S]*?\}\s*>>>/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/** Pick the line that should be spoken aloud — never the subtitle gloss when Hebrew is primary. */
+export function tutorSpeechLine(primary: string, translation?: string | null) {
+  const main = primarySpeechLine(primary);
+  const gloss = primarySpeechLine(translation ?? "");
+  if (hasHebrewScript(main)) return main;
+  return main || gloss;
+}
+
 export function stripUnsolicitedScaffold(text: string) {
   return text
     .replace(/(?:^|\s)(?:in english,?\s*)?you can say:\s*["']?[^"'\n]*["']?\s*/gi, " ")

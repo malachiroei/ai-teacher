@@ -11,3 +11,11 @@ export function prepareTextForTts(text: string) {
     .replace(/\s+([.!?])/g, "$1")
     .trim();
 }
+
+/** Primary spoken line for TTS — Hebrew when present, never the English gloss alone. */
+export function tutorSpeechText(primary: string, translation?: string | null) {
+  const main = prepareTextForTts(primary);
+  if (/[\u0590-\u05FF]/.test(main)) return main;
+  const gloss = prepareTextForTts(translation ?? "");
+  return main || gloss;
+}
