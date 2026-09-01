@@ -5,7 +5,7 @@ import { hasHebrewScript, type SpeechLang } from "@/lib/language";
 import { fetchNeuralAudioUrl, preloadNeuralAudio } from "@/lib/neural-tts-client";
 import { findVoiceByUri, isLegacyRoboticVoice, isPremiumNaturalVoice, isVoiceLikelyFemale, isVoiceLikelyMale, listEnglishVoices, pickCharacterVoice, voiceFitsRequiredGender, type Character } from "@/lib/characters";
 import { prepareTextForTts, expandTextToSpeechQueue, type SpeechQueueSegment } from "@/lib/tts-text";
-import { neuralSpeedForCharacter, neuralVoiceForLang, neuralVoiceForText } from "@/lib/tts-voices";
+import { neuralSpeedForCharacter, neuralVoiceForLang } from "@/lib/tts-voices";
 
 export const SPEECH_UNAVAILABLE_MESSAGE =
   "Speech recognition is not fully supported or microphone access was denied";
