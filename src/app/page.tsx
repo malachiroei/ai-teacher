@@ -1590,9 +1590,9 @@ export default function HomePage() {
   }
 
   return (
-    <main className="h-[100dvh] min-h-[100dvh] overflow-hidden bg-[#0f172a]">
+    <main className="h-[100dvh] max-h-[100dvh] min-h-[100dvh] overflow-hidden bg-[#0f172a]">
       <div
-        className="relative mx-auto flex h-[100dvh] min-h-0 max-w-lg flex-col overflow-hidden"
+        className="relative mx-auto flex h-[100dvh] max-h-[100dvh] min-h-0 max-w-lg flex-col justify-between overflow-hidden"
         data-chat-layout="voice-being"
         style={{
           ["--accent" as string]: character.accentColor,
@@ -1691,6 +1691,7 @@ export default function HomePage() {
           onOpenProfileReminder={() => setProfileQuizOpen(true)}
         />
 
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
         <VoiceStage
           character={character}
           tutorName={character.name}
@@ -1799,6 +1800,7 @@ export default function HomePage() {
             void sendMessage(text);
           }}
         />
+        </div>
 
         {gameModalOpen ? (
           <GameModal

@@ -116,5 +116,5 @@ export function VoiceWave({ mode, color = "#3DFF8A", levelRef }: VoiceWaveProps)
     };
   }, [color]);
 
-  return <canvas ref={canvasRef} className="h-[4.25rem] w-full" aria-hidden />;
+  return <canvas ref={canvasRef} className="h-[3rem] w-full" aria-hidden />;
 }

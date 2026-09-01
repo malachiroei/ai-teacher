@@ -194,18 +194,18 @@ export function VoiceStage({
   }
 
   return (
-    <div className="voice-stage-bg flex h-full min-h-0 w-full flex-col overflow-hidden">
+    <div className="voice-stage-bg flex h-full min-h-0 w-full flex-col justify-between overflow-hidden">
       {/* Header — shrink-0, never overlays avatar */}
       <header
         className={cn(
-          "z-20 flex shrink-0 flex-col items-center px-4 pb-1",
+          "z-20 flex shrink-0 flex-col px-4",
           offsetForBanner
-            ? "pt-[calc(5.5rem+env(safe-area-inset-top))]"
-            : "pt-[calc(2.25rem+env(safe-area-inset-top))]",
+            ? "pt-[calc(4rem+env(safe-area-inset-top))]"
+            : "pt-[calc(1.75rem+env(safe-area-inset-top))]",
         )}
       >
         {onChatModeChange ? (
-          <div className="mb-1 flex rounded-full border border-white/20 bg-slate-900/45 p-0.5 shadow-lg backdrop-blur-xl">
+          <div className="mb-0.5 flex rounded-full border border-white/20 bg-slate-900/45 p-0.5 shadow-lg backdrop-blur-xl">
             {(
               [
                 { id: "lesson" as const, label: "📖 שיעור", sub: "Lesson" },
@@ -217,7 +217,7 @@ export function VoiceStage({
                 type="button"
                 onClick={() => onChatModeChange(tab.id)}
                 className={cn(
-                  "rounded-full px-3 py-1 text-[11px] font-bold transition",
+                  "rounded-full px-3 py-0.5 text-[11px] font-bold transition",
                   chatMode === tab.id ? "bg-white text-slate-900 shadow-md" : "text-white/85 hover:bg-white/10",
                 )}
               >
@@ -228,41 +228,45 @@ export function VoiceStage({
           </div>
         ) : null}
 
-        <p className="text-[10px] font-semibold tracking-[0.22em] text-sky-100/70 uppercase">{character.title}</p>
-        <h1 className="text-[16px] font-semibold leading-tight tracking-tight text-white">{tutorName}</h1>
-
-        {(onChangeTopic || onOpenPractice) && (
-          <div className="mt-1 flex flex-wrap items-center justify-center gap-1.5">
-            {onOpenPractice ? (
-              <button
-                type="button"
-                disabled={Boolean(disabled)}
-                onClick={onOpenPractice}
-                aria-label="Learn and play"
-                className="inline-flex items-center gap-1 rounded-full border border-emerald-300/35 bg-emerald-400/15 px-2.5 py-1 text-[11px] font-semibold text-emerald-50 backdrop-blur-md transition hover:bg-emerald-400/25 disabled:opacity-40"
-              >
-                <BookOpen className="h-3 w-3" aria-hidden />
-                Learn & Play
-              </button>
-            ) : null}
-            {onChangeTopic ? (
-              <button
-                type="button"
-                disabled={Boolean(disabled)}
-                onClick={onChangeTopic}
-                aria-label="Change topic"
-                className="inline-flex items-center gap-1 rounded-full border border-white/20 bg-white/10 px-2.5 py-1 text-[11px] font-semibold text-white/90 backdrop-blur-md transition hover:bg-white/16 disabled:opacity-40"
-              >
-                <RefreshCw className="h-3 w-3 opacity-80" aria-hidden />
-                Change Topic
-              </button>
-            ) : null}
+        <div className="my-1 flex items-center justify-between gap-2">
+          <div className="min-w-0 flex-1">
+            <h1 className="truncate text-[15px] font-semibold leading-tight tracking-tight text-white">{tutorName}</h1>
+            <p className="truncate text-[9px] font-semibold tracking-[0.18em] text-sky-100/65 uppercase">{character.title}</p>
           </div>
-        )}
+
+          {(onChangeTopic || onOpenPractice) && (
+            <div className="flex shrink-0 items-center gap-1">
+              {onOpenPractice ? (
+                <button
+                  type="button"
+                  disabled={Boolean(disabled)}
+                  onClick={onOpenPractice}
+                  aria-label="Learn and play"
+                  className="inline-flex items-center gap-1 rounded-full border border-emerald-300/35 bg-emerald-400/15 px-2 py-0.5 text-[10px] font-semibold text-emerald-50 backdrop-blur-md transition hover:bg-emerald-400/25 disabled:opacity-40"
+                >
+                  <BookOpen className="h-3 w-3" aria-hidden />
+                  Play
+                </button>
+              ) : null}
+              {onChangeTopic ? (
+                <button
+                  type="button"
+                  disabled={Boolean(disabled)}
+                  onClick={onChangeTopic}
+                  aria-label="Change topic"
+                  className="inline-flex items-center gap-1 rounded-full border border-white/20 bg-white/10 px-2 py-0.5 text-[10px] font-semibold text-white/90 backdrop-blur-md transition hover:bg-white/16 disabled:opacity-40"
+                >
+                  <RefreshCw className="h-3 w-3 opacity-80" aria-hidden />
+                  Topic
+                </button>
+              ) : null}
+            </div>
+          )}
+        </div>
       </header>
 
-      {/* Avatar stage — strict 35–42vh band, own layer */}
-      <div className="relative z-0 flex min-h-[35vh] max-h-[42vh] w-full flex-1 items-center justify-center overflow-hidden">
+      {/* Avatar stage — fixed portrait band */}
+      <div className="relative z-0 h-[28vh] max-h-[30vh] shrink-0 w-full overflow-hidden">
         <div className="h-full w-full max-w-lg">
           <AvatarCanvasLayer
             character={character}
@@ -278,7 +282,7 @@ export function VoiceStage({
 
       {/* Controls — shrink-0 only; never climbs into avatar */}
       <div
-        className="z-20 flex shrink-0 flex-col gap-2.5 px-4 pb-[max(1.5rem,env(safe-area-inset-bottom))] pt-1"
+        className="z-20 flex min-h-0 shrink-0 flex-col gap-2 overflow-hidden px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-0"
         onPointerDown={(event) => event.stopPropagation()}
       >
         <ChatSubtitleBox
@@ -304,7 +308,7 @@ export function VoiceStage({
                 type="button"
                 disabled={Boolean(disabled)}
                 onClick={() => onQuickReply(chip.replace(/^[^\s]+\s/, "").trim() || chip)}
-                className="quick-reply-chip rounded-full border border-sky-200/30 bg-white/14 px-4 py-2 text-[14px] font-bold text-white shadow-[0_6px_20px_rgba(0,0,0,0.22)] backdrop-blur-md transition hover:scale-[1.03] hover:bg-white/20 active:scale-[0.98] disabled:opacity-40"
+                className="quick-reply-chip rounded-full border border-sky-200/30 bg-white/14 px-3 py-1.5 text-[13px] font-bold text-white shadow-[0_6px_20px_rgba(0,0,0,0.22)] backdrop-blur-md transition hover:scale-[1.03] hover:bg-white/20 active:scale-[0.98] disabled:opacity-40"
               >
                 {chip}
               </button>

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { hasHebrewScript, type SpeechLang } from "@/lib/language";
-import { findVoiceByUri, isVoiceLikelyFemale, isVoiceLikelyMale, listEnglishVoices, pickCharacterVoice, voiceFitsRequiredGender, type Character } from "@/lib/characters";
+import { findVoiceByUri, isLegacyRoboticVoice, isPremiumNaturalVoice, isVoiceLikelyFemale, isVoiceLikelyMale, listEnglishVoices, pickCharacterVoice, voiceFitsRequiredGender, type Character } from "@/lib/characters";
 
 export const SPEECH_UNAVAILABLE_MESSAGE =
   "Speech recognition is not fully supported or microphone access was denied";
@@ -419,11 +419,12 @@ const ANDROID_MALE_NAME_RE =
 
 /** Prefer natural neural / OS voices; avoid Chrome "network/compact" robot tones. */
 const MALE_VOICE_NEEDLES = [
+  "microsoft guy online (natural)",
+  "microsoft christopher online (natural)",
   "microsoft david",
   "microsoft mark",
-  "microsoft guy",
-  "google us english male",
   "google uk english male",
+  "google us english male",
   "en-us-guyneural",
   "guy neural",
   "daniel",
@@ -431,7 +432,6 @@ const MALE_VOICE_NEEDLES = [
   "david",
   "george",
   "james",
-  "aaron",
   "en-us-neural2-d",
   "en-us-wavenet-d",
   "uk english male",
@@ -439,34 +439,43 @@ const MALE_VOICE_NEEDLES = [
   "matthew",
   "brian",
   "thomas",
-  "alex",
-  "male",
 ];
 
-const ROBOTIC_VOICE_RE = /network|compact|espeak|robot|novelty|whisper|zarvox|trinoids|bad news|cellos|bubbles/i;
+const ROBOTIC_VOICE_RE =
+  /network|compact|espeak|native|robot|novelty|whisper|zarvox|trinoids|bad news|cellos|bubbles|\biol\b|\brjs\b|standard-[a-dj]|en-gb-x-rjs|en-us-x-iol|sfg|sfg-/i;
 
 const FEMALE_VOICE_NEEDLES = [
+  "google us english",
+  "microsoft jenny online (natural)",
+  "microsoft aria online (natural)",
   "google us english female",
   "google uk english female",
   "en-us-jennyneural",
   "jenny neural",
   "microsoft jenny",
-  "microsoft zira",
+  "microsoft aria",
   "en-us-neural2-f",
   "en-us-wavenet-f",
   "samantha",
   "victoria",
   "karen",
-  "moira",
   "zira",
   "jenny",
   "aria",
-  "moira",
-  "female",
 ];
+
+function naturalSpeechRate(baseRate: number, speedMultiplier: number) {
+  const raw = baseRate * speedMultiplier;
+  return Math.min(1.0, Math.max(0.95, raw));
+}
+
+function naturalSpeechPitch(basePitch: number) {
+  return Math.min(1.05, Math.max(1.0, basePitch));
+}
 
 function rankVoicesByNeedles(voices: SpeechSynthesisVoice[], needles: string[], gender: "male" | "female") {
   return listEnglishVoices(voices)
+    .filter((voice) => !isLegacyRoboticVoice(voice))
     .map((voice) => {
       const blob = `${voice.name} ${voice.voiceURI}`.toLowerCase();
       if (gender === "male" && isVoiceLikelyFemale(voice) && !blob.includes("male")) {
@@ -482,6 +491,8 @@ function rankVoicesByNeedles(voices: SpeechSynthesisVoice[], needles: string[], 
       if (gender === "male" && isVoiceLikelyMale(voice)) score += 14;
       if (gender === "female" && isVoiceLikelyFemale(voice)) score += 14;
       if (ROBOTIC_VOICE_RE.test(blob)) score -= 80;
+      if (isPremiumNaturalVoice(voice)) score += 28;
+      if (/online \(natural\)/.test(blob)) score += 14;
       if (/local|premium|enhanced|neural|natural|microsoft|google/.test(blob)) score += 18;
       return { voice, score };
     })
@@ -491,7 +502,8 @@ function rankVoicesByNeedles(voices: SpeechSynthesisVoice[], needles: string[], 
 
 function englishVoicePool(voices: SpeechSynthesisVoice[]) {
   const english = voices.filter((voice) => (voice.lang || "").toLowerCase().replace(/_/g, "-").startsWith("en"));
-  return english.length > 0 ? english : listEnglishVoices(voices);
+  const pool = english.length > 0 ? english : listEnglishVoices(voices);
+  return pool.filter((voice) => !isLegacyRoboticVoice(voice));
 }
 
 function pickPreferredVoice(voices: SpeechSynthesisVoice[], character?: Character | null, preferredUri?: string | null) {
@@ -961,16 +973,14 @@ export function useSpeech(options?: {
       activeUtterance = utterance;
       currentOutputVolume = volume;
       lastSpokenVolumeRef.current = volume;
-      // Keep pitch near natural 1.0 — low pitch sounds robotic on Chrome TTS.
-      const baseRate = character?.voice.rate ?? (male ? 0.98 : 0.95);
-      const basePitch = character?.voice.pitch ?? (male ? 1.0 : 1.05);
-      utterance.rate = Math.min(1.25, Math.max(0.75, baseRate * speed));
-      utterance.pitch = Math.min(1.2, Math.max(0.85, basePitch));
+      // Keep pitch and rate in a natural human range — no metallic distortion.
+      const baseRate = character?.voice.rate ?? 0.98;
+      const basePitch = character?.voice.pitch ?? 1.0;
+      utterance.rate = naturalSpeechRate(baseRate, speed);
+      utterance.pitch = naturalSpeechPitch(basePitch);
       window.speechSynthesis.resume();
       if (voice && voiceFitsRequiredGender(voice, male ? "male" : "female")) {
         utterance.voice = voice;
-      } else {
-        utterance.pitch = male ? 1.0 : 1.08;
       }
 
       ttsBusyRef.current = true;
@@ -1021,7 +1031,6 @@ export function useSpeech(options?: {
         retry.pitch = utterance.pitch;
         retry.volume = Math.max(0, Math.min(1, volumeRef.current));
         if (voice && voiceFitsRequiredGender(voice, male ? "male" : "female")) retry.voice = voice;
-        else retry.pitch = male ? 1.0 : 1.08;
         retry.onstart = utterance.onstart;
         retry.onend = utterance.onend;
         retry.onerror = utterance.onerror;

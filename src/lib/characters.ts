@@ -65,9 +65,19 @@ export const CHARACTERS: Character[] = [
     accentColor: "#8B7CFF",
     voice: {
       gender: "female",
-      pitch: 1.08,
-      rate: 0.95,
-      preferredNames: ["Samantha", "Victoria", "en-US-JennyNeural", "en-US-Neural2-F", "en-US-Wavenet-F", "Google US English", "Karen"],
+      pitch: 1.05,
+      rate: 0.98,
+      preferredNames: [
+        "Google US English",
+        "Microsoft Jenny Online (Natural)",
+        "Microsoft Aria Online (Natural)",
+        "JennyNeural",
+        "Samantha",
+        "Victoria",
+        "Karen",
+        "en-US-JennyNeural",
+        "en-US-Neural2-F",
+      ],
     },
     greetingTemplate:
       "Hi{{nameBit}}! I'm {{tutorName}}, your friendly English tutor.{{topic}} How are you doing today?",
@@ -95,15 +105,15 @@ Stay age-appropriate. Keep helping with grammar and Hebrew translations as requi
       pitch: 1.0,
       rate: 0.98,
       preferredNames: [
+        "Google UK English Male",
+        "Microsoft Guy Online (Natural)",
+        "Microsoft Christopher Online (Natural)",
         "Microsoft David",
         "Microsoft Mark",
-        "Google US English Male",
-        "Google UK English Male",
         "Daniel",
-        "Arthur",
+        "Google US English Male",
         "en-US-GuyNeural",
-        "Aaron",
-        "James",
+        "Arthur",
       ],
     },
     greetingTemplate:
@@ -132,16 +142,17 @@ Stay age-appropriate. No body-shaming, no extreme training pressure.` + CONVERSA
     accentColor: "#3D9BFF",
     voice: {
       gender: "male",
-      pitch: 1.02,
+      pitch: 1.0,
       rate: 0.98,
       preferredNames: [
+        "Google UK English Male",
+        "Microsoft Guy Online (Natural)",
+        "Microsoft Christopher Online (Natural)",
+        "Daniel",
         "Microsoft David",
         "Google US English Male",
-        "Daniel",
-        "Arthur",
         "en-US-GuyNeural",
-        "Aaron",
-        "James",
+        "Arthur",
       ],
     },
     greetingTemplate:
@@ -169,9 +180,19 @@ Stay age-appropriate. You still correct grammar kindly, keep replies 1–2 sente
     accentColor: "#FF5DA2",
     voice: {
       gender: "female",
-      pitch: 1.12,
-      rate: 0.97,
-      preferredNames: ["Samantha", "Zira", "Jenny", "Aria", "en-US-JennyNeural", "en-US-Neural2-F", "en-US-Wavenet-C", "Google US English", "Karen"],
+      pitch: 1.05,
+      rate: 0.98,
+      preferredNames: [
+        "Google US English",
+        "Microsoft Jenny Online (Natural)",
+        "Microsoft Aria Online (Natural)",
+        "Samantha",
+        "Victoria",
+        "Karen",
+        "JennyNeural",
+        "en-US-JennyNeural",
+        "en-US-Neural2-F",
+      ],
     },
     greetingTemplate:
       "Hi{{nameBit}}! I'm {{tutorName}} — let's make English feel like a song.{{topic}} How are you feeling today?",
@@ -198,16 +219,17 @@ Stay age-appropriate. You still correct grammar kindly, keep replies 1–2 sente
     accentColor: "#22C55E",
     voice: {
       gender: "male",
-      pitch: 0.98,
-      rate: 0.97,
+      pitch: 1.0,
+      rate: 0.98,
       preferredNames: [
+        "Google UK English Male",
+        "Microsoft Guy Online (Natural)",
+        "Microsoft Christopher Online (Natural)",
+        "Daniel",
         "Microsoft Mark",
         "Microsoft David",
-        "Google UK English Male",
-        "Daniel",
-        "Arthur",
         "en-US-GuyNeural",
-        "Aaron",
+        "Arthur",
       ],
     },
     greetingTemplate:
@@ -235,9 +257,18 @@ Stay age-appropriate. No real danger talk. You still correct grammar kindly, kee
     accentColor: "#A855F7",
     voice: {
       gender: "female",
-      pitch: 1.16,
-      rate: 1.03,
-      preferredNames: ["Samantha", "Zira", "Jenny", "en-US-JennyNeural", "en-US-Neural2-H", "en-US-Wavenet-F", "Google US English", "Moira"],
+      pitch: 1.05,
+      rate: 1.0,
+      preferredNames: [
+        "Google US English",
+        "Microsoft Jenny Online (Natural)",
+        "Microsoft Aria Online (Natural)",
+        "Samantha",
+        "JennyNeural",
+        "en-US-JennyNeural",
+        "en-US-Neural2-F",
+        "Karen",
+      ],
     },
     greetingTemplate:
       "Yo{{nameBit}}! I'm {{tutorName}} — English practice, player one.{{topic}} What are you playing today?",
@@ -296,9 +327,11 @@ export function writeStoredTutorId(id?: string | null) {
 const FEMALE_VOICE_HINT =
   /samantha|victoria|karen|moira|tessa|zira|hazel|fiona|kathy|siri|nicky|jenny|aria|eva|sfg|female|woman|girl|us english female|uk english female|google us english(?! male)|jennyneural|en-us-jenny|neural2-[af]|wavenet-[afc]/i;
 const MALE_VOICE_HINT =
-  /daniel|fred|david|mark|arthur|\btom\b|oliver|aaron|rishi|ravi|george|thomas|james|tony|echo|onyx|\balex\b|male_1|#male|\biol\b|\brjs\b|male|man|\bguy\b|\bboy\b|us english male|uk english male|guyneural|en-us-guy|en-us-x-tpd|en-us-x-iol|en-gb-x-rjs|neural2-[dj]|wavenet-[dj]|standard-[bcdj]/i;
-const NOVELTY_VOICE_HINT =
-  /compact|novelty|whisper|bad news|good news|bells|boing|bubbles|cellos|trinoids|zarvox|deranged|hysterical|superstar|wobble/i;
+  /daniel|fred|david|mark|arthur|\btom\b|oliver|aaron|rishi|ravi|george|thomas|james|tony|echo|onyx|\balex\b|male_1|#male|male|man|\bguy\b|\bboy\b|us english male|uk english male|guyneural|en-us-guy|en-us-x-tpd|neural2-[dj]|wavenet-[dj]/i;
+const LEGACY_SYNTH_VOICE_RE =
+  /espeak|native|iol|rjs|standard-[a-dj]|compact|network|trinoids|zarvox|whisper|novelty|bad news|cellos|bubbles|sfg|sfg-/i;
+const PREMIUM_NATURAL_VOICE_RE =
+  /online \(natural\)|neural|jenny|aria|guy|christopher|samantha|victoria|karen|daniel|enhanced|premium|wavenet|neural2|microsoft (david|mark|zira|jenny|aria|guy|christopher)/i;
 
 export function isEnglishVoice(voice: SpeechSynthesisVoice) {
   const lang = (voice.lang || "").toLowerCase().replace(/_/g, "-");
@@ -315,8 +348,17 @@ function voiceBlob(voice: SpeechSynthesisVoice) {
   return `${voice.name} ${voice.voiceURI}`.toLowerCase();
 }
 
+export function isLegacyRoboticVoice(voice: SpeechSynthesisVoice) {
+  return LEGACY_SYNTH_VOICE_RE.test(voiceBlob(voice));
+}
+
+export function isPremiumNaturalVoice(voice: SpeechSynthesisVoice) {
+  return PREMIUM_NATURAL_VOICE_RE.test(voiceBlob(voice));
+}
+
 export function isVoiceLikelyMale(voice: SpeechSynthesisVoice) {
   const blob = voiceBlob(voice);
+  if (isLegacyRoboticVoice(voice)) return false;
   if (/\bsfg\b|sfg-|female|woman|girl|samantha|victoria|karen|moira|tessa|zira/.test(blob) && !/\bmale\b|\biol\b|\brjs\b|wavenet-d|neural2-d/.test(blob)) {
     return false;
   }
@@ -325,6 +367,7 @@ export function isVoiceLikelyMale(voice: SpeechSynthesisVoice) {
 
 export function isVoiceLikelyFemale(voice: SpeechSynthesisVoice) {
   const blob = voiceBlob(voice);
+  if (isLegacyRoboticVoice(voice)) return false;
   if (isVoiceLikelyMale(voice) && !/\bfemale\b|woman|girl|samantha/.test(blob)) return false;
   return FEMALE_VOICE_HINT.test(blob);
 }
@@ -336,7 +379,7 @@ export function voiceFitsRequiredGender(voice: SpeechSynthesisVoice, gender: "ma
 }
 
 function genderedVoicePool(voices: SpeechSynthesisVoice[], gender: "female" | "male") {
-  const english = listEnglishVoices(voices);
+  const english = listEnglishVoices(voices).filter((voice) => !isLegacyRoboticVoice(voice));
   return english.filter((voice) => voiceFitsRequiredGender(voice, gender));
 }
 
@@ -367,8 +410,10 @@ function scoreVoice(voice: SpeechSynthesisVoice, character: Character) {
     if (isVoiceLikelyMale(voice)) score -= 80;
   }
 
-  if (NOVELTY_VOICE_HINT.test(name)) score -= 12;
-  if (voice.localService) score += 2;
+  if (PREMIUM_NATURAL_VOICE_RE.test(name)) score += 28;
+  if (/online \(natural\)/.test(name)) score += 12;
+  if (LEGACY_SYNTH_VOICE_RE.test(name)) score -= 120;
+  if (voice.localService && PREMIUM_NATURAL_VOICE_RE.test(name)) score += 3;
   return score;
 }
 
