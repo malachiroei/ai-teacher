@@ -3,10 +3,10 @@ import type { DailyGoalMinutes, Gender, Profile } from "@/lib/supabase/types";
 import type { Message } from "@/types/chat";
 
 export const DAILY_GOAL_OPTIONS = [5, 10, 15, 20] as const;
-export const VOICE_SPEED_OPTIONS = [0.75, 0.9, 1.1] as const;
+export const VOICE_SPEED_OPTIONS = [1.0, 1.2, 0.8] as const;
 export const DEFAULT_DAILY_GOAL: DailyGoalMinutes = 10;
 export const DEFAULT_PRACTICE_TIME = "17:00";
-export const DEFAULT_VOICE_SPEED: VoiceSpeed = 0.9;
+export const DEFAULT_VOICE_SPEED: VoiceSpeed = 1.0;
 export const VOICE_SPEED_STORAGE_KEY = "voice_speed";
 
 export interface PracticeSnapshot {
@@ -15,7 +15,7 @@ export interface PracticeSnapshot {
   celebrated: boolean;
 }
 
-export type VoiceSpeed = 0.75 | 0.9 | 1.1;
+export type VoiceSpeed = 1.0 | 1.2 | 0.8;
 
 export interface PracticeSettings {
   daily_goal_minutes: DailyGoalMinutes;
@@ -117,22 +117,30 @@ export function normalizePracticeTime(value: unknown) {
 
 export function normalizeVoiceSpeed(value: unknown): VoiceSpeed {
   const n = Number(value);
-  if (n === 0.75 || n === 0.9 || n === 1.1) return n;
-  if (n <= 0.8) return 0.75;
-  if (n >= 1.05) return 1.1;
+  if (n === 1.0 || n === 1.2 || n === 0.8) return n;
+  if (n === 0.75 || n === 0.9 || n === 0.95) return 1.0;
+  if (n === 1.1) return 1.2;
+  if (n <= 0.85) return 0.8;
+  if (n >= 1.05) return 1.2;
   return DEFAULT_VOICE_SPEED;
 }
 
 export function voiceSpeedLabel(speed: VoiceSpeed) {
-  if (speed === 0.75) return "Slow 0.75x";
-  if (speed === 1.1) return "Fast 1.1x";
-  return "Normal 0.9x";
+  if (speed === 1.2) return "Fast 1.2x (מהיר)";
+  if (speed === 0.8) return "Slow 0.8x (איטי)";
+  return "Normal 1.0x (רגיל)";
 }
 
 export function formatVoiceSpeed(speed: VoiceSpeed) {
-  if (speed === 0.75) return "0.75x";
-  if (speed === 1.1) return "1.1x";
-  return "0.9x";
+  if (speed === 1.2) return "1.2x";
+  if (speed === 0.8) return "0.8x";
+  return "1.0x";
+}
+
+export function voiceSpeedShortLabel(speed: VoiceSpeed) {
+  if (speed === 1.2) return "מהיר";
+  if (speed === 0.8) return "איטי";
+  return "רגיל";
 }
 
 export function nextVoiceSpeed(speed: VoiceSpeed): VoiceSpeed {

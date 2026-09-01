@@ -91,6 +91,7 @@ import {
   buildParentWhatsAppMessage,
   countUserMessagesToday,
   extractPracticeTopics,
+  DEFAULT_VOICE_SPEED,
   formatVoiceSpeed,
   nextVoiceSpeed,
   normalizeWhatsAppPhone,
@@ -156,7 +157,7 @@ export default function HomePage() {
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [selectedTutorId, setSelectedTutorId] = useState<CharacterId | null>(null);
-  const [voiceSpeed, setVoiceSpeed] = useState<VoiceSpeed>(0.9);
+  const [voiceSpeed, setVoiceSpeed] = useState<VoiceSpeed>(DEFAULT_VOICE_SPEED);
   const [authReady, setAuthReady] = useState(false);
   const [historyReady, setHistoryReady] = useState(false);
   const [profileChecked, setProfileChecked] = useState(false);

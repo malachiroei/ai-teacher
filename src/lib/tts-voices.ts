@@ -26,8 +26,8 @@ const CHARACTER_ENGLISH_VOICE: Record<CharacterId, NeuralTtsVoice> = {
   chloe: "en-US-AnaNeural",
 };
 
-/** Kid-friendly pacing — slightly slower for clear pronunciation. */
-export const NEURAL_DEFAULT_SPEED = 0.95;
+/** Normal conversational pacing — 1.0x unless the child picks a speed preset. */
+export const NEURAL_DEFAULT_SPEED = 1.0;
 
 const NEURAL_VOICE_SET = new Set<string>(NEURAL_TTS_VOICES);
 
@@ -71,5 +71,5 @@ export function neuralSpeedForCharacter(_character?: Character | null, speedMult
 
 export function clampNeuralSpeed(speed?: number | null) {
   if (speed == null || !Number.isFinite(speed)) return NEURAL_DEFAULT_SPEED;
-  return Math.min(1.05, Math.max(0.85, speed));
+  return Math.min(1.2, Math.max(0.8, speed));
 }

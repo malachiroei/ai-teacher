@@ -99,8 +99,8 @@ export type ProactivePrompt = {
 
 const WARM_HEBREW_PROMPTS: ProactivePrompt[] = [
   {
-    he: "היי! איזה כיף לראות אותך. מה המאכל הכי אהוב עליך — גלידה או פיצה?",
-    en: "Hi! Great to see you. What's your favorite food — ice cream or pizza?",
+    he: "כיף לראות אותך! מה המאכל הכי אהוב עליך, גלידה או פיצה?",
+    en: "Great to see you! What's your favorite food, ice cream or pizza?",
     chips: ["🍦 גלידה", "🍕 פיצה"],
   },
   {
@@ -114,9 +114,9 @@ const WARM_HEBREW_PROMPTS: ProactivePrompt[] = [
     chips: ["🐶 חיות", "🍕 אוכל"],
   },
   {
-    he: "כיף לראות אותך! איך הרגשת היום — יותר שמח או יותר עייף?",
+    he: "כיף לראות אותך! איך עבר עליך היום, שמח או עייף?",
     en: "Good to see you! Did you feel happy or tired today?",
-    chips: ["😄 שמח", "😴 עייף"],
+    chips: ["😊 Happy", "😴 Tired"],
   },
   {
     he: "היי! יש לך חיה אהובה בבית, או חיה שאתה אוהב לדמיין?",

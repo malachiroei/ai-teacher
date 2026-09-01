@@ -5,6 +5,7 @@ import { motion } from "framer-motion";
 import { Bell, BellOff, Loader2, Volume2, X } from "lucide-react";
 import {
   DAILY_GOAL_OPTIONS,
+  DEFAULT_VOICE_SPEED,
   VOICE_SPEED_OPTIONS,
   normalizeWhatsAppPhone,
   voiceSpeedLabel,
@@ -289,7 +290,7 @@ export function SettingsModal({
               max={VOICE_SPEED_OPTIONS.length - 1}
               step={1}
               value={Math.max(0, VOICE_SPEED_OPTIONS.indexOf(speed))}
-              onChange={(event) => setSpeed(VOICE_SPEED_OPTIONS[Number(event.target.value)] ?? 0.9)}
+              onChange={(event) => setSpeed(VOICE_SPEED_OPTIONS[Number(event.target.value)] ?? DEFAULT_VOICE_SPEED)}
               className="w-full accent-[#2f6bff]"
             />
             <div className="mt-2 grid grid-cols-3 gap-2">

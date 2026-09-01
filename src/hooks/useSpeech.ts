@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { hasHebrewScript, type SpeechLang } from "@/lib/language";
 import { fetchNeuralAudioUrl, preloadNeuralAudio } from "@/lib/neural-tts-client";
 import { findVoiceByUri, isLegacyRoboticVoice, isPremiumNaturalVoice, isVoiceLikelyFemale, isVoiceLikelyMale, listEnglishVoices, pickCharacterVoice, voiceFitsRequiredGender, type Character } from "@/lib/characters";
+import { prepareTextForTts } from "@/lib/tts-text";
 import { neuralSpeedForCharacter, neuralVoiceForText } from "@/lib/tts-voices";
 
 export const SPEECH_UNAVAILABLE_MESSAGE =
@@ -516,9 +517,8 @@ const FEMALE_VOICE_NEEDLES = [
   "aria",
 ];
 
-function naturalSpeechRate(baseRate: number, speedMultiplier: number) {
-  const raw = baseRate * speedMultiplier;
-  return Math.min(1.0, Math.max(0.95, raw));
+function browserSpeechRate(speedMultiplier: number) {
+  return Math.min(1.2, Math.max(0.8, speedMultiplier));
 }
 
 function naturalSpeechPitch(basePitch: number) {
@@ -602,16 +602,6 @@ function pickStreamingVoice(
   return pickPreferredVoice(voices, character, preferredUri);
 }
 
-function smoothSpokenText(text: string) {
-  return text
-    // Chrome TTS often errors / drops the rest of the queue on emoji & ZWJ sequences.
-    .replace(/\p{Extended_Pictographic}/gu, " ")
-    .replace(/[\uFE0F\u200D\u20E3]/g, "")
-    .replace(/,/g, " ")
-    .replace(/\s+/g, " ")
-    .replace(/\s+([.!?])/g, "$1")
-    .trim();
-}
 
 export function useSpeech(options?: {
   character?: Character | null;
@@ -993,7 +983,7 @@ export function useSpeech(options?: {
         const volume = Math.max(0, Math.min(1, volumeRef.current));
         utterance.lang = "he-IL";
         utterance.volume = volume;
-        utterance.rate = 0.95;
+        utterance.rate = browserSpeechRate(preview?.rateMultiplier ?? rateMultiplierRef.current ?? 1);
         utterance.pitch = 1.0;
         activeUtterance = utterance;
         currentOutputVolume = volume;
@@ -1081,9 +1071,8 @@ export function useSpeech(options?: {
         utterance.volume = volume;
         activeUtterance = utterance;
         currentOutputVolume = volume;
-        const baseRate = character?.voice.rate ?? 0.98;
         const basePitch = character?.voice.pitch ?? 1.0;
-        utterance.rate = naturalSpeechRate(baseRate, speed);
+        utterance.rate = browserSpeechRate(speed);
         utterance.pitch = naturalSpeechPitch(basePitch);
         window.speechSynthesis.resume();
         if (voice && voiceFitsRequiredGender(voice, male ? "male" : "female")) {
@@ -1176,7 +1165,7 @@ export function useSpeech(options?: {
 
     speechQueueRef.current.shift();
     const generation = ttsGenerationRef.current;
-    const spokenText = smoothSpokenText(next);
+    const spokenText = prepareTextForTts(next);
     const character = characterRef.current;
     const neuralVoice = neuralVoiceForText(spokenText, character);
     const speed = neuralSpeedForCharacter(
@@ -1200,7 +1189,7 @@ export function useSpeech(options?: {
 
     const upcoming = speechQueueRef.current[0];
     if (upcoming && !useBrowserTtsFallbackRef.current) {
-      const upcomingText = smoothSpokenText(upcoming);
+      const upcomingText = prepareTextForTts(upcoming);
       preloadNeuralAudio(
         upcomingText,
         neuralVoiceForText(upcomingText, character),
@@ -1349,7 +1338,7 @@ export function useSpeech(options?: {
       if (!trimmed || typeof window === "undefined") return;
       stopSpeaking();
       resumeAudioGraph();
-      speechQueueRef.current = [smoothSpokenText(trimmed)];
+      speechQueueRef.current = [prepareTextForTts(trimmed)];
       playNextUtterance(preview);
     },
     [playNextUtterance, stopSpeaking],
@@ -1382,7 +1371,7 @@ export function useSpeech(options?: {
       if (typeof window !== "undefined" && "speechSynthesis" in window) {
         resumeSpeechSynthesis();
       }
-      const spoken = smoothSpokenText(trimmed);
+      const spoken = prepareTextForTts(trimmed);
       const last = speechQueueRef.current[speechQueueRef.current.length - 1];
       if (last && last.length < 90 && !/[.!?…]["']?$/.test(last)) {
         speechQueueRef.current[speechQueueRef.current.length - 1] = `${last} ${spoken}`;
