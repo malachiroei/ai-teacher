@@ -4,8 +4,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { hasHebrewScript, type SpeechLang } from "@/lib/language";
 import { fetchNeuralAudioUrl, preloadNeuralAudio } from "@/lib/neural-tts-client";
 import { findVoiceByUri, isLegacyRoboticVoice, isPremiumNaturalVoice, isVoiceLikelyFemale, isVoiceLikelyMale, listEnglishVoices, pickCharacterVoice, voiceFitsRequiredGender, type Character } from "@/lib/characters";
-import { prepareTextForTts } from "@/lib/tts-text";
-import { neuralSpeedForCharacter, neuralVoiceForText } from "@/lib/tts-voices";
+import { prepareTextForTts, expandTextToSpeechQueue, type SpeechQueueSegment } from "@/lib/tts-text";
+import { neuralSpeedForCharacter, neuralVoiceForLang, neuralVoiceForText } from "@/lib/tts-voices";
 
 export const SPEECH_UNAVAILABLE_MESSAGE =
   "Speech recognition is not fully supported or microphone access was denied";
@@ -643,7 +643,7 @@ export function useSpeech(options?: {
   const silenceTimerRef = useRef<number | null>(null);
   const idleListenTimerRef = useRef<number | null>(null);
   const heardSpeechRef = useRef(false);
-  const speechQueueRef = useRef<string[]>([]);
+  const speechQueueRef = useRef<SpeechQueueSegment[]>([]);
   const ttsBusyRef = useRef(false);
   const ttsGenerationRef = useRef(0);
   const sendTranscriptRef = useRef<(text?: string) => void>(() => {});
@@ -1151,8 +1151,8 @@ export function useSpeech(options?: {
       return;
     }
 
-    const next = speechQueueRef.current[0];
-    if (!next) {
+    const item = speechQueueRef.current[0];
+    if (!item) {
       stopResumeWatch();
       setIsSpeaking(false);
       setSpeakingText("");
@@ -1165,9 +1165,10 @@ export function useSpeech(options?: {
 
     speechQueueRef.current.shift();
     const generation = ttsGenerationRef.current;
-    const spokenText = prepareTextForTts(next);
+    const spokenText = item.spoken;
+    const displayText = item.display;
     const character = characterRef.current;
-    const neuralVoice = neuralVoiceForText(spokenText, character);
+    const neuralVoice = neuralVoiceForLang(item.lang, character);
     const speed = neuralSpeedForCharacter(
       character,
       preview?.rateMultiplier ?? rateMultiplierRef.current ?? 1,
@@ -1181,18 +1182,17 @@ export function useSpeech(options?: {
 
     ttsBusyRef.current = true;
     setIsSpeaking(true);
-    setSpeakingText(next);
-    speakingTextRef.current = next;
-    onUtteranceEnqueueRef.current?.(next);
+    setSpeakingText(displayText);
+    speakingTextRef.current = displayText;
+    onUtteranceEnqueueRef.current?.(displayText);
     lastSpokenVolumeRef.current = volume;
     currentOutputVolume = volume;
 
     const upcoming = speechQueueRef.current[0];
     if (upcoming && !useBrowserTtsFallbackRef.current) {
-      const upcomingText = prepareTextForTts(upcoming);
       preloadNeuralAudio(
-        upcomingText,
-        neuralVoiceForText(upcomingText, character),
+        upcoming.spoken,
+        neuralVoiceForLang(upcoming.lang, character),
         speed,
       );
     }
@@ -1205,10 +1205,10 @@ export function useSpeech(options?: {
     };
 
     if (useBrowserTtsFallbackRef.current) {
-      if (hasHebrewScript(spokenText)) {
-        playBrowserHebrewChunk(next, spokenText, preview, generation);
+      if (item.lang === "en") {
+        playBrowserSpeechChunk(displayText, spokenText, preview, generation);
       } else {
-        playBrowserSpeechChunk(next, spokenText, preview, generation);
+        playBrowserHebrewChunk(displayText, spokenText, preview, generation);
       }
       return;
     }
@@ -1229,7 +1229,7 @@ export function useSpeech(options?: {
             if (generation !== ttsGenerationRef.current) return;
             spokeThisTurnRef.current = true;
             setIsSpeaking(true);
-            onUtteranceStartRef.current?.(next);
+            onUtteranceStartRef.current?.(displayText);
           },
         });
 
@@ -1243,10 +1243,10 @@ export function useSpeech(options?: {
         useBrowserTtsFallbackRef.current = true;
         ttsBusyRef.current = false;
         stopNeuralPlayback();
-        if (hasHebrewScript(spokenText)) {
-          playBrowserHebrewChunk(next, spokenText, preview, generation);
+        if (item.lang === "en") {
+          playBrowserSpeechChunk(displayText, spokenText, preview, generation);
         } else {
-          playBrowserSpeechChunk(next, spokenText, preview, generation);
+          playBrowserHebrewChunk(displayText, spokenText, preview, generation);
         }
       }
     })();
@@ -1284,8 +1284,12 @@ export function useSpeech(options?: {
     const parkCurrentChunk = () => {
       const current = speakingTextRef.current.trim();
       if (!current) return;
-      if (speechQueueRef.current[0] !== current) {
-        speechQueueRef.current = [current, ...speechQueueRef.current];
+      const head = speechQueueRef.current[0];
+      if (head && head.display !== current) {
+        speechQueueRef.current = [
+          { display: current, spoken: prepareTextForTts(current), lang: /[\u0590-\u05FF]/.test(current) ? "he" : "en" },
+          ...speechQueueRef.current,
+        ];
       }
     };
 
@@ -1338,7 +1342,7 @@ export function useSpeech(options?: {
       if (!trimmed || typeof window === "undefined") return;
       stopSpeaking();
       resumeAudioGraph();
-      speechQueueRef.current = [prepareTextForTts(trimmed)];
+      speechQueueRef.current = expandTextToSpeechQueue(trimmed);
       playNextUtterance(preview);
     },
     [playNextUtterance, stopSpeaking],
@@ -1371,12 +1375,20 @@ export function useSpeech(options?: {
       if (typeof window !== "undefined" && "speechSynthesis" in window) {
         resumeSpeechSynthesis();
       }
-      const spoken = prepareTextForTts(trimmed);
+      const items = expandTextToSpeechQueue(trimmed);
+      if (items.length === 0) return;
       const last = speechQueueRef.current[speechQueueRef.current.length - 1];
-      if (last && last.length < 90 && !/[.!?…]["']?$/.test(last)) {
-        speechQueueRef.current[speechQueueRef.current.length - 1] = `${last} ${spoken}`;
+      if (
+        last &&
+        items.length === 1 &&
+        last.lang === items[0].lang &&
+        last.display.length < 90 &&
+        !/[.!?…]["']?$/.test(last.display)
+      ) {
+        last.display = `${last.display} ${items[0].display}`.trim();
+        last.spoken = `${last.spoken} ${items[0].spoken}`.trim();
       } else {
-        speechQueueRef.current.push(spoken);
+        speechQueueRef.current.push(...items);
       }
       setIsSpeaking(true);
       playNextUtterance(preview);

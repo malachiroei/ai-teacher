@@ -52,6 +52,10 @@ export function neuralVoiceForText(text: string, character?: Character | null): 
   return englishNeuralVoiceForCharacter(character);
 }
 
+export function neuralVoiceForLang(lang: "he" | "en", character?: Character | null): NeuralTtsVoice {
+  return lang === "he" ? hebrewNeuralVoice(character?.voice.gender ?? "male") : englishNeuralVoiceForCharacter(character);
+}
+
 export function resolveNeuralVoice(voice?: string | null, text?: string | null): NeuralTtsVoice {
   if (isAllowedNeuralVoice(voice)) return voice;
   if (voice && /^(en-US|he-IL)-[A-Za-z]+Neural$/.test(voice)) return voice as NeuralTtsVoice;

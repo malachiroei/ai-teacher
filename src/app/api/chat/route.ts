@@ -47,12 +47,20 @@ const GEMINI_CONNECT_TIMEOUT_MS = 12_000;
 const VOICE_LATENCY_RULE =
   "OUTPUT FORMAT (CRITICAL): Plaintext ONLY. No JSON. No markdown. No labels. Under 30 words total (beginner: under 12). Always end with punctuation (. ! or ?). Never leave a thought incomplete.";
 
+const NO_META_TALK_RULES = `NO META-TALK (CRITICAL — speak like a live teacher, never a robot):
+- Talk TO the child only. Never explain your logic, memory, or what they "chose" or "clicked".
+- BANNED: "אני מבין שבחרת", "I understand you picked", "but I know your name is", "My name is Tom but…", "you said… that's awesome".
+- BANNED: Contradicting names, referencing placement scripts, or narrating the UI (chips, buttons, lessons).
+- NEVER introduce yourself with a fake kid name (Tom/Maya). You are the tutor character only.
+- Max TWO short warm sentences. No reasoning chains. No "but" corrections mid-sentence.
+- React naturally: validate → one tiny teach moment → one gentle question. Done.`;
+
 const BILINGUAL_SANDWICH_RULES = `BILINGUAL SANDWICH (CRITICAL — do NOT jump to full English):
 - After the child taps a mood/feeling chip (שמח, עייף, Happy, Tired, טוב, etc.), reply in warm Hebrew FIRST.
 - Validate their feeling in Hebrew, then teach exactly ONE simple English word — never a full English paragraph.
 - Pattern: Hebrew validation + "באנגלית אומרים…" + ONE English word + gentle invite to repeat.
-- Example (child picked שמח / Happy): "איזה כיף לשמוע שאתה שמח! באנגלית אומרים שמח ככה: Happy 😊. רוצה לנסות להגיד איתי Happy?"
-- Example (child picked עייף / Tired): "מבין אותך לגמרי, יום ארוך! באנגלית עייף זה Tired. תנסה להגיד Tired?"
+- Example (child picked שמח / Happy): "איזה כיף לשמוע שאתה שמח! באנגלית אומרים Happy. רוצה לנסות להגיד Happy?"
+- Example (child picked עייף / Tired): "מבין אותך, יום ארוך! באנגלית עייף זה Tired. תנסה להגיד Tired?"
 - Keep quick-reply chips contextual when teaching vocabulary: [ 😊 Happy ] [ 😴 Tired ] style labels.
 - Do NOT switch aiResponse to all-English until the child has successfully used English on their own at least twice in the session.
 - Even mid warm-up: max 1–2 English words per reply; the rest stays Hebrew.`;
@@ -72,6 +80,8 @@ Stay in CHARACTER. Kind older-sibling / encouraging tutor vibe. Never a strict t
 ${HEBREW_FIRST_RULES}
 
 ${BILINGUAL_SANDWICH_RULES}
+
+${NO_META_TALK_RULES}
 
 NATURAL NAMING (CRITICAL):
 - Do NOT say the child's name in every message. That feels robotic.
@@ -120,6 +130,8 @@ BANNED PHRASES (never say these):
 - "What do you like to do?"
 - "That's interesting. Tell me more"
 - "you said ... that's awesome! What do you like most about it?"
+- "My name is Tom" / any fake child name for the tutor or learner
+- "I understand you chose" / "אני מבין שבחרת" / "but I know you are called"
 Never use a generic template. Every reply MUST react to specific words they used — except when confused, then explain.
 
 3-STAGE FLOW:
@@ -877,27 +889,26 @@ function chipSelectionReply(userMessage: string): ChatApiResponse | null {
   const text = userMessage.trim();
   if (/בחרתי לדבר על אוכל|^אוכל$/u.test(text)) {
     return {
-      aiResponse:
-        "איזה כיף! גם אני אוהב לאכול. באנגלית אוכל זה Food 🍕. מה המאכל שהכי בא לך עכשיו, פיצה או גלידה?",
-      translation: "Great! I love food too. In English, food is Food. What sounds tastiest right now, pizza or ice cream?",
+      aiResponse: "אוכל זה מעולה! מה המאכל הכי טעים שלך, פיצה או גלידה?",
+      translation: "Food is awesome! What's your tastiest food, pizza or ice cream?",
       grammarAnalysis: emptyGrammar(),
-      suggestedAnswers: ["🍕 Pizza", "🍦 Ice cream"],
+      suggestedAnswers: ["🍕 פיצה", "🍦 גלידה"],
       newMemories: [{ fact: "Interested in food", kind: "preference", eventOn: null }],
     };
   }
   if (/בחרתי לדבר על חיות|^חיות$/u.test(text)) {
     return {
-      aiResponse: "איזה כיף! אני אוהב חיות. באנגלית חיה זה Animal 🐶. יש לך חיה בבית, או חיה שאתה אוהב?",
-      translation: "Great! I love animals. In English, animal is Animal. Do you have a pet, or a favorite animal?",
+      aiResponse: "חיות זה כיף! יש לך חיה בבית, או חיה שאתה הכי אוהב?",
+      translation: "Animals are fun! Do you have a pet, or a favorite animal?",
       grammarAnalysis: emptyGrammar(),
-      suggestedAnswers: ["🐱 Cat", "🐶 Dog"],
+      suggestedAnswers: ["🐱 חתול", "🐶 כלב"],
       newMemories: [{ fact: "Interested in animals", kind: "preference", eventOn: null }],
     };
   }
   if (/בחרתי שמח|^שמח$/u.test(text)) {
     return {
-      aiResponse: "איזה כיף לשמוע שאתה שמח! באנגלית אומרים שמח ככה: Happy 😊. רוצה לנסות להגיד איתי Happy?",
-      translation: "So nice to hear you're happy! In English we say Happy. Want to try saying Happy with me?",
+      aiResponse: "איזה כיף לשמוע שאתה שמח! באנגלית אומרים Happy. רוצה לנסות להגיד Happy?",
+      translation: "So nice you're happy! In English we say Happy. Want to try saying Happy?",
       grammarAnalysis: emptyGrammar(),
       suggestedAnswers: ["😊 Happy", "Happy!"],
       newMemories: [],
@@ -905,7 +916,7 @@ function chipSelectionReply(userMessage: string): ChatApiResponse | null {
   }
   if (/בחרתי עייף|^עייף$/u.test(text)) {
     return {
-      aiResponse: "מבין אותך לגמרי, יום ארוך! באנגלית עייף זה Tired. תנסה להגיד Tired?",
+      aiResponse: "מבין אותך, יום ארוך! באנגלית עייף זה Tired. תנסה להגיד Tired?",
       translation: "I get it, long day! In English, tired is Tired. Try saying Tired?",
       grammarAnalysis: emptyGrammar(),
       suggestedAnswers: ["😴 Tired", "Tired."],
@@ -914,8 +925,8 @@ function chipSelectionReply(userMessage: string): ChatApiResponse | null {
   }
   if (/בחרתי גלידה|^גלידה$/u.test(text)) {
     return {
-      aiResponse: "מממ, גלידה! באנגלית אומרים Ice cream 🍦. רוצה לנסות להגיד Ice cream?",
-      translation: "Mmm, ice cream! In English we say Ice cream. Want to try saying Ice cream?",
+      aiResponse: "מממ, גלידה! באנגלית אומרים Ice cream. רוצה לנסות להגיד Ice cream?",
+      translation: "Mmm, ice cream! In English we say Ice cream. Want to try?",
       grammarAnalysis: emptyGrammar(),
       suggestedAnswers: ["🍦 Ice cream", "Ice cream!"],
       newMemories: [{ fact: "Likes ice cream", kind: "preference", eventOn: null }],
@@ -923,16 +934,35 @@ function chipSelectionReply(userMessage: string): ChatApiResponse | null {
   }
   if (/בחרתי פיצה|^פיצה$/u.test(text)) {
     return {
-      aiResponse: "יופי, פיצה! באנגלית אומרים Pizza 🍕. תנסה להגיד Pizza?",
-      translation: "Nice, pizza! In English we say Pizza. Try saying Pizza?",
+      aiResponse:
+        "יאמי, פיצה זה מושלם! באנגלית אומרים פיצה ממש אותו דבר: Pizza! בא לך שנשחק משחק קצר על אוכל?",
+      translation: "Yummy, pizza is perfect! In English we say Pizza. Want a quick food game?",
       grammarAnalysis: emptyGrammar(),
-      suggestedAnswers: ["🍕 Pizza", "Pizza!"],
+      suggestedAnswers: ["🎮 בוא נשחק", "💬 נמשיך לדבר"],
       newMemories: [{ fact: "Likes pizza", kind: "preference", eventOn: null }],
+    };
+  }
+  if (/בוא נשחק|^בחרתי.*משחק/u.test(text)) {
+    return {
+      aiResponse: "יאללה, משחק! 🎮 באנגלית Game. נתחיל — מה עדיף, פיצה Pizza או גלידה Ice cream?",
+      translation: "Let's play! In English: Game. Pizza or ice cream?",
+      grammarAnalysis: emptyGrammar(),
+      suggestedAnswers: ["🍕 Pizza", "🍦 Ice cream"],
+      newMemories: [],
+    };
+  }
+  if (/^(בוא )?נמשיך לדבר$/u.test(text)) {
+    return {
+      aiResponse: "בשמחה! על מה עוד בא לך לדבר — חיות, משחקים, או משהו אחר?",
+      translation: "Sure! What else do you want to chat about — animals, games, or something else?",
+      grammarAnalysis: emptyGrammar(),
+      suggestedAnswers: ["🐶 חיות", "🎮 משחקים"],
+      newMemories: [],
     };
   }
   if (/היום שלי היה טוב|^טוב!?$/u.test(text)) {
     return {
-      aiResponse: "שמח לשמוע! איך תרגיש באנגלית? Good 😊. תנסה להגיד Good?",
+      aiResponse: "שמח לשמוע! באנגלית Good. תנסה להגיד Good?",
       translation: "Glad to hear! In English we say Good. Try saying Good?",
       grammarAnalysis: emptyGrammar(),
       suggestedAnswers: ["😊 Good", "Good!"],
@@ -942,9 +972,19 @@ function chipSelectionReply(userMessage: string): ChatApiResponse | null {
   return null;
 }
 
+function stripMetaCommentary(text: string) {
+  return text
+    .replace(/\bMy name is (?:Tom|Maya|Alex)\b[^.!?]*[.!?]?/gi, "")
+    .replace(/אני מבין שבחרת[^.!?]*[.!?]?/g, "")
+    .replace(/אבל אני יודע ש[^.!?]*[.!?]?/g, "")
+    .replace(/I understand you (?:chose|picked)[^.!?]*[.!?]?/gi, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 function polishPlainReply(rawText: string, profile?: ProfileInput | null, userMessage = ""): ChatApiResponse {
   const allowScaffold = shouldOfferSayHint(userMessage);
-  let aiResponse = collapseRepeatedSpeech(primarySpeechLine(rawText));
+  let aiResponse = collapseRepeatedSpeech(stripMetaCommentary(primarySpeechLine(rawText)));
   if (!allowScaffold) aiResponse = stripUnsolicitedScaffold(aiResponse);
   aiResponse = collapseRepeatedSpeech(aiResponse);
   if (isBannedGenericReply(aiResponse)) {
@@ -1234,7 +1274,7 @@ async function streamGemini(
           : allowScaffold
             ? 'The child asked how to say something. Reply like: "Cat! Can you say \'Cat\'?" (word first, invite them to repeat), then one tiny question. English only. No Hebrew.'
             : isChipSelection(userMessage)
-              ? `CHIP SELECTION: The child picked a quick-reply chip: "${userMessage}". Continue that exact topic in warm Hebrew (bilingual sandwich). Validate their choice, teach ONE English word, ask a follow-up on the SAME topic. NEVER restart with "how was your day" or a new greeting. Under 30 words Hebrew. translation: brief English gloss.`
+              ? `CHIP SELECTION: The child picked a quick-reply chip: "${userMessage}". Continue that exact topic in warm Hebrew (bilingual sandwich). Validate their choice, teach ONE English word max, ask a follow-up on the SAME topic. NEVER restart with "how was your day" or a new greeting. NEVER mention chips, clicks, or what they chose. Speak directly like a live teacher. Under 30 words Hebrew. translation: brief English gloss.`
               : `PLACEMENT IS COMPLETE. Never ask name, age, or "what is your favorite color?". The child just said: "${userMessage}".
 TOPIC RULE: If they hint at a new topic, abandon the old one instantly and dive in.
 FORMAT: After warm-up, use playful variety — never two generic "Do you like X?" in a row.

@@ -160,6 +160,9 @@ const CHIP_USER_MESSAGES: Record<string, string> = {
   למדתי: "הכי כיף לי שלמדתי היום",
   Pizza: "בחרתי פיצה",
   "Ice cream": "בחרתי גלידה",
+  "בוא נשחק": "בוא נשחק משחק קצר",
+  "נמשיך לדבר": "בוא נמשיך לדבר",
+  משחקים: "בחרתי לדבר על משחקים",
 };
 
 /** Turn a quick-reply chip into a full user turn the tutor can continue from. */
