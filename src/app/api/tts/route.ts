@@ -25,7 +25,8 @@ function parseInput(request: NextRequest, body?: Partial<TtsInput>): TtsInput | 
   const text = (fromBody || fromQuery || "").slice(0, MAX_CHARS);
   if (!text) return null;
 
-  const voice = resolveNeuralVoice(body?.voice ?? request.nextUrl.searchParams.get("voice"));
+  const voiceHint = body?.voice ?? request.nextUrl.searchParams.get("voice");
+  const voice = resolveNeuralVoice(voiceHint, text);
   const speedRaw = body?.speed ?? request.nextUrl.searchParams.get("speed");
   const speed = clampNeuralSpeed(typeof speedRaw === "number" ? speedRaw : Number(speedRaw));
 

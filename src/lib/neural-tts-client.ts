@@ -23,7 +23,7 @@ function trimCache() {
 }
 
 export function buildNeuralTtsRequest(text: string, voice: string, speed: number) {
-  const resolvedVoice = resolveNeuralVoice(voice);
+  const resolvedVoice = resolveNeuralVoice(voice, text);
   const resolvedSpeed = clampNeuralSpeed(speed);
   const trimmed = text.trim();
   if (!trimmed) throw new Error("empty text");
@@ -50,10 +50,10 @@ export async function fetchNeuralAudioUrl(
   speed: number,
   signal?: AbortSignal,
 ): Promise<string> {
-  const resolvedVoice = resolveNeuralVoice(voice);
-  const resolvedSpeed = clampNeuralSpeed(speed);
   const trimmed = text.trim();
   if (!trimmed) throw new Error("empty text");
+  const resolvedVoice = resolveNeuralVoice(voice, trimmed);
+  const resolvedSpeed = clampNeuralSpeed(speed);
 
   const key = cacheKey(trimmed, resolvedVoice, resolvedSpeed);
   const cached = audioCache.get(key);

@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { hasHebrewScript, type SpeechLang } from "@/lib/language";
 import { fetchNeuralAudioUrl, preloadNeuralAudio } from "@/lib/neural-tts-client";
 import { findVoiceByUri, isLegacyRoboticVoice, isPremiumNaturalVoice, isVoiceLikelyFemale, isVoiceLikelyMale, listEnglishVoices, pickCharacterVoice, voiceFitsRequiredGender, type Character } from "@/lib/characters";
-import { neuralSpeedForCharacter, neuralVoiceForCharacter } from "@/lib/tts-voices";
+import { neuralSpeedForCharacter, neuralVoiceForText } from "@/lib/tts-voices";
 
 export const SPEECH_UNAVAILABLE_MESSAGE =
   "Speech recognition is not fully supported or microphone access was denied";
@@ -1178,7 +1178,7 @@ export function useSpeech(options?: {
     const generation = ttsGenerationRef.current;
     const spokenText = smoothSpokenText(next);
     const character = characterRef.current;
-    const neuralVoice = neuralVoiceForCharacter(character);
+    const neuralVoice = neuralVoiceForText(spokenText, character);
     const speed = neuralSpeedForCharacter(
       character,
       preview?.rateMultiplier ?? rateMultiplierRef.current ?? 1,
@@ -1200,9 +1200,10 @@ export function useSpeech(options?: {
 
     const upcoming = speechQueueRef.current[0];
     if (upcoming && !useBrowserTtsFallbackRef.current) {
+      const upcomingText = smoothSpokenText(upcoming);
       preloadNeuralAudio(
-        smoothSpokenText(upcoming),
-        neuralVoice,
+        upcomingText,
+        neuralVoiceForText(upcomingText, character),
         speed,
       );
     }
@@ -1214,13 +1215,12 @@ export function useSpeech(options?: {
       }, 40);
     };
 
-    if (hasHebrewScript(spokenText)) {
-      playBrowserHebrewChunk(next, spokenText, preview, generation);
-      return;
-    }
-
     if (useBrowserTtsFallbackRef.current) {
-      playBrowserSpeechChunk(next, spokenText, preview, generation);
+      if (hasHebrewScript(spokenText)) {
+        playBrowserHebrewChunk(next, spokenText, preview, generation);
+      } else {
+        playBrowserSpeechChunk(next, spokenText, preview, generation);
+      }
       return;
     }
 
@@ -1254,7 +1254,11 @@ export function useSpeech(options?: {
         useBrowserTtsFallbackRef.current = true;
         ttsBusyRef.current = false;
         stopNeuralPlayback();
-        playBrowserSpeechChunk(next, spokenText, preview, generation);
+        if (hasHebrewScript(spokenText)) {
+          playBrowserHebrewChunk(next, spokenText, preview, generation);
+        } else {
+          playBrowserSpeechChunk(next, spokenText, preview, generation);
+        }
       }
     })();
   }, [playBrowserHebrewChunk, playBrowserSpeechChunk, resetListeningState, stopRecognizer]);

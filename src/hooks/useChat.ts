@@ -99,22 +99,27 @@ export type ProactivePrompt = {
 
 const WARM_HEBREW_PROMPTS: ProactivePrompt[] = [
   {
+    he: "היי! איזה כיף לראות אותך. מה המאכל הכי אהוב עליך — גלידה או פיצה?",
+    en: "Hi! Great to see you. What's your favorite food — ice cream or pizza?",
+    chips: ["🍦 גלידה", "🍕 פיצה"],
+  },
+  {
     he: "היי! איזה כיף שבאת ללמוד איתי היום. איך עבר היום שלך?",
     en: "Hi! So glad you're here. How was your day?",
     chips: ["😊 טוב!", "🙂 בסדר"],
   },
   {
-    he: "היי! בא לך שנדבר קצת על חיות, או על אוכל טעים?",
+    he: "היי! בא לך שנדבר על חיות, או על אוכל טעים?",
     en: "Want to chat about animals, or tasty food?",
     chips: ["🐶 חיות", "🍕 אוכל"],
   },
   {
-    he: "שמחה לראות אותך! איך הרגשת היום — יותר שמח/ה או יותר עייף/ה?",
+    he: "כיף לראות אותך! איך הרגשת היום — יותר שמח או יותר עייף?",
     en: "Good to see you! Did you feel happy or tired today?",
     chips: ["😄 שמח", "😴 עייף"],
   },
   {
-    he: "היי! יש לך חיה אהובה בבית, או חיה שאת/ה אוהב/ת לדמיין?",
+    he: "היי! יש לך חיה אהובה בבית, או חיה שאתה אוהב לדמיין?",
     en: "Do you have a favorite pet, or an animal you love?",
     chips: ["🐱 יש!", "🦁 לא"],
   },
@@ -122,11 +127,6 @@ const WARM_HEBREW_PROMPTS: ProactivePrompt[] = [
     he: "יופי שבאת! מה עשית היום שהכי כיף לך?",
     en: "What was the most fun thing you did today?",
     chips: ["🎮 שיחקתי", "📚 למדתי"],
-  },
-  {
-    he: "היי! בוא נתחיל בקטן — איך קוראים לך לעוגיה הכי טעימה? 🍪",
-    en: "Let's start small — what's your favorite tasty snack?",
-    chips: ["🍪 עוגיה", "🍦 גלידה"],
   },
 ];
 
