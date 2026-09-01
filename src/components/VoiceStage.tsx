@@ -278,7 +278,7 @@ export function VoiceStage({
 
       {/* Controls — shrink-0 only; never climbs into avatar */}
       <div
-        className="z-20 flex shrink-0 flex-col gap-2.5 px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-1"
+        className="z-20 flex shrink-0 flex-col gap-2.5 px-4 pb-[max(1.5rem,env(safe-area-inset-bottom))] pt-1"
         onPointerDown={(event) => event.stopPropagation()}
       >
         <ChatSubtitleBox
