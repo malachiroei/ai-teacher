@@ -76,15 +76,13 @@ export function shouldStartFreshSession(messages: Message[], now = Date.now()) {
 }
 
 export function buildWarmLaunchGreeting(input: { childName?: string | null; hour?: number }) {
-  const hour = input.hour ?? new Date().getHours();
-  const part = hour >= 5 && hour < 12 ? "this morning" : hour >= 12 && hour < 18 ? "this afternoon" : "this evening";
   const who = String(input.childName || "").trim();
-  const en = who
-    ? `Hey ${who}! Great to see you ${part}! Ready to practice some English?`
-    : `Hey! Great to see you ${part}! Ready to practice some English?`;
   const he = who
-    ? `היי ${who}! כיף לראות אותך! מוכן לתרגל אנגלית?`
-    : `היי! כיף לראות אותך! מוכן לתרגל אנגלית?`;
+    ? `היי ${who}! איזה כיף שבאת ללמוד איתי היום. איך עבר היום שלך?`
+    : `היי! איזה כיף שבאת ללמוד איתי היום. איך עבר היום שלך?`;
+  const en = who
+    ? `Hi ${who}! So glad you're here today. How was your day?`
+    : `Hi! So glad you're here today. How was your day?`;
   return { en, he };
 }
 
@@ -92,47 +90,49 @@ export function buildWarmLaunchGreeting(input: { childName?: string | null; hour
 export const PROACTIVE_IDLE_MS = 4000;
 
 export type ProactivePrompt = {
-  en: string;
+  /** Hebrew — primary spoken line for warm onboarding. */
   he: string;
+  /** Short English gloss / subtitle support. */
+  en: string;
   chips: [string, string];
 };
 
-const PROACTIVE_PROMPTS: ProactivePrompt[] = [
+const WARM_HEBREW_PROMPTS: ProactivePrompt[] = [
   {
-    en: "Look at this pizza 🍕! Do you like olives or corn on yours?",
-    he: "תראה את הפיצה הזאת 🍕! אתה אוהב זיתים או תירס?",
-    chips: ["🍕 Pizza", "🍔 Burger"],
+    he: "היי! איזה כיף שבאת ללמוד איתי היום. איך עבר היום שלך?",
+    en: "Hi! So glad you're here. How was your day?",
+    chips: ["😊 טוב!", "🙂 בסדר"],
   },
   {
-    en: "Imagine a superpower for one day — fly 🦸 or talk to animals 🐶?",
-    he: "דמיין כוח-על ליום אחד — לעוף 🦸 או לדבר עם חיות 🐶?",
-    chips: ["🦸 Fly!", "🐶 Talk to animals"],
+    he: "היי! בא לך שנדבר קצת על חיות, או על אוכל טעים?",
+    en: "Want to chat about animals, or tasty food?",
+    chips: ["🐶 חיות", "🍕 אוכל"],
   },
   {
-    en: "We're building a wild theme park 🎢 — rollercoaster or water slide first?",
-    he: "אנחנו בונים פארק שעשועים 🎢 — רכבת הרים או מגלשה?",
-    chips: ["🎢 Rollercoaster", "💦 Water slide"],
+    he: "שמחה לראות אותך! איך הרגשת היום — יותר שמח/ה או יותר עייף/ה?",
+    en: "Good to see you! Did you feel happy or tired today?",
+    chips: ["😄 שמח", "😴 עייף"],
   },
   {
-    en: "Pick a snack adventure 🍿 — sweet popcorn or salty chips?",
-    he: "בחר הרפתקת חטיף 🍿 — פופקורן מתוק או צ'יפס מלוח?",
-    chips: ["🍿 Popcorn", "🥔 Chips"],
+    he: "היי! יש לך חיה אהובה בבית, או חיה שאת/ה אוהב/ת לדמיין?",
+    en: "Do you have a favorite pet, or an animal you love?",
+    chips: ["🐱 יש!", "🦁 לא"],
   },
   {
-    en: "Your spaceship needs a name 🚀 — Star Rocket or Moon Zoom?",
-    he: "לחללית שלך צריך שם 🚀 — Star Rocket או Moon Zoom?",
-    chips: ["🚀 Star Rocket", "🌙 Moon Zoom"],
+    he: "יופי שבאת! מה עשית היום שהכי כיף לך?",
+    en: "What was the most fun thing you did today?",
+    chips: ["🎮 שיחקתי", "📚 למדתי"],
   },
   {
-    en: "Quick Would You Rather 🌈 — rainbow ice cream or chocolate cake?",
-    he: "מה תעדיף 🌈 — גלידת קשת או עוגת שוקולד?",
-    chips: ["🍦 Ice cream", "🍰 Cake"],
+    he: "היי! בוא נתחיל בקטן — איך קוראים לך לעוגיה הכי טעימה? 🍪",
+    en: "Let's start small — what's your favorite tasty snack?",
+    chips: ["🍪 עוגיה", "🍦 גלידה"],
   },
 ];
 
 export function pickProactivePrompt(seed = Date.now()) {
-  const index = Math.abs(seed) % PROACTIVE_PROMPTS.length;
-  return PROACTIVE_PROMPTS[index];
+  const index = Math.abs(seed) % WARM_HEBREW_PROMPTS.length;
+  return WARM_HEBREW_PROMPTS[index];
 }
 
 export function proactiveChips(prompt: ProactivePrompt) {

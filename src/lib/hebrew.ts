@@ -192,6 +192,11 @@ export function extractHebrewHint(text: string) {
 export function splitCaptionLines(english: string, translation?: string | null) {
   const source = english.trim();
   const hebrewRaw = (translation ?? "").trim();
+  const sourceIsHebrew = /[\u0590-\u05FF]/.test(source);
+  if (sourceIsHebrew) {
+    const gloss = hebrewRaw && !/[\u0590-\u05FF]/.test(hebrewRaw) ? hebrewRaw : "";
+    return { english: gloss, hebrew: source };
+  }
   const hebrew = /[\u0590-\u05FF]/.test(hebrewRaw) ? hebrewRaw : "";
   return {
     english: stripHebrewScript(source),

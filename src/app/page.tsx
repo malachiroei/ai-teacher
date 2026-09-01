@@ -443,21 +443,21 @@ export default function HomePage() {
     const opener: Message = {
       id: createId(),
       sender: "ai",
-      text: prompt.en,
+      text: prompt.he,
       timestamp: now,
-      translation: prompt.he,
+      translation: prompt.en,
     };
     lastProactiveAtRef.current = now;
-    setSpokenReply(prompt.en);
-    setSpokenTranslation(prompt.he);
+    setSpokenReply(prompt.he);
+    setSpokenTranslation(prompt.en);
     setSuggestions(proactiveChips(prompt));
     setMessages((current) => {
       const last = current[current.length - 1];
-      if (last?.sender === "ai" && last.text === prompt.en) return current;
+      if (last?.sender === "ai" && last.text === prompt.he) return current;
       return [...current, opener];
     });
     unlockSpeech();
-    if (autoSpeak) speak(prompt.en);
+    if (autoSpeak) speak(prompt.he);
     void persistMessages(user.id, [
       { id: opener.id, sender: "ai", text: opener.text, translation: opener.translation, createdAt: opener.timestamp },
     ]);
@@ -1281,9 +1281,9 @@ export default function HomePage() {
     const opener: Message = {
       id: createId(),
       sender: "ai",
-      text: greet.en,
+      text: greet.he,
       timestamp: Date.now(),
-      translation: greet.he,
+      translation: greet.en,
     };
     spokenOpenerRef.current = opener.id;
     setMessages([opener]);
@@ -1461,10 +1461,9 @@ export default function HomePage() {
 
       // Personalised first greeting — keep BEGINNER ultra-simple (matches onboarding choice).
       const kidName = (next.profile.full_name ?? next.profile.nickname ?? "").trim() || "friend";
-      const tutorNameStr = character.name;
       const tod = timeOfDayGreeting(kidName);
-      const greetingText = `${tod.en.slice(0, tod.en.indexOf("!") + 1)} I'm ${tutorNameStr}. ${tod.en.slice(tod.en.indexOf("!") + 1).trim()}`;
-      const greetingTranslation = tod.he;
+      const greetingText = tod.he;
+      const greetingTranslation = tod.en;
 
       const opener = {
         id: typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `${Date.now()}`,

@@ -252,12 +252,11 @@ function GLTFTalkingAvatar({
     applyAvatarLook(avatarScene, characterId);
 
     if (isMaleAvatar(characterId)) {
-      // Frame head+chest in the vertical center of the portrait window.
-      avatarScene.position.set(0, 0.28, 0);
-      avatarScene.scale.setScalar(1.62);
+      avatarScene.position.set(0, 0.32, 0);
+      avatarScene.scale.setScalar(2.25);
     } else {
-      avatarScene.position.set(0, -1.15, 0);
-      avatarScene.scale.setScalar(1.55);
+      avatarScene.position.set(0, -0.95, 0);
+      avatarScene.scale.setScalar(2.15);
     }
 
     return () => {
@@ -336,7 +335,7 @@ export const Avatar3DStage = memo(function Avatar3DStage({
 }: Avatar3DStageProps) {
   const characterId = resolveCharacterModelId(character.id);
   const modelUrl = character.modelUrl || `/models/${characterId}.glb`;
-  const cameraPosition: [number, number, number] = [0, 1.4, 1.15];
+  const cameraPosition: [number, number, number] = [0, 1.42, 0.95];
   const [contextKey, setContextKey] = useState(0);
   const remountTimer = useRef<number | null>(null);
 
@@ -382,7 +381,7 @@ export const Avatar3DStage = memo(function Avatar3DStage({
         preserveDrawingBuffer: false,
       }}
       onCreated={({ gl, camera }) => {
-        camera.position.set(0, 1.4, 1.15);
+        camera.position.set(0, 1.42, 0.95);
         camera.lookAt(0, 1.4, 0);
         camera.updateProjectionMatrix();
         const canvas = gl.domElement;

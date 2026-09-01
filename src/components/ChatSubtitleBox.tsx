@@ -4,6 +4,7 @@ import { useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { Globe, Lightbulb, Volume2 } from "lucide-react";
 import { MixedBidiText } from "@/components/MixedBidiText";
+import { hasHebrewScript } from "@/lib/language";
 import { cn } from "@/lib/utils";
 
 interface ChatSubtitleBoxProps {
@@ -96,8 +97,15 @@ export function ChatSubtitleBox({
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0 flex-1">
                     <p className="text-[10px] font-bold uppercase tracking-wide text-violet-600">{tutorName}</p>
-                    <p dir="ltr" className="mt-0.5 line-clamp-3 text-base font-semibold leading-snug text-slate-900">
-                      {tutor}
+                    <p
+                      dir={hasHebrewScript(tutor) ? "rtl" : "ltr"}
+                      lang={hasHebrewScript(tutor) ? "he" : "en"}
+                      className={cn(
+                        "mt-0.5 line-clamp-3 text-base font-semibold leading-snug text-slate-900",
+                        hasHebrewScript(tutor) && "text-right [unicode-bidi:plaintext]",
+                      )}
+                    >
+                      {hasHebrewScript(tutor) ? <MixedBidiText text={tutor} rtl /> : tutor}
                     </p>
                   </div>
                   <div className="flex shrink-0 items-center gap-1.5">

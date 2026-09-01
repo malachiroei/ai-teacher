@@ -7,6 +7,7 @@ import { VoiceWave, type VoiceWaveMode } from "@/components/VoiceWave";
 import { Avatar3DStage } from "@/components/Avatar3DStage";
 import { ChatSubtitleBox } from "@/components/ChatSubtitleBox";
 import { splitCaptionLines } from "@/lib/hebrew";
+import { hasHebrewScript } from "@/lib/language";
 import { type Character } from "@/lib/characters";
 import { cn } from "@/lib/utils";
 
@@ -176,7 +177,9 @@ export function VoiceStage({
   const trimmedTranscript = transcript.trim();
   const childLine = listening ? trimmedTranscript : "";
   const captionLines = splitCaptionLines(aiCaption, aiTranslation);
-  const tutorLine = captionLines.english;
+  const hebrewPrimary = hasHebrewScript(aiCaption);
+  const tutorLine = hebrewPrimary ? captionLines.hebrew || aiCaption : captionLines.english;
+  const tutorSubtitle = hebrewPrimary ? captionLines.english : captionLines.hebrew;
   const idleHint =
     thinking || childLine || tutorLine
       ? ""
@@ -266,7 +269,7 @@ export function VoiceStage({
       </header>
 
       {/* Avatar stage — fixed portrait band */}
-      <div className="relative z-0 h-[28vh] max-h-[30vh] shrink-0 w-full overflow-hidden">
+      <div className="relative z-0 h-[35vh] max-h-[35vh] shrink-0 w-full overflow-hidden">
         <div className="h-full w-full max-w-lg">
           <AvatarCanvasLayer
             character={character}
@@ -289,7 +292,7 @@ export function VoiceStage({
           tutorName={tutorName}
           childName={childName}
           tutorLine={tutorLine}
-          tutorHebrew={captionLines.hebrew}
+          tutorHebrew={tutorSubtitle}
           childLine={childLine}
           listening={listening}
           thinking={thinking}

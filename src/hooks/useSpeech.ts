@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { hasHebrewScript, type SpeechLang } from "@/lib/language";
 import { fetchNeuralAudioUrl, preloadNeuralAudio } from "@/lib/neural-tts-client";
 import { findVoiceByUri, isLegacyRoboticVoice, isPremiumNaturalVoice, isVoiceLikelyFemale, isVoiceLikelyMale, listEnglishVoices, pickCharacterVoice, voiceFitsRequiredGender, type Character } from "@/lib/characters";
-import { neuralVoiceForCharacter } from "@/lib/tts-voices";
+import { neuralSpeedForCharacter, neuralVoiceForCharacter } from "@/lib/tts-voices";
 
 export const SPEECH_UNAVAILABLE_MESSAGE =
   "Speech recognition is not fully supported or microphone access was denied";
@@ -974,6 +974,72 @@ export function useSpeech(options?: {
     () => {},
   );
 
+  const playBrowserHebrewChunk = useCallback(
+    (
+      displayText: string,
+      spokenText: string,
+      preview: { rateMultiplier?: number; voiceUri?: string | null } | undefined,
+      generation: number,
+    ) => {
+      if (typeof window === "undefined" || !("speechSynthesis" in window)) {
+        ttsBusyRef.current = false;
+        setIsSpeaking(false);
+        return;
+      }
+
+      try {
+        resumeSpeechSynthesis();
+        const utterance = new SpeechSynthesisUtterance(spokenText);
+        const volume = Math.max(0, Math.min(1, volumeRef.current));
+        utterance.lang = "he-IL";
+        utterance.volume = volume;
+        utterance.rate = 0.95;
+        utterance.pitch = 1.0;
+        activeUtterance = utterance;
+        currentOutputVolume = volume;
+
+        ttsBusyRef.current = true;
+        setIsSpeaking(true);
+        setSpeakingText(displayText);
+        speakingTextRef.current = displayText;
+
+        const advanceQueue = () => {
+          window.setTimeout(() => {
+            if (generation !== ttsGenerationRef.current) return;
+            playNextUtteranceRef.current(preview);
+          }, 40);
+        };
+
+        utterance.onstart = () => {
+          if (generation !== ttsGenerationRef.current) return;
+          spokeThisTurnRef.current = true;
+          setIsSpeaking(true);
+          onUtteranceStartRef.current?.(displayText);
+          startResumeWatch();
+        };
+        utterance.onend = () => {
+          if (generation !== ttsGenerationRef.current) return;
+          if (activeUtterance === utterance) activeUtterance = null;
+          ttsBusyRef.current = false;
+          advanceQueue();
+        };
+        utterance.onerror = () => {
+          if (generation !== ttsGenerationRef.current) return;
+          if (activeUtterance === utterance) activeUtterance = null;
+          ttsBusyRef.current = false;
+          advanceQueue();
+        };
+
+        kickUtterance(utterance, generation, ttsGenerationRef);
+      } catch {
+        ttsBusyRef.current = false;
+        setIsSpeaking(false);
+        setSpeakingText("");
+      }
+    },
+    [],
+  );
+
   const playBrowserSpeechChunk = useCallback(
     (
       displayText: string,
@@ -1113,8 +1179,8 @@ export function useSpeech(options?: {
     const spokenText = smoothSpokenText(next);
     const character = characterRef.current;
     const neuralVoice = neuralVoiceForCharacter(character);
-    const speed = naturalSpeechRate(
-      character?.voice.rate ?? 0.98,
+    const speed = neuralSpeedForCharacter(
+      character,
       preview?.rateMultiplier ?? rateMultiplierRef.current ?? 1,
     );
     const volume = Math.max(0, Math.min(1, volumeRef.current));
@@ -1147,6 +1213,11 @@ export function useSpeech(options?: {
         playNextUtterance(preview);
       }, 40);
     };
+
+    if (hasHebrewScript(spokenText)) {
+      playBrowserHebrewChunk(next, spokenText, preview, generation);
+      return;
+    }
 
     if (useBrowserTtsFallbackRef.current) {
       playBrowserSpeechChunk(next, spokenText, preview, generation);
@@ -1186,7 +1257,7 @@ export function useSpeech(options?: {
         playBrowserSpeechChunk(next, spokenText, preview, generation);
       }
     })();
-  }, [playBrowserSpeechChunk, resetListeningState, stopRecognizer]);
+  }, [playBrowserHebrewChunk, playBrowserSpeechChunk, resetListeningState, stopRecognizer]);
 
   playNextUtteranceRef.current = playNextUtterance;
 
