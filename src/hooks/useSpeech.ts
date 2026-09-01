@@ -2,7 +2,9 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { hasHebrewScript, type SpeechLang } from "@/lib/language";
+import { fetchNeuralAudioUrl, preloadNeuralAudio } from "@/lib/neural-tts-client";
 import { findVoiceByUri, isLegacyRoboticVoice, isPremiumNaturalVoice, isVoiceLikelyFemale, isVoiceLikelyMale, listEnglishVoices, pickCharacterVoice, voiceFitsRequiredGender, type Character } from "@/lib/characters";
+import { neuralVoiceForCharacter } from "@/lib/tts-voices";
 
 export const SPEECH_UNAVAILABLE_MESSAGE =
   "Speech recognition is not fully supported or microphone access was denied";
@@ -132,6 +134,72 @@ function waitForVoices(timeoutMs = 1500) {
     }
 
     const timer = window.setTimeout(finish, timeoutMs);
+  });
+}
+
+let neuralPlayCleanup: (() => void) | null = null;
+
+function stopNeuralPlayback() {
+  neuralPlayCleanup?.();
+  neuralPlayCleanup = null;
+  const player = ensureVoicePlayer();
+  if (player) {
+    player.onplaying = null;
+    try {
+      player.pause();
+    } catch {
+      /* ignore */
+    }
+  }
+}
+
+function playNeuralAudioUrl(
+  url: string,
+  opts: { volume: number; onStart?: () => void; signal?: AbortSignal },
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const player = ensureVoicePlayer();
+    if (!player) {
+      reject(new Error("no audio player"));
+      return;
+    }
+
+    const cleanup = () => {
+      player.removeEventListener("ended", onEnded);
+      player.removeEventListener("error", onError);
+      opts.signal?.removeEventListener("abort", onAbort);
+      player.onplaying = null;
+      neuralPlayCleanup = null;
+    };
+
+    const onEnded = () => {
+      cleanup();
+      resolve();
+    };
+    const onError = () => {
+      cleanup();
+      reject(new Error("neural playback failed"));
+    };
+    const onAbort = () => {
+      cleanup();
+      try {
+        player.pause();
+      } catch {
+        /* ignore */
+      }
+      reject(new Error("aborted"));
+    };
+
+    neuralPlayCleanup = onAbort;
+    opts.signal?.addEventListener("abort", onAbort, { once: true });
+
+    player.src = url;
+    player.volume = opts.volume;
+    player.muted = opts.volume <= 0.001;
+    player.onplaying = () => opts.onStart?.();
+    player.addEventListener("ended", onEnded);
+    player.addEventListener("error", onError);
+    void player.play().catch(onError);
   });
 }
 
@@ -368,26 +436,10 @@ export function unlockSpeechSynthesis() {
   if (typeof window === "undefined") return;
   ensureVoicePlayer();
   resumeAudioGraph();
-  resumeSpeechSynthesis();
   if (speechUnlocked) return;
   primeVoicePlayer();
   unlockAudioContext();
-  try {
-    if (!("speechSynthesis" in window)) return;
-    window.speechSynthesis.cancel();
-    window.speechSynthesis.resume();
-    const warm = new SpeechSynthesisUtterance("");
-    warm.volume = 1;
-    warm.rate = 1;
-    warm.pitch = 1;
-    warm.lang = "en-US";
-    window.speechSynthesis.speak(warm);
-    speechUnlocked = true;
-    window.speechSynthesis.resume();
-  } catch {
-    speechUnlocked = true;
-    resumeSpeechSynthesis();
-  }
+  speechUnlocked = true;
 }
 
 function kickUtterance(
@@ -611,6 +663,8 @@ export function useSpeech(options?: {
   const volumeRestartTimerRef = useRef<number | null>(null);
   const speakingTextRef = useRef("");
   const spokeThisTurnRef = useRef(false);
+  const neuralAbortRef = useRef<AbortController | null>(null);
+  const useBrowserTtsFallbackRef = useRef(false);
 
   characterRef.current = options?.character ?? null;
   rateMultiplierRef.current = options?.rateMultiplier ?? 1;
@@ -850,16 +904,17 @@ export function useSpeech(options?: {
   );
 
   useEffect(() => {
-    const tts = typeof window !== "undefined" && "speechSynthesis" in window;
+    const browserTts = typeof window !== "undefined" && "speechSynthesis" in window;
     const stt = Boolean(getRecognitionConstructor());
-    setSpeechSupported({ tts, stt });
+    setSpeechSupported({ tts: true, stt });
     setSpeechLang("en-US");
 
-    if (!tts) {
+    if (!browserTts) {
       return () => {
         shouldListenRef.current = false;
         stopRecognizer();
         resetListeningState();
+        stopNeuralPlayback();
       };
     }
 
@@ -901,6 +956,7 @@ export function useSpeech(options?: {
         }
         window.speechSynthesis.cancel();
         stopResumeWatch();
+        stopNeuralPlayback();
       } catch {
         /* ignore */
       }
@@ -914,9 +970,126 @@ export function useSpeech(options?: {
 
   const waitingForVoicesRef = useRef(false);
   const voicesWaitedRef = useRef(false);
+  const playNextUtteranceRef = useRef<(preview?: { rateMultiplier?: number; voiceUri?: string | null }) => void>(
+    () => {},
+  );
+
+  const playBrowserSpeechChunk = useCallback(
+    (
+      displayText: string,
+      spokenText: string,
+      preview: { rateMultiplier?: number; voiceUri?: string | null } | undefined,
+      generation: number,
+    ) => {
+      if (typeof window === "undefined" || !("speechSynthesis" in window)) {
+        ttsBusyRef.current = false;
+        setIsSpeaking(false);
+        return;
+      }
+
+      const voices = collectVoices();
+      voicesRef.current = voices;
+      if (voices.length === 0 && !voicesWaitedRef.current) {
+        if (waitingForVoicesRef.current) return;
+        waitingForVoicesRef.current = true;
+        void waitForVoices().then((loaded) => {
+          waitingForVoicesRef.current = false;
+          voicesWaitedRef.current = true;
+          voicesRef.current = loaded;
+          setVoices(loaded);
+          playBrowserSpeechChunk(displayText, spokenText, preview, generation);
+        });
+        return;
+      }
+
+      try {
+        resumeSpeechSynthesis();
+        const character = characterRef.current;
+        const voice = pickStreamingVoice(voices, character, preview?.voiceUri ?? preferredVoiceUriRef.current);
+        const speed = preview?.rateMultiplier ?? rateMultiplierRef.current ?? 1;
+        const utterance = new SpeechSynthesisUtterance(spokenText);
+        let started = false;
+        const male = character?.voice.gender === "male";
+        const volume = Math.max(0, Math.min(1, volumeRef.current));
+        utterance.lang = "en-US";
+        utterance.volume = volume;
+        activeUtterance = utterance;
+        currentOutputVolume = volume;
+        const baseRate = character?.voice.rate ?? 0.98;
+        const basePitch = character?.voice.pitch ?? 1.0;
+        utterance.rate = naturalSpeechRate(baseRate, speed);
+        utterance.pitch = naturalSpeechPitch(basePitch);
+        window.speechSynthesis.resume();
+        if (voice && voiceFitsRequiredGender(voice, male ? "male" : "female")) {
+          utterance.voice = voice;
+        }
+
+        ttsBusyRef.current = true;
+        setIsSpeaking(true);
+        setSpeakingText(displayText);
+        speakingTextRef.current = displayText;
+
+        const advanceQueue = () => {
+          window.setTimeout(() => {
+            if (generation !== ttsGenerationRef.current) return;
+            playNextUtteranceRef.current(preview);
+          }, 40);
+        };
+
+        utterance.onstart = () => {
+          if (generation !== ttsGenerationRef.current) return;
+          started = true;
+          spokeThisTurnRef.current = true;
+          setIsSpeaking(true);
+          onUtteranceStartRef.current?.(displayText);
+          resumeSpeechSynthesis();
+          startResumeWatch();
+        };
+        utterance.onend = () => {
+          if (generation !== ttsGenerationRef.current) return;
+          if (activeUtterance === utterance) activeUtterance = null;
+          ttsBusyRef.current = false;
+          advanceQueue();
+        };
+        utterance.onerror = () => {
+          if (generation !== ttsGenerationRef.current) return;
+          if (activeUtterance === utterance) activeUtterance = null;
+          ttsBusyRef.current = false;
+          advanceQueue();
+        };
+
+        kickUtterance(utterance, generation, ttsGenerationRef);
+
+        window.setTimeout(() => {
+          if (generation !== ttsGenerationRef.current || started) return;
+          if (window.speechSynthesis.speaking || window.speechSynthesis.pending) {
+            resumeSpeechSynthesis();
+            return;
+          }
+          const retry = new SpeechSynthesisUtterance(spokenText);
+          retry.lang = "en-US";
+          retry.rate = utterance.rate;
+          retry.pitch = utterance.pitch;
+          retry.volume = Math.max(0, Math.min(1, volumeRef.current));
+          if (voice && voiceFitsRequiredGender(voice, male ? "male" : "female")) retry.voice = voice;
+          retry.onstart = utterance.onstart;
+          retry.onend = utterance.onend;
+          retry.onerror = utterance.onerror;
+          kickUtterance(retry, generation, ttsGenerationRef);
+        }, 160);
+      } catch {
+        ttsBusyRef.current = false;
+        setIsSpeaking(false);
+        setSpeakingText("");
+      }
+    },
+    // playNextUtterance is declared below and referenced from advanceQueue.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
+  );
 
   const playNextUtterance = useCallback((preview?: { rateMultiplier?: number; voiceUri?: string | null }) => {
-    if (typeof window === "undefined" || !("speechSynthesis" in window)) return;
+    if (typeof window === "undefined") return;
     if (ttsBusyRef.current) return;
     if (volumeRef.current <= 0.001) {
       setIsSpeaking(false);
@@ -935,113 +1108,87 @@ export function useSpeech(options?: {
       return;
     }
 
-    setSpeakingText(next);
+    speechQueueRef.current.shift();
+    const generation = ttsGenerationRef.current;
+    const spokenText = smoothSpokenText(next);
+    const character = characterRef.current;
+    const neuralVoice = neuralVoiceForCharacter(character);
+    const speed = naturalSpeechRate(
+      character?.voice.rate ?? 0.98,
+      preview?.rateMultiplier ?? rateMultiplierRef.current ?? 1,
+    );
+    const volume = Math.max(0, Math.min(1, volumeRef.current));
 
-    const voices = collectVoices();
-    voicesRef.current = voices;
-    if (voices.length === 0 && !voicesWaitedRef.current) {
-      if (waitingForVoicesRef.current) return;
-      waitingForVoicesRef.current = true;
-      void waitForVoices().then((loaded) => {
-        waitingForVoicesRef.current = false;
-        voicesWaitedRef.current = true;
-        voicesRef.current = loaded;
-        setVoices(loaded);
+    shouldListenRef.current = false;
+    submittedRef.current = true;
+    stopRecognizer();
+    resetListeningState();
+
+    ttsBusyRef.current = true;
+    setIsSpeaking(true);
+    setSpeakingText(next);
+    speakingTextRef.current = next;
+    onUtteranceEnqueueRef.current?.(next);
+    lastSpokenVolumeRef.current = volume;
+    currentOutputVolume = volume;
+
+    const upcoming = speechQueueRef.current[0];
+    if (upcoming && !useBrowserTtsFallbackRef.current) {
+      preloadNeuralAudio(
+        smoothSpokenText(upcoming),
+        neuralVoice,
+        speed,
+      );
+    }
+
+    const advanceQueue = () => {
+      window.setTimeout(() => {
+        if (generation !== ttsGenerationRef.current) return;
         playNextUtterance(preview);
-      });
+      }, 40);
+    };
+
+    if (useBrowserTtsFallbackRef.current) {
+      playBrowserSpeechChunk(next, spokenText, preview, generation);
       return;
     }
 
-    speechQueueRef.current.shift();
+    neuralAbortRef.current?.abort();
+    neuralAbortRef.current = new AbortController();
+    const signal = neuralAbortRef.current.signal;
 
-    try {
-      shouldListenRef.current = false;
-      submittedRef.current = true;
-      stopRecognizer();
-      resetListeningState();
-      resumeSpeechSynthesis();
-      const character = characterRef.current;
-      const voice = pickStreamingVoice(voices, character, preview?.voiceUri ?? preferredVoiceUriRef.current);
-      const speed = preview?.rateMultiplier ?? rateMultiplierRef.current ?? 1;
-      const utterance = new SpeechSynthesisUtterance(smoothSpokenText(next));
-      const generation = ttsGenerationRef.current;
-      let started = false;
-      const male = character?.voice.gender === "male";
-      const volume = Math.max(0, Math.min(1, volumeRef.current));
-      utterance.lang = "en-US";
-      utterance.volume = volume;
-      activeUtterance = utterance;
-      currentOutputVolume = volume;
-      lastSpokenVolumeRef.current = volume;
-      // Keep pitch and rate in a natural human range — no metallic distortion.
-      const baseRate = character?.voice.rate ?? 0.98;
-      const basePitch = character?.voice.pitch ?? 1.0;
-      utterance.rate = naturalSpeechRate(baseRate, speed);
-      utterance.pitch = naturalSpeechPitch(basePitch);
-      window.speechSynthesis.resume();
-      if (voice && voiceFitsRequiredGender(voice, male ? "male" : "female")) {
-        utterance.voice = voice;
+    void (async () => {
+      try {
+        const audioUrl = await fetchNeuralAudioUrl(spokenText, neuralVoice, speed, signal);
+        if (generation !== ttsGenerationRef.current) return;
+
+        await playNeuralAudioUrl(audioUrl, {
+          volume,
+          signal,
+          onStart: () => {
+            if (generation !== ttsGenerationRef.current) return;
+            spokeThisTurnRef.current = true;
+            setIsSpeaking(true);
+            onUtteranceStartRef.current?.(next);
+          },
+        });
+
+        if (generation !== ttsGenerationRef.current) return;
+        ttsBusyRef.current = false;
+        neuralAbortRef.current = null;
+        advanceQueue();
+      } catch (error) {
+        if (signal.aborted || generation !== ttsGenerationRef.current) return;
+        console.warn("[TTS] Neural playback failed; using browser fallback", error);
+        useBrowserTtsFallbackRef.current = true;
+        ttsBusyRef.current = false;
+        stopNeuralPlayback();
+        playBrowserSpeechChunk(next, spokenText, preview, generation);
       }
+    })();
+  }, [playBrowserSpeechChunk, resetListeningState, stopRecognizer]);
 
-      ttsBusyRef.current = true;
-      setIsSpeaking(true);
-      setSpeakingText(next);
-      speakingTextRef.current = next;
-      onUtteranceEnqueueRef.current?.(next);
-      utterance.onstart = () => {
-        if (generation !== ttsGenerationRef.current) return;
-        started = true;
-        spokeThisTurnRef.current = true;
-        setIsSpeaking(true);
-        onUtteranceStartRef.current?.(next);
-        resumeSpeechSynthesis();
-        startResumeWatch();
-      };
-      // Chrome drops the next speak() if called synchronously inside onend/onerror.
-      const advanceQueue = () => {
-        window.setTimeout(() => {
-          if (generation !== ttsGenerationRef.current) return;
-          playNextUtterance(preview);
-        }, 40);
-      };
-      utterance.onend = () => {
-        if (generation !== ttsGenerationRef.current) return;
-        if (activeUtterance === utterance) activeUtterance = null;
-        ttsBusyRef.current = false;
-        advanceQueue();
-      };
-      utterance.onerror = () => {
-        if (generation !== ttsGenerationRef.current) return;
-        if (activeUtterance === utterance) activeUtterance = null;
-        ttsBusyRef.current = false;
-        advanceQueue();
-      };
-
-      kickUtterance(utterance, generation, ttsGenerationRef);
-
-      window.setTimeout(() => {
-        if (generation !== ttsGenerationRef.current || started) return;
-        if (window.speechSynthesis.speaking || window.speechSynthesis.pending) {
-          resumeSpeechSynthesis();
-          return;
-        }
-        const retry = new SpeechSynthesisUtterance(next);
-        retry.lang = "en-US";
-        retry.rate = utterance.rate;
-        retry.pitch = utterance.pitch;
-        retry.volume = Math.max(0, Math.min(1, volumeRef.current));
-        if (voice && voiceFitsRequiredGender(voice, male ? "male" : "female")) retry.voice = voice;
-        retry.onstart = utterance.onstart;
-        retry.onend = utterance.onend;
-        retry.onerror = utterance.onerror;
-        kickUtterance(retry, generation, ttsGenerationRef);
-      }, 160);
-    } catch {
-      ttsBusyRef.current = false;
-      setIsSpeaking(false);
-      setSpeakingText("");
-    }
-  }, [resetListeningState, stopRecognizer]);
+  playNextUtteranceRef.current = playNextUtterance;
 
   const stopSpeaking = useCallback(() => {
     ttsGenerationRef.current += 1;
@@ -1049,8 +1196,11 @@ export function useSpeech(options?: {
     speechQueueRef.current = [];
     ttsBusyRef.current = false;
     activeUtterance = null;
+    neuralAbortRef.current?.abort();
+    neuralAbortRef.current = null;
     setSpeakingText("");
     speakingTextRef.current = "";
+    stopNeuralPlayback();
     cancelSpeechSynthesis();
     setIsSpeaking(false);
   }, []);
@@ -1081,6 +1231,7 @@ export function useSpeech(options?: {
       ttsGenerationRef.current += 1;
       ttsBusyRef.current = false;
       activeUtterance = null;
+      stopNeuralPlayback();
       cancelSpeechSynthesis();
       setIsSpeaking(false);
       return;
@@ -1102,6 +1253,7 @@ export function useSpeech(options?: {
         if (!current) return;
         parkCurrentChunk();
         ttsGenerationRef.current += 1;
+        stopNeuralPlayback();
         cancelSpeechSynthesis();
         ttsBusyRef.current = false;
         activeUtterance = null;
@@ -1119,7 +1271,7 @@ export function useSpeech(options?: {
   const speak = useCallback(
     (text: string, preview?: { rateMultiplier?: number; voiceUri?: string | null }) => {
       const trimmed = text.trim();
-      if (!trimmed || typeof window === "undefined" || !("speechSynthesis" in window)) return;
+      if (!trimmed || typeof window === "undefined") return;
       stopSpeaking();
       resumeAudioGraph();
       speechQueueRef.current = [smoothSpokenText(trimmed)];
@@ -1131,16 +1283,18 @@ export function useSpeech(options?: {
   const beginSpeakStream = useCallback(() => {
     speechQueueRef.current = [];
     resumeAudioGraph();
-    resumeSpeechSynthesis();
-    if (typeof window === "undefined" || !("speechSynthesis" in window)) {
-      ttsBusyRef.current = false;
-      return;
-    }
-    const busy = ttsBusyRef.current || window.speechSynthesis.speaking || window.speechSynthesis.pending;
-    if (busy) {
+    if (typeof window !== "undefined" && "speechSynthesis" in window) {
+      resumeSpeechSynthesis();
+      const busy = ttsBusyRef.current || window.speechSynthesis.speaking || window.speechSynthesis.pending;
+      if (busy) {
+        ttsGenerationRef.current += 1;
+        ttsBusyRef.current = false;
+        stopNeuralPlayback();
+        cancelSpeechSynthesis();
+      }
+    } else if (ttsBusyRef.current) {
       ttsGenerationRef.current += 1;
-      ttsBusyRef.current = false;
-      cancelSpeechSynthesis();
+      stopNeuralPlayback();
     }
     ttsBusyRef.current = false;
   }, []);
@@ -1148,9 +1302,11 @@ export function useSpeech(options?: {
   const enqueueSpeak = useCallback(
     (text: string, preview?: { rateMultiplier?: number; voiceUri?: string | null }) => {
       const trimmed = text.trim();
-      if (!trimmed || typeof window === "undefined" || !("speechSynthesis" in window)) return;
+      if (!trimmed || typeof window === "undefined") return;
       resumeAudioGraph();
-      resumeSpeechSynthesis();
+      if (typeof window !== "undefined" && "speechSynthesis" in window) {
+        resumeSpeechSynthesis();
+      }
       const spoken = smoothSpokenText(trimmed);
       const last = speechQueueRef.current[speechQueueRef.current.length - 1];
       if (last && last.length < 90 && !/[.!?…]["']?$/.test(last)) {
@@ -1181,6 +1337,7 @@ export function useSpeech(options?: {
 
         // Cancel leftover TTS so iOS/WebKit can open the mic. Do not create
         // AudioContext or silent utterances here — they deadlock recognition.
+        stopNeuralPlayback();
         cancelSpeechSynthesis();
         startingRef.current = true;
         listenGenerationRef.current += 1;
